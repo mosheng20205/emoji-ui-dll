@@ -8,9 +8,19 @@ std::map<HWND, TabControlState*> g_tab_controls;
 std::map<HWND, EditBoxState*> g_editboxes;
 std::map<HWND, LabelState*> g_labels;
 ButtonClickCallback g_button_callback = nullptr;
+WindowResizeCallback g_window_resize_callback = nullptr;
+WindowCloseCallback g_window_close_callback = nullptr;
 ID2D1Factory* g_d2d_factory = nullptr;
 IDWriteFactory* g_dwrite_factory = nullptr;
 int g_next_control_id = 10000;  // 控件ID起始值
+// 标记 run_message_loop 是否正在运行
+// 只有在 DLL 自己的消息循环里才应该 PostQuitMessage，
+// 从易语言 _窗口1_将被销毁 调用 destroy_window 时不能 PostQuitMessage，
+// 否则易语言自己的消息循环会被误杀。
+static bool g_own_message_loop_running = false;
+
+// Forward declarations
+LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
 
 // UTF-8 to Wide String
 std::wstring Utf8ToWide(const unsigned char* bytes, int len) {
@@ -362,6 +372,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             UINT width = LOWORD(lparam);
             UINT height = HIWORD(lparam);
             state->render_target->Resize(D2D1::SizeU(width, height));
+
+            if (g_window_resize_callback) {
+                g_window_resize_callback(hwnd, (int)width, (int)height);
+            }
         }
         return 0;
     }
@@ -411,9 +425,41 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         break;
     }
 
-    case WM_DESTROY:
-        PostQuitMessage(0);
+    case WM_CLOSE: {
+        DestroyWindow(hwnd);
         return 0;
+    }
+
+    case WM_DESTROY: {
+        // 清理 WindowState 资源（render_target 等）
+        auto destroy_it = g_windows.find(hwnd);
+        if (destroy_it != g_windows.end()) {
+            WindowState* destroy_state = destroy_it->second;
+            if (destroy_state->render_target) {
+                destroy_state->render_target->Release();
+            }
+            delete destroy_state;
+            g_windows.erase(destroy_it);
+        }
+
+        // 注意：子编辑框和标签的清理由各自的 SubclassProc 在 WM_NCDESTROY 中处理，
+        // 不在此处清理，避免 double-free（DestroyWindow 销毁子窗口时会触发 WM_NCDESTROY）
+
+        // 顶层窗口关闭时：先触发用户回调，再决定是否退出消息循环
+        LONG style = GetWindowLong(hwnd, GWL_STYLE);
+        if (!(style & WS_CHILD)) {
+            // 触发窗口关闭回调，通知易语言侧（如重置窗口句柄变量）
+            if (g_window_close_callback) {
+                g_window_close_callback(hwnd);
+            }
+            // 仅在 run_message_loop 运行时才 PostQuitMessage，
+            // 避免从易语言 _窗口1_将被销毁 调用时误杀易语言消息循环
+            if (g_own_message_loop_running) {
+                PostQuitMessage(0);
+            }
+        }
+        return 0;
+    }
     }
 
     return DefWindowProc(hwnd, msg, wparam, lparam);
@@ -535,18 +581,87 @@ void __stdcall set_button_click_callback(ButtonClickCallback callback) {
     g_button_callback = callback;
 }
 
+// Set window resize callback
+void __stdcall SetWindowResizeCallback(WindowResizeCallback callback) {
+    g_window_resize_callback = callback;
+}
+
+// Set window close callback
+// 当自绘顶层窗口被关闭（WM_DESTROY）时触发，易语言侧可在此重置句柄变量
+void __stdcall SetWindowCloseCallback(WindowCloseCallback callback) {
+    g_window_close_callback = callback;
+}
+
 // Run message loop
 int __stdcall run_message_loop() {
+    g_own_message_loop_running = true;
     MSG msg = {};
     while (GetMessage(&msg, nullptr, 0, 0)) {
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
+    g_own_message_loop_running = false;
+
+    // 消息循环退出后（收到 WM_QUIT），清理所有残留的 DLL 窗口和控件
+    // 这确保即使易语言 _将被销毁 事件未触发，DLL 窗口也能被正确销毁
+    {
+        std::vector<HWND> remaining_tabs;
+        for (auto& pair : g_tab_controls) {
+            remaining_tabs.push_back(pair.first);
+        }
+        for (HWND h : remaining_tabs) {
+            auto it = g_tab_controls.find(h);
+            if (it != g_tab_controls.end()) {
+                TabControlState* state = it->second;
+                RemoveWindowSubclass(state->hParent, TabControlParentSubclassProc, (UINT_PTR)h);
+                for (auto& page : state->pages) {
+                    if (page.hContentWindow && IsWindow(page.hContentWindow)) {
+                        auto win_it = g_windows.find(page.hContentWindow);
+                        if (win_it != g_windows.end()) {
+                            WindowState* win_state = win_it->second;
+                            if (win_state->render_target) {
+                                win_state->render_target->Release();
+                            }
+                            delete win_state;
+                            g_windows.erase(win_it);
+                        }
+                        DestroyWindow(page.hContentWindow);
+                    }
+                }
+                delete state;
+                g_tab_controls.erase(it);
+                DestroyWindow(h);
+            }
+        }
+
+        std::vector<HWND> remaining_windows;
+        for (auto& pair : g_windows) {
+            remaining_windows.push_back(pair.first);
+        }
+        for (HWND hwnd : remaining_windows) {
+            auto it = g_windows.find(hwnd);
+            if (it != g_windows.end()) {
+                WindowState* state = it->second;
+                if (state->render_target) {
+                    state->render_target->Release();
+                }
+                delete state;
+                g_windows.erase(it);
+                DestroyWindow(hwnd);
+            }
+        }
+    }
+
     return (int)msg.wParam;
 }
 
 // Destroy window
+// 注意：此函数不调用 PostQuitMessage。
+// PostQuitMessage 由 WM_DESTROY 负责，且仅在 run_message_loop 运行时才发送，
+// 避免在易语言 _窗口1_将被销毁 事件中误杀易语言消息循环。
 void __stdcall destroy_window(HWND hwnd) {
+    if (!hwnd || !IsWindow(hwnd)) return;
+
     auto it = g_windows.find(hwnd);
     if (it != g_windows.end()) {
         WindowState* state = it->second;
@@ -556,7 +671,9 @@ void __stdcall destroy_window(HWND hwnd) {
         delete state;
         g_windows.erase(it);
     }
+
     DestroyWindow(hwnd);
+    // WM_DESTROY 已处理 PostQuitMessage，此处不再重复调用
 }
 
 // Set window icon
@@ -1551,6 +1668,14 @@ void __stdcall DestroyTabControl(HWND hTabControl) {
     DestroyWindow(hTabControl);
 }
 
+// 手动更新 TabControl 布局（窗口大小改变后调用）
+void __stdcall UpdateTabControlLayout(HWND hTabControl) {
+    auto it = g_tab_controls.find(hTabControl);
+    if (it == g_tab_controls.end()) return;
+
+    UpdateTabLayout(it->second);
+}
+
 // ========================================
 // 编辑框和标签辅助函数
 // ========================================
@@ -1594,16 +1719,15 @@ LRESULT CALLBACK EditBoxSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
                 (state->bg_color >> 8) & 0xFF,
                 state->bg_color & 0xFF
             ));
-            // ✅ 返回保存的画刷，而不是每次创建新的
             return (LRESULT)state->bg_brush;
         }
         case WM_NCDESTROY: {
-            // ✅ 清理画刷资源
+            RemoveWindowSubclass(hwnd, EditBoxSubclassProc, uIdSubclass);
+            g_editboxes.erase(hwnd);
             if (state->bg_brush) {
                 DeleteObject(state->bg_brush);
-                state->bg_brush = nullptr;
             }
-            RemoveWindowSubclass(hwnd, EditBoxSubclassProc, uIdSubclass);
+            delete state;
             break;
         }
     }
@@ -1623,10 +1747,8 @@ LRESULT CALLBACK LabelSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             RECT rect;
             GetClientRect(hwnd, &rect);
             
-            // ✅ 使用保存的背景画刷
             FillRect(hdc, &rect, state->bg_brush);
             
-            // 设置文本颜色
             SetTextColor(hdc, RGB(
                 (state->fg_color >> 16) & 0xFF,
                 (state->fg_color >> 8) & 0xFF,
@@ -1634,11 +1756,9 @@ LRESULT CALLBACK LabelSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             ));
             SetBkMode(hdc, TRANSPARENT);
             
-            // 设置字体
             HFONT hFont = CreateCustomFont(state->font);
             HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
             
-            // 设置对齐方式
             UINT format = DT_VCENTER | DT_SINGLELINE;
             switch (state->alignment) {
                 case ALIGN_LEFT: format |= DT_LEFT; break;
@@ -1646,7 +1766,6 @@ LRESULT CALLBACK LabelSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                 case ALIGN_RIGHT: format |= DT_RIGHT; break;
             }
             
-            // 绘制文本
             DrawTextW(hdc, state->text.c_str(), -1, &rect, format);
             
             SelectObject(hdc, hOldFont);
@@ -1656,12 +1775,12 @@ LRESULT CALLBACK LabelSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             return 0;
         }
         case WM_NCDESTROY: {
-            // ✅ 清理画刷资源
+            RemoveWindowSubclass(hwnd, LabelSubclassProc, uIdSubclass);
+            g_labels.erase(hwnd);
             if (state->bg_brush) {
                 DeleteObject(state->bg_brush);
-                state->bg_brush = nullptr;
             }
-            RemoveWindowSubclass(hwnd, LabelSubclassProc, uIdSubclass);
+            delete state;
             break;
         }
     }

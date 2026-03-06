@@ -124,6 +124,35 @@
 .DLL命令 销毁TabControl, , "emoji_window.dll", "DestroyTabControl", , , 销毁TabControl
     .参数 TabControl句柄, 整数型
 
+.DLL命令 更新TabControl布局, , "emoji_window.dll", "UpdateTabControlLayout", , , 手动更新TabControl布局
+    .参数 TabControl句柄, 整数型
+
+.DLL命令 设置窗口大小改变回调, , "emoji_window.dll", "SetWindowResizeCallback", , , 设置窗口大小改变回调
+    .参数 回调函数指针, 子程序指针
+
+.DLL命令 设置窗口关闭回调, , "emoji_window.dll", "SetWindowCloseCallback", , , 自绘窗口被关闭时触发回调（用户点X或代码销毁窗口均会触发）
+    .参数 回调函数指针, 子程序指针
+
+.DLL命令 MoveWindow, 逻辑型, "user32.dll", "MoveWindow", , , 移动和调整窗口大小
+    .参数 窗口句柄, 整数型, , 要移动的窗口句柄
+    .参数 X, 整数型, , 新的X坐标
+    .参数 Y, 整数型, , 新的Y坐标
+    .参数 宽度, 整数型, , 新的宽度
+    .参数 高度, 整数型, , 新的高度
+    .参数 重绘, 逻辑型, , 是否重绘窗口（真=重绘，假=不重绘）
+
+.DLL命令 SendMessage, 整数型, "user32.dll", "SendMessageA", , , 发送窗口消息
+    .参数 窗口句柄, 整数型, , 窗口句柄
+    .参数 消息, 整数型, , 消息类型
+    .参数 wParam, 整数型, , 消息参数1
+    .参数 lParam, 整数型, , 消息参数2
+
+.DLL命令 PostMessage, 逻辑型, "user32.dll", "PostMessageA", , , 投递窗口消息
+    .参数 窗口句柄, 整数型, , 窗口句柄
+    .参数 消息, 整数型, , 消息类型
+    .参数 wParam, 整数型, , 消息参数1
+    .参数 lParam, 整数型, , 消息参数2
+
 .DLL命令 CreateWindowExA, 整数型, "user32.dll", "CreateWindowExA"
     .参数 dwExStyle, 整数型
     .参数 lpClassName, 文本型

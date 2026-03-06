@@ -17,6 +17,9 @@ EXPORTS
     GetTabCount
     GetTabContentWindow
     DestroyTabControl
+    UpdateTabControlLayout
+    SetWindowResizeCallback
+    SetWindowCloseCallback
     CreateEditBox
     GetEditBoxText
     SetEditBoxText

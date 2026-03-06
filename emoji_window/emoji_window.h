@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <windows.h>
 #include <commctrl.h>
@@ -22,6 +22,13 @@ typedef void (__stdcall *MessageBoxCallback)(int confirmed);
 
 // Tab 切换回调函数类型 (stdcall 调用约定)
 typedef void (__stdcall *TAB_CALLBACK)(HWND hTabControl, int selectedIndex);
+
+// 窗口大小改变回调函数类型 (stdcall 调用约定)
+typedef void (__stdcall *WindowResizeCallback)(HWND hwnd, int width, int height);
+
+// 自绘窗口关闭回调函数类型 (stdcall 调用约定)
+// hwnd: 被关闭的窗口句柄（此时 HWND 已失效，仅用于识别是哪个窗口）
+typedef void (__stdcall *WindowCloseCallback)(HWND hwnd);
 
 // 文本对齐方式
 enum TextAlignment {
@@ -137,6 +144,8 @@ extern std::map<HWND, TabControlState*> g_tab_controls;
 extern std::map<HWND, EditBoxState*> g_editboxes;
 extern std::map<HWND, LabelState*> g_labels;
 extern ButtonClickCallback g_button_callback;
+extern WindowResizeCallback g_window_resize_callback;
+extern WindowCloseCallback g_window_close_callback;
 
 // Export functions (stdcall calling convention)
 extern "C" {
@@ -236,6 +245,24 @@ extern "C" {
     // 销毁 TabControl（清理资源）
     __declspec(dllexport) void __stdcall DestroyTabControl(
         HWND hTabControl
+    );
+
+    // 手动更新 TabControl 布局（窗口大小改变后调用）
+    __declspec(dllexport) void __stdcall UpdateTabControlLayout(
+        HWND hTabControl
+    );
+
+    // ========== 窗口大小改变回调 ==========
+
+    // 设置窗口大小改变回调
+    __declspec(dllexport) void __stdcall SetWindowResizeCallback(
+        WindowResizeCallback callback
+    );
+
+    // 设置自绘窗口关闭回调
+    // 当自绘窗口被关闭（用户点 X 或代码调用 destroy_window）时触发
+    __declspec(dllexport) void __stdcall SetWindowCloseCallback(
+        WindowCloseCallback callback
     );
 
     // ========== 编辑框功能 ==========
