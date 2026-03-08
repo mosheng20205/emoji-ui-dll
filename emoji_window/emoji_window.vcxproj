@@ -104,7 +104,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
       <ModuleDefinitionFile>emoji_window.def</ModuleDefinitionFile>
-      <AdditionalDependencies>d2d1.lib;dwrite.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>d2d1.lib;dwrite.lib;imm32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <!-- Win32 Release Settings -->
@@ -128,7 +128,7 @@
       <GenerateDebugInformation>false</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
       <ModuleDefinitionFile>emoji_window.def</ModuleDefinitionFile>
-      <AdditionalDependencies>d2d1.lib;dwrite.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>d2d1.lib;dwrite.lib;imm32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <!-- x64 Debug Settings -->
@@ -147,7 +147,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
       <ModuleDefinitionFile>emoji_window.def</ModuleDefinitionFile>
-      <AdditionalDependencies>d2d1.lib;dwrite.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>d2d1.lib;dwrite.lib;imm32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <!-- x64 Release Settings -->
@@ -171,7 +171,7 @@
       <GenerateDebugInformation>false</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
       <ModuleDefinitionFile>emoji_window.def</ModuleDefinitionFile>
-      <AdditionalDependencies>d2d1.lib;dwrite.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>d2d1.lib;dwrite.lib;imm32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>

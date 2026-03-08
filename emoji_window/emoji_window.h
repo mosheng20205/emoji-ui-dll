@@ -6,6 +6,7 @@
 #include <dwrite.h>
 #include <uxtheme.h>
 #include <wincodec.h>  // WIC (Windows Imaging Component)
+#include <richedit.h>  // RichEdit控件（支持彩色emoji）
 #include <string>
 #include <vector>
 #include <map>
@@ -58,6 +59,12 @@ typedef void (__stdcall *RadioButtonCallback)(HWND hRadioButton, int group_id, B
 // 列表框回调函数类型 (stdcall 调用约定)
 typedef void (__stdcall *ListBoxCallback)(HWND hListBox, int index);
 
+// 组合框回调函数类型 (stdcall 调用约定)
+typedef void (__stdcall *ComboBoxCallback)(HWND hComboBox, int index);
+
+// 热键控件回调函数类型 (stdcall 调用约定)
+typedef void (__stdcall *HotKeyCallback)(HWND hHotKey, int vk_code, int modifiers);
+
 // 文本对齐方式
 enum TextAlignment {
     ALIGN_LEFT = 0,
@@ -90,6 +97,40 @@ struct EditBoxState {
     bool vertical_center;       // 文本垂直居中（仅单行有效）
     HBRUSH bg_brush;            // 背景画刷（避免每次创建）
     EditBoxKeyCallback key_callback;  // 按键按下/松开回调，可为 NULL
+};
+
+// D2D自定义绘制编辑框状态（支持彩色emoji）
+struct D2DEditBoxState {
+    HWND hwnd;                  // 控件句柄
+    HWND parent;                // 父窗口句柄
+    int id;                     // 控件ID
+    int x, y, width, height;    // 位置和尺寸
+    std::wstring text;          // 文本内容
+    int cursor_pos;             // 光标位置（字符索引）
+    int selection_start;        // 选择起始位置（-1表示无选择）
+    int selection_end;          // 选择结束位置
+    bool has_focus;             // 是否有焦点
+    bool cursor_visible;        // 光标是否可见（闪烁）
+    UINT_PTR cursor_timer;      // 光标闪烁定时器
+    int scroll_offset_x;        // 水平滚动偏移（单行）
+    int scroll_offset_y;        // 垂直滚动偏移（多行）
+    bool is_composing;          // 是否正在输入法组合
+    std::wstring composition_text; // 输入法组合文本
+    UINT32 fg_color;            // 前景色
+    UINT32 bg_color;            // 背景色
+    UINT32 selection_color;     // 选择背景色
+    UINT32 border_color;        // 边框颜色
+    FontStyle font;             // 字体样式
+    TextAlignment alignment;    // 文字对齐
+    bool multiline;             // 多行模式
+    bool readonly;              // 只读模式
+    bool password;              // 密码框
+    bool has_border;            // 是否有边框
+    bool vertical_center;       // 文本垂直居中（仅单行有效）
+    bool enabled;               // 启用状态
+    ID2D1HwndRenderTarget* render_target; // D2D渲染目标
+    IDWriteFactory* dwrite_factory;       // DirectWrite工厂
+    EditBoxKeyCallback key_callback;      // 按键回调
 };
 
 // 标签状态
@@ -209,6 +250,71 @@ struct ListBoxState {
     ListBoxCallback callback;   // 回调函数
 };
 
+// 组合框状态
+struct ComboBoxState {
+    HWND hwnd;                  // 主控件句柄
+    HWND parent;                // 父窗口句柄
+    HWND edit_hwnd;             // 编辑框句柄
+    HWND dropdown_hwnd;         // 下拉列表窗口句柄
+    int id;                     // 控件ID
+    int x, y, width, height;    // 位置和尺寸
+    std::vector<std::wstring> items; // 下拉项目
+    int selected_index;         // 当前选中项 (-1表示无选中)
+    int hovered_index;          // 悬停项 (-1表示无悬停)
+    int scroll_offset;          // 滚动偏移量（像素）
+    bool dropdown_visible;      // 下拉列表是否可见
+    bool readonly;              // 只读模式
+    bool enabled;               // 启用状态
+    bool button_hovered;        // 下拉按钮悬停状态
+    bool button_pressed;        // 下拉按钮按下状态
+    int item_height;            // 表项高度
+    UINT32 fg_color;            // 前景色
+    UINT32 bg_color;            // 背景色
+    UINT32 select_color;        // 选中背景色
+    UINT32 hover_color;         // 悬停背景色
+    FontStyle font;             // 字体样式
+    ComboBoxCallback callback;  // 回调函数
+};
+
+// 热键控件状态
+struct HotKeyState {
+    HWND hwnd;                  // 控件句柄
+    HWND parent;                // 父窗口句柄
+    int id;                     // 控件ID
+    int x, y, width, height;    // 位置和尺寸
+    int vk_code;                // 虚拟键码
+    int modifiers;              // 修饰键 (Ctrl=1, Shift=2, Alt=4)
+    std::wstring display_text;  // 显示文本
+    bool capturing;             // 是否正在捕获
+    bool has_focus;             // 是否有焦点
+    bool enabled;               // 启用状态
+    UINT32 fg_color;            // 前景色
+    UINT32 bg_color;            // 背景色
+    UINT32 border_color;        // 边框颜色
+    FontStyle font;             // 字体样式
+    HotKeyCallback callback;    // 回调函数
+};
+
+// 分组框回调函数类型 (stdcall 调用约定)
+typedef void (__stdcall *GroupBoxCallback)(HWND hGroupBox);
+
+// 分组框状态
+struct GroupBoxState {
+    HWND hwnd;                  // 控件句柄
+    HWND parent;                // 父窗口句柄
+    int id;                     // 控件ID
+    int x, y, width, height;    // 位置和尺寸
+    std::wstring title;         // 标题文本
+    std::vector<HWND> children; // 子控件列表
+    bool enabled;               // 启用状态
+    bool visible;               // 可见状态
+    UINT32 border_color;        // 边框颜色
+    UINT32 title_color;         // 标题颜色
+    UINT32 bg_color;            // 背景色
+    FontStyle font;             // 字体样式
+    GroupBoxCallback callback;  // 回调函数
+};
+
 // Button structure
 struct EmojiButton {
     int id;
@@ -283,6 +389,9 @@ extern std::map<HWND, PictureBoxState*> g_pictureboxes;
 extern std::map<HWND, RadioButtonState*> g_radiobuttons;
 extern std::map<int, std::vector<HWND>> g_radio_groups;  // 分组管理
 extern std::map<HWND, ListBoxState*> g_listboxes;
+extern std::map<HWND, ComboBoxState*> g_comboboxes;
+extern std::map<HWND, HotKeyState*> g_hotkeys;
+extern std::map<HWND, GroupBoxState*> g_groupboxes;
 extern ButtonClickCallback g_button_callback;
 extern WindowResizeCallback g_window_resize_callback;
 extern WindowCloseCallback g_window_close_callback;
@@ -490,6 +599,28 @@ extern "C" {
     __declspec(dllexport) void __stdcall SetEditBoxKeyCallback(
         HWND hEdit,
         EditBoxKeyCallback callback
+    );
+
+    // 创建彩色Emoji编辑框（使用RichEdit控件，支持彩色emoji显示）
+    __declspec(dllexport) HWND __stdcall CreateColorEmojiEditBox(
+        HWND hParent,
+        int x, int y, int width, int height,
+        const unsigned char* text_bytes,
+        int text_len,
+        UINT32 fg_color,
+        UINT32 bg_color,
+        const unsigned char* font_name_bytes,
+        int font_name_len,
+        int font_size,
+        BOOL bold,
+        BOOL italic,
+        BOOL underline,
+        int alignment,  // 0=左, 1=中, 2=右
+        BOOL multiline,
+        BOOL readonly,
+        BOOL password,
+        BOOL has_border,
+        BOOL vertical_center  // 文本垂直居中（仅单行有效）
     );
 
     // ========== 标签功能 ==========
@@ -880,6 +1011,207 @@ extern "C" {
         HWND hListBox,
         int x, int y, int width, int height
     );
+
+    // ========== 组合框功能 ==========
+
+    // 创建组合框（增强版）
+    __declspec(dllexport) HWND __stdcall CreateComboBox(
+        HWND hParent,
+        int x, int y, int width, int height,
+        BOOL readonly,
+        UINT32 fg_color,
+        UINT32 bg_color,
+        int item_height,                        // 表项高度
+        const unsigned char* font_name_bytes,  // 字体名称
+        int font_name_len,
+        int font_size,                          // 字体大小
+        BOOL bold,                              // 粗体
+        BOOL italic,                            // 斜体
+        BOOL underline                          // 下划线
+    );
+
+    // 添加组合框项目
+    __declspec(dllexport) int __stdcall AddComboItem(
+        HWND hComboBox,
+        const unsigned char* text_bytes,
+        int text_len
+    );
+
+    // 移除组合框项目
+    __declspec(dllexport) void __stdcall RemoveComboItem(
+        HWND hComboBox,
+        int index
+    );
+
+    // 清空组合框
+    __declspec(dllexport) void __stdcall ClearComboBox(
+        HWND hComboBox
+    );
+
+    // 获取组合框选中项索引
+    __declspec(dllexport) int __stdcall GetComboSelectedIndex(
+        HWND hComboBox
+    );
+
+    // 设置组合框选中项索引
+    __declspec(dllexport) void __stdcall SetComboSelectedIndex(
+        HWND hComboBox,
+        int index
+    );
+
+    // 获取组合框项目数量
+    __declspec(dllexport) int __stdcall GetComboItemCount(
+        HWND hComboBox
+    );
+
+    // 获取组合框项目文本
+    __declspec(dllexport) int __stdcall GetComboItemText(
+        HWND hComboBox,
+        int index,
+        unsigned char* buffer,
+        int buffer_size
+    );
+
+    // 设置组合框回调
+    __declspec(dllexport) void __stdcall SetComboBoxCallback(
+        HWND hComboBox,
+        ComboBoxCallback callback
+    );
+
+    // 启用/禁用组合框
+    __declspec(dllexport) void __stdcall EnableComboBox(
+        HWND hComboBox,
+        BOOL enable
+    );
+
+    // 显示/隐藏组合框
+    __declspec(dllexport) void __stdcall ShowComboBox(
+        HWND hComboBox,
+        BOOL show
+    );
+
+    // 设置组合框位置和大小
+    __declspec(dllexport) void __stdcall SetComboBoxBounds(
+        HWND hComboBox,
+        int x, int y, int width, int height
+    );
+
+    // 获取组合框文本
+    __declspec(dllexport) int __stdcall GetComboBoxText(
+        HWND hComboBox,
+        unsigned char* buffer,
+        int buffer_size
+    );
+
+    // 设置组合框文本
+    __declspec(dllexport) void __stdcall SetComboBoxText(
+        HWND hComboBox,
+        const unsigned char* text_bytes,
+        int text_len
+    );
+
+    // ========== 热键控件功能 ==========
+
+    // 创建热键控件
+    __declspec(dllexport) HWND __stdcall CreateHotKeyControl(
+        HWND hParent,
+        int x, int y, int width, int height,
+        UINT32 fg_color,
+        UINT32 bg_color
+    );
+
+    // 获取热键
+    __declspec(dllexport) void __stdcall GetHotKey(
+        HWND hHotKey,
+        int* vk_code,
+        int* modifiers
+    );
+
+    // 设置热键
+    __declspec(dllexport) void __stdcall SetHotKey(
+        HWND hHotKey,
+        int vk_code,
+        int modifiers
+    );
+
+    // 设置热键回调
+    __declspec(dllexport) void __stdcall SetHotKeyCallback(
+        HWND hHotKey,
+        HotKeyCallback callback
+    );
+
+    // 启用/禁用热键控件
+    __declspec(dllexport) void __stdcall EnableHotKeyControl(
+        HWND hHotKey,
+        BOOL enable
+    );
+
+    // 显示/隐藏热键控件
+    __declspec(dllexport) void __stdcall ShowHotKeyControl(
+        HWND hHotKey,
+        BOOL show
+    );
+
+    // 设置热键控件位置和大小
+    __declspec(dllexport) void __stdcall SetHotKeyControlBounds(
+        HWND hHotKey,
+        int x, int y, int width, int height
+    );
+
+    // ========== 分组框功能 ==========
+
+    // 创建分组框
+    __declspec(dllexport) HWND __stdcall CreateGroupBox(
+        HWND hParent,
+        int x, int y, int width, int height,
+        const unsigned char* title_bytes,
+        int title_len,
+        UINT32 border_color,
+        UINT32 bg_color
+    );
+
+    // 添加子控件到分组框
+    __declspec(dllexport) void __stdcall AddChildToGroup(
+        HWND hGroupBox,
+        HWND hChild
+    );
+
+    // 从分组框移除子控件
+    __declspec(dllexport) void __stdcall RemoveChildFromGroup(
+        HWND hGroupBox,
+        HWND hChild
+    );
+
+    // 设置分组框标题
+    __declspec(dllexport) void __stdcall SetGroupBoxTitle(
+        HWND hGroupBox,
+        const unsigned char* title_bytes,
+        int title_len
+    );
+
+    // 启用/禁用分组框
+    __declspec(dllexport) void __stdcall EnableGroupBox(
+        HWND hGroupBox,
+        BOOL enable
+    );
+
+    // 显示/隐藏分组框
+    __declspec(dllexport) void __stdcall ShowGroupBox(
+        HWND hGroupBox,
+        BOOL show
+    );
+
+    // 设置分组框位置和大小
+    __declspec(dllexport) void __stdcall SetGroupBoxBounds(
+        HWND hGroupBox,
+        int x, int y, int width, int height
+    );
+
+    // 设置分组框回调
+    __declspec(dllexport) void __stdcall SetGroupBoxCallback(
+        HWND hGroupBox,
+        GroupBoxCallback callback
+    );
 }
 
 // Internal functions
@@ -890,6 +1222,10 @@ LRESULT CALLBACK ProgressBarProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
 LRESULT CALLBACK PictureBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
 LRESULT CALLBACK RadioButtonProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
 LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+LRESULT CALLBACK ComboBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+LRESULT CALLBACK ComboDropDownProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
+LRESULT CALLBACK HotKeyProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+LRESULT CALLBACK GroupBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
 void DrawButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, const EmojiButton& button);
 void DrawMsgBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, MsgBoxState* state);
 void DrawCheckBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, CheckBoxState* state);
@@ -897,6 +1233,10 @@ void DrawProgressBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, Progres
 void DrawPictureBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, PictureBoxState* state);
 void DrawRadioButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, RadioButtonState* state);
 void DrawListBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ListBoxState* state);
+void DrawComboBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ComboBoxState* state);
+void DrawComboDropDown(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ComboBoxState* state);
+void DrawHotKey(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, HotKeyState* state);
+void DrawGroupBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, GroupBoxState* state);
 std::wstring Utf8ToWide(const unsigned char* bytes, int len);
 D2D1_COLOR_F ColorFromUInt32(UINT32 color);
 UINT32 LightenColor(UINT32 color, float factor);

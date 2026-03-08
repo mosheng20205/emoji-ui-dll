@@ -1889,3 +1889,650 @@ void __stdcall SetListBoxBounds(
 信息框 ("您选中了: " ＋ 文本, 0, "列表框示例")
 ```
 
+
+
+---
+
+## 分组框控件 (GroupBox)
+
+分组框控件用于将相关的控件组织在一起，提供视觉上的分组效果。使用 Element UI 设计风格，支持标题显示和子控件管理。
+
+### 创建分组框
+
+创建一个分组框控件。
+
+```c++
+HWND __stdcall CreateGroupBox(
+    HWND hParent,
+    int x, int y, int width, int height,
+    const unsigned char* title_bytes,
+    int title_len,
+    UINT32 border_color,
+    UINT32 bg_color
+);
+```
+
+**参数说明：**
+
+| 参数 | 说明 |
+|------|------|
+| `hParent` | 父窗口句柄 |
+| `x` | X 坐标 |
+| `y` | Y 坐标 |
+| `width` | 宽度 |
+| `height` | 高度 |
+| `title_bytes` | UTF-8 编码的标题文本字节集指针 |
+| `title_len` | 标题文本字节集长度 |
+| `border_color` | 边框颜色，ARGB 格式 |
+| `bg_color` | 背景色，ARGB 格式 |
+
+**返回值：** 分组框句柄，失败返回 NULL
+
+**易语言声明：**
+```
+.DLL命令 创建分组框, 整数型, "emoji_window.dll", "CreateGroupBox"
+    .参数 父窗口句柄, 整数型
+    .参数 X坐标, 整数型
+    .参数 Y坐标, 整数型
+    .参数 宽度, 整数型
+    .参数 高度, 整数型
+    .参数 标题字节集指针, 整数型
+    .参数 标题长度, 整数型
+    .参数 边框颜色, 整数型
+    .参数 背景色, 整数型
+```
+
+**易语言使用示例：**
+```
+.程序集变量 分组框句柄, 整数型
+
+分组框句柄 ＝ 创建分组框_辅助 (窗口句柄, 20, 20, 300, 200, "用户信息", #DCDFE6, #FFFFFF)
+```
+
+### 添加子控件到分组框
+
+将子控件添加到分组框中，实现分组管理。
+
+```c++
+void __stdcall AddChildToGroup(
+    HWND hGroupBox,
+    HWND hChild
+);
+```
+
+**参数说明：**
+
+| 参数 | 说明 |
+|------|------|
+| `hGroupBox` | 分组框句柄 |
+| `hChild` | 子控件句柄 |
+
+**易语言声明：**
+```
+.DLL命令 添加子控件到分组框, , "emoji_window.dll", "AddChildToGroup"
+    .参数 分组框句柄, 整数型
+    .参数 子控件句柄, 整数型
+```
+
+**易语言使用示例：**
+```
+.程序集变量 单选按钮1, 整数型
+.程序集变量 单选按钮2, 整数型
+
+单选按钮1 ＝ 创建单选按钮_辅助 (窗口句柄, 40, 60, 100, 30, "男", 1, 真, #黑色, #白色)
+单选按钮2 ＝ 创建单选按钮_辅助 (窗口句柄, 40, 100, 100, 30, "女", 1, 假, #黑色, #白色)
+
+添加子控件到分组框 (分组框句柄, 单选按钮1)
+添加子控件到分组框 (分组框句柄, 单选按钮2)
+```
+
+### 从分组框移除子控件
+
+从分组框中移除子控件。
+
+```c++
+void __stdcall RemoveChildFromGroup(
+    HWND hGroupBox,
+    HWND hChild
+);
+```
+
+**易语言声明：**
+```
+.DLL命令 从分组框移除子控件, , "emoji_window.dll", "RemoveChildFromGroup"
+    .参数 分组框句柄, 整数型
+    .参数 子控件句柄, 整数型
+```
+
+**易语言使用示例：**
+```
+从分组框移除子控件 (分组框句柄, 单选按钮1)
+```
+
+### 设置分组框标题
+
+设置分组框的标题文本。
+
+```c++
+void __stdcall SetGroupBoxTitle(
+    HWND hGroupBox,
+    const unsigned char* title_bytes,
+    int title_len
+);
+```
+
+**易语言声明：**
+```
+.DLL命令 设置分组框标题, , "emoji_window.dll", "SetGroupBoxTitle"
+    .参数 分组框句柄, 整数型
+    .参数 标题字节集指针, 整数型
+    .参数 标题长度, 整数型
+```
+
+**易语言使用示例：**
+```
+设置分组框标题_辅助 (分组框句柄, "新标题")
+```
+
+### 启用/禁用分组框
+
+启用或禁用分组框及其所有子控件。
+
+```c++
+void __stdcall EnableGroupBox(
+    HWND hGroupBox,
+    BOOL enable
+);
+```
+
+**易语言声明：**
+```
+.DLL命令 启用分组框, , "emoji_window.dll", "EnableGroupBox"
+    .参数 分组框句柄, 整数型
+    .参数 启用, 逻辑型
+```
+
+**易语言使用示例：**
+```
+启用分组框 (分组框句柄, 假)  ' 禁用分组框及所有子控件
+启用分组框 (分组框句柄, 真)  ' 启用分组框及所有子控件
+```
+
+### 显示/隐藏分组框
+
+显示或隐藏分组框及其所有子控件。
+
+```c++
+void __stdcall ShowGroupBox(
+    HWND hGroupBox,
+    BOOL show
+);
+```
+
+**易语言声明：**
+```
+.DLL命令 显示分组框, , "emoji_window.dll", "ShowGroupBox"
+    .参数 分组框句柄, 整数型
+    .参数 显示, 逻辑型
+```
+
+**易语言使用示例：**
+```
+显示分组框 (分组框句柄, 假)  ' 隐藏分组框及所有子控件
+显示分组框 (分组框句柄, 真)  ' 显示分组框及所有子控件
+```
+
+### 设置分组框位置和大小
+
+设置分组框的位置和尺寸，同时同步移动所有子控件。
+
+```c++
+void __stdcall SetGroupBoxBounds(
+    HWND hGroupBox,
+    int x, int y, int width, int height
+);
+```
+
+**易语言声明：**
+```
+.DLL命令 设置分组框位置, , "emoji_window.dll", "SetGroupBoxBounds"
+    .参数 分组框句柄, 整数型
+    .参数 X坐标, 整数型
+    .参数 Y坐标, 整数型
+    .参数 宽度, 整数型
+    .参数 高度, 整数型
+```
+
+**易语言使用示例：**
+```
+设置分组框位置 (分组框句柄, 50, 50, 350, 250)
+```
+
+### 分组框特性
+
+- **Element UI 设计风格**：使用标准的 Element UI 配色方案
+- **标题显示**：在边框顶部显示标题文本，支持 Unicode
+- **子控件管理**：自动管理子控件的启用/禁用、显示/隐藏状态
+- **同步移动**：移动分组框时自动同步移动所有子控件
+- **单选按钮分组**：添加单选按钮到分组框时自动设置分组ID，实现互斥
+- **圆角边框**：4px 圆角，符合 Element UI 设计规范
+- **透明背景**：支持透明或自定义背景色
+
+### 完整示例
+
+```
+.版本 2
+
+.程序集 窗口程序集_启动窗口
+.程序集变量 窗口句柄, 整数型
+.程序集变量 分组框1, 整数型
+.程序集变量 单选按钮1, 整数型
+.程序集变量 单选按钮2, 整数型
+.程序集变量 单选按钮3, 整数型
+
+.子程序 _启动窗口_创建完毕
+
+窗口句柄 ＝ 取窗口句柄 ()
+
+' 创建分组框
+分组框1 ＝ 创建分组框_辅助 (窗口句柄, 20, 20, 260, 150, "性别选择", #DCDFE6, #FFFFFF)
+
+' 在分组框中创建单选按钮
+单选按钮1 ＝ 创建单选按钮_辅助 (窗口句柄, 40, 60, 100, 30, "男", 1, 真, #黑色, #白色)
+单选按钮2 ＝ 创建单选按钮_辅助 (窗口句柄, 40, 100, 100, 30, "女", 1, 假, #黑色, #白色)
+单选按钮3 ＝ 创建单选按钮_辅助 (窗口句柄, 40, 140, 100, 30, "保密", 1, 假, #黑色, #白色)
+
+' 添加单选按钮到分组框（自动设置分组ID）
+添加子控件到分组框 (分组框1, 单选按钮1)
+添加子控件到分组框 (分组框1, 单选按钮2)
+添加子控件到分组框 (分组框1, 单选按钮3)
+```
+
+---
+
+## 组合框控件 (ComboBox)
+
+组合框控件结合了编辑框和下拉列表的功能，用户可以从预定义的选项中选择，或者输入自定义文本。使用 Element UI 设计风格。
+
+### 创建组合框
+
+创建一个组合框控件。
+
+```c++
+HWND __stdcall CreateComboBox(
+    HWND hParent,
+    int x, int y, int width, int height,
+    BOOL read_only,
+    COLORREF fg_color,
+    COLORREF bg_color
+);
+```
+
+**参数说明：**
+
+| 参数 | 说明 |
+|------|------|
+| `hParent` | 父窗口句柄 |
+| `x`, `y` | 控件位置 |
+| `width`, `height` | 控件尺寸（建议高度 35px） |
+| `read_only` | 是否只读模式（只能选择，不能输入） |
+| `fg_color` | 前景色，ARGB 格式 |
+| `bg_color` | 背景色，ARGB 格式 |
+
+**返回值：** 组合框句柄，失败返回 NULL
+
+**易语言声明：**
+```
+.DLL命令 创建组合框, 整数型, "emoji_window.dll", "CreateComboBox"
+    .参数 父窗口句柄, 整数型
+    .参数 X坐标, 整数型
+    .参数 Y坐标, 整数型
+    .参数 宽度, 整数型
+    .参数 高度, 整数型
+    .参数 只读模式, 逻辑型
+    .参数 前景色, 整数型
+    .参数 背景色, 整数型
+```
+
+**易语言使用示例：**
+```
+.程序集变量 组合框句柄, 整数型
+
+' 创建可编辑组合框
+组合框句柄 ＝ 创建组合框_辅助 (窗口句柄, 20, 20, 300, 35, 假, COLOR_TEXT_PRIMARY, COLOR_BG_WHITE)
+
+' 创建只读组合框
+组合框句柄 ＝ 创建组合框_辅助 (窗口句柄, 20, 20, 300, 35, 真, COLOR_TEXT_PRIMARY, COLOR_BG_WHITE)
+```
+
+### 添加组合框项
+
+向组合框添加选项项。
+
+```c++
+int __stdcall AddComboItem(
+    HWND hComboBox,
+    const unsigned char* text_bytes,
+    int text_len
+);
+```
+
+**返回值：** 项目ID，失败返回 -1
+
+**易语言声明：**
+```
+.DLL命令 添加组合框项, 整数型, "emoji_window.dll", "AddComboItem"
+    .参数 组合框句柄, 整数型
+    .参数 文本字节集指针, 整数型
+    .参数 文本长度, 整数型
+```
+
+**易语言使用示例：**
+```
+添加组合框项_辅助 (组合框句柄, "北京")
+添加组合框项_辅助 (组合框句柄, "上海")
+添加组合框项_辅助 (组合框句柄, "广州")
+```
+
+### 获取/设置选中项索引
+
+获取或设置当前选中的项目索引。
+
+```c++
+int __stdcall GetComboSelectedIndex(HWND hComboBox);
+void __stdcall SetComboSelectedIndex(HWND hComboBox, int index);
+```
+
+**易语言声明：**
+```
+.DLL命令 获取组合框选中索引, 整数型, "emoji_window.dll", "GetComboSelectedIndex"
+    .参数 组合框句柄, 整数型
+
+.DLL命令 设置组合框选中索引, , "emoji_window.dll", "SetComboSelectedIndex"
+    .参数 组合框句柄, 整数型
+    .参数 索引, 整数型
+```
+
+**易语言使用示例：**
+```
+.局部变量 索引, 整数型
+
+索引 ＝ 获取组合框选中索引 (组合框句柄)
+设置组合框选中索引 (组合框句柄, 2)  ' 选中第3项
+```
+
+### 获取/设置编辑框文本
+
+获取或设置组合框编辑框中的文本。
+
+```c++
+int __stdcall GetComboBoxText(HWND hComboBox, unsigned char* buffer, int buffer_size);
+void __stdcall SetComboBoxText(HWND hComboBox, const unsigned char* text_bytes, int text_len);
+```
+
+**易语言使用示例：**
+```
+.局部变量 文本, 文本型
+
+文本 ＝ 获取组合框文本_辅助 (组合框句柄)
+设置组合框文本_辅助 (组合框句柄, "自定义文本")
+```
+
+### 设置组合框回调
+
+设置选中项改变时的回调函数。
+
+```c++
+typedef void (__stdcall *ComboBoxCallback)(HWND hComboBox, int index);
+void __stdcall SetComboBoxCallback(HWND hComboBox, ComboBoxCallback callback);
+```
+
+**易语言声明：**
+```
+.DLL命令 设置组合框回调, , "emoji_window.dll", "SetComboBoxCallback"
+    .参数 组合框句柄, 整数型
+    .参数 回调函数, 子程序指针
+```
+
+**易语言使用示例：**
+```
+.子程序 组合框选中回调, , , stdcall
+.参数 组合框句柄, 整数型
+.参数 索引, 整数型
+
+.如果真 (索引 ≥ 0)
+    调试输出 ("选中项索引：" ＋ 到文本 (索引))
+.如果真结束
+
+' 注册回调
+设置组合框回调 (组合框句柄, 到整数 (&组合框选中回调))
+```
+
+### 其他组合框API
+
+```c++
+void __stdcall RemoveComboItem(HWND hComboBox, int index);
+void __stdcall ClearComboBox(HWND hComboBox);
+int __stdcall GetComboItemCount(HWND hComboBox);
+int __stdcall GetComboItemText(HWND hComboBox, int index, unsigned char* buffer, int buffer_size);
+void __stdcall EnableComboBox(HWND hComboBox, BOOL enable);
+void __stdcall ShowComboBox(HWND hComboBox, BOOL show);
+void __stdcall SetComboBoxBounds(HWND hComboBox, int x, int y, int width, int height);
+```
+
+### 组合框特性
+
+- **Element UI 设计风格**：使用标准的 Element UI 配色方案
+- **可编辑/只读模式**：支持用户输入或仅选择
+- **下拉列表**：点击下拉按钮显示选项列表
+- **键盘导航**：支持上下箭头键选择项目
+- **Unicode 支持**：完整支持中文等多语言文本
+- **圆角边框**：4px 圆角，符合 Element UI 设计规范
+- **悬停效果**：鼠标悬停时显示高亮效果
+
+---
+
+## 热键控件 (HotKey Control)
+
+热键控件用于捕获和显示键盘快捷键组合，支持 Ctrl、Shift、Alt 修饰键。使用 Element UI 设计风格。
+
+### 创建热键控件
+
+创建一个热键控件。
+
+```c++
+HWND __stdcall CreateHotKeyControl(
+    HWND hParent,
+    int x, int y, int width, int height,
+    COLORREF fg_color,
+    COLORREF bg_color
+);
+```
+
+**参数说明：**
+
+| 参数 | 说明 |
+|------|------|
+| `hParent` | 父窗口句柄 |
+| `x`, `y` | 控件位置 |
+| `width`, `height` | 控件尺寸（建议高度 35px） |
+| `fg_color` | 前景色，ARGB 格式 |
+| `bg_color` | 背景色，ARGB 格式 |
+
+**返回值：** 热键控件句柄，失败返回 NULL
+
+**易语言声明：**
+```
+.DLL命令 创建热键控件, 整数型, "emoji_window.dll", "CreateHotKeyControl"
+    .参数 父窗口句柄, 整数型
+    .参数 X坐标, 整数型
+    .参数 Y坐标, 整数型
+    .参数 宽度, 整数型
+    .参数 高度, 整数型
+    .参数 前景色, 整数型
+    .参数 背景色, 整数型
+```
+
+**易语言使用示例：**
+```
+.程序集变量 热键控件句柄, 整数型
+
+热键控件句柄 ＝ 创建热键控件_辅助 (窗口句柄, 20, 20, 300, 35, COLOR_TEXT_PRIMARY, COLOR_BG_WHITE)
+```
+
+### 获取/设置热键值
+
+获取或设置热键控件的键值。
+
+```c++
+int __stdcall GetHotKey(HWND hHotKey, int* ctrl, int* shift, int* alt);
+void __stdcall SetHotKey(HWND hHotKey, int vk_code, BOOL ctrl, BOOL shift, BOOL alt);
+```
+
+**参数说明：**
+
+| 参数 | 说明 |
+|------|------|
+| `vk_code` | 虚拟键码（VK_* 常量） |
+| `ctrl` | 是否按下 Ctrl 键 |
+| `shift` | 是否按下 Shift 键 |
+| `alt` | 是否按下 Alt 键 |
+
+**返回值：** GetHotKey 返回虚拟键码，0 表示未设置
+
+**易语言声明：**
+```
+.DLL命令 获取热键值, 整数型, "emoji_window.dll", "GetHotKey"
+    .参数 热键控件句柄, 整数型
+    .参数 Ctrl修饰键, 整数型
+    .参数 Shift修饰键, 整数型
+    .参数 Alt修饰键, 整数型
+
+.DLL命令 设置热键值, , "emoji_window.dll", "SetHotKey"
+    .参数 热键控件句柄, 整数型
+    .参数 虚拟键码, 整数型
+    .参数 Ctrl修饰键, 逻辑型
+    .参数 Shift修饰键, 逻辑型
+    .参数 Alt修饰键, 逻辑型
+```
+
+**易语言使用示例：**
+```
+.局部变量 虚拟键码, 整数型
+.局部变量 Ctrl, 整数型
+.局部变量 Shift, 整数型
+.局部变量 Alt, 整数型
+
+' 获取热键
+虚拟键码 ＝ 获取热键值 (热键控件句柄, Ctrl, Shift, Alt)
+
+' 设置热键为 Ctrl+S
+设置热键值 (热键控件句柄, VK_S, 真, 假, 假)
+
+' 设置热键为 Ctrl+Shift+P
+设置热键值 (热键控件句柄, VK_P, 真, 真, 假)
+```
+
+### 清除热键
+
+清除热键控件的键值。
+
+```c++
+void __stdcall ClearHotKey(HWND hHotKey);
+```
+
+**易语言声明：**
+```
+.DLL命令 清除热键, , "emoji_window.dll", "ClearHotKey"
+    .参数 热键控件句柄, 整数型
+```
+
+**易语言使用示例：**
+```
+清除热键 (热键控件句柄)
+```
+
+### 设置热键回调
+
+设置热键改变时的回调函数。
+
+```c++
+typedef void (__stdcall *HotKeyCallback)(HWND hHotKey, int vk_code, BOOL ctrl, BOOL shift, BOOL alt);
+void __stdcall SetHotKeyCallback(HWND hHotKey, HotKeyCallback callback);
+```
+
+**易语言声明：**
+```
+.DLL命令 设置热键回调, , "emoji_window.dll", "SetHotKeyCallback"
+    .参数 热键控件句柄, 整数型
+    .参数 回调函数, 子程序指针
+```
+
+**易语言使用示例：**
+```
+.子程序 热键改变回调, , , stdcall
+.参数 热键句柄, 整数型
+.参数 虚拟键码, 整数型
+.参数 Ctrl, 逻辑型
+.参数 Shift, 逻辑型
+.参数 Alt, 逻辑型
+
+调试输出 ("热键改变：VK=" ＋ 到文本 (虚拟键码))
+
+' 注册回调
+设置热键回调 (热键控件句柄, 到整数 (&热键改变回调))
+```
+
+### 其他热键控件API
+
+```c++
+void __stdcall EnableHotKey(HWND hHotKey, BOOL enable);
+void __stdcall ShowHotKey(HWND hHotKey, BOOL show);
+void __stdcall SetHotKeyBounds(HWND hHotKey, int x, int y, int width, int height);
+```
+
+### 虚拟键码常量
+
+常用的虚拟键码常量（在常量表.e中定义）：
+
+**字母键：** VK_A (65) ~ VK_Z (90)
+
+**数字键：** VK_0 (48) ~ VK_9 (57)
+
+**功能键：** VK_F1 (112) ~ VK_F12 (123)
+
+**特殊键：**
+- VK_SPACE (32) - 空格键
+- VK_RETURN (13) - 回车键
+- VK_BACK (8) - 退格键
+- VK_TAB (9) - Tab键
+- VK_ESCAPE (27) - Esc键
+- VK_DELETE (46) - Delete键
+- VK_INSERT (45) - Insert键
+- VK_HOME (36) - Home键
+- VK_END (35) - End键
+- VK_PRIOR (33) - Page Up键
+- VK_NEXT (34) - Page Down键
+- VK_LEFT (37) - 左箭头键
+- VK_RIGHT (39) - 右箭头键
+- VK_UP (38) - 上箭头键
+- VK_DOWN (40) - 下箭头键
+
+### 热键控件特性
+
+- **Element UI 设计风格**：使用标准的 Element UI 配色方案
+- **键盘捕获**：自动捕获用户按下的键盘组合
+- **修饰键支持**：支持 Ctrl、Shift、Alt 修饰键
+- **本地化键名**：自动显示本地化的键名（如 "Ctrl+S"）
+- **Unicode 支持**：完整支持多语言键名显示
+- **圆角边框**：4px 圆角，符合 Element UI 设计规范
+- **焦点指示**：获得焦点时显示蓝色边框
+
+### 注意事项
+
+1. **子控件位置**：子控件的坐标是相对于父窗口的，不是相对于分组框的
+2. **创建顺序**：建议先创建分组框，再创建子控件，最后添加到分组框
+3. **单选按钮分组**：添加单选按钮到分组框会自动设置分组ID，实现同组互斥
+4. **同步操作**：启用/禁用、显示/隐藏、移动分组框会自动同步所有子控件
+5. **资源释放**：销毁分组框时会自动清理资源，但不会销毁子控件
+

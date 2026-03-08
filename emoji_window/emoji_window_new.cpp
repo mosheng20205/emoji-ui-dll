@@ -1,4 +1,4 @@
-#include "emoji_window.h"
+﻿#include "emoji_window.h"
 #include <algorithm>
 #include <windowsx.h>  // For GET_X_LPARAM and GET_Y_LPARAM
 
@@ -7032,11 +7032,11 @@ void DrawD2DEditBox(D2DEditBoxState* state) {
     rt->EndDraw();
 }
 
+
 // 插入文本
 void InsertTextAtCursor(D2DEditBoxState* state, const std::wstring& text) {
     if (!state || state->readonly) return;
     
-    // 如果有选择，先删除选择的文本
     if (state->selection_start >= 0) {
         int sel_start = min(state->selection_start, state->selection_end);
         int sel_end = max(state->selection_start, state->selection_end);
@@ -7046,139 +7046,107 @@ void InsertTextAtCursor(D2DEditBoxState* state, const std::wstring& text) {
         state->selection_end = -1;
     }
     
-    // 插入新文本
     state->text.insert(state->cursor_pos, text);
     state->cursor_pos += (int)text.length();
-    
     InvalidateRect(state->hwnd, NULL, FALSE);
 }
 
-// 删除字符
 void DeleteCharAtCursor(D2DEditBoxState* state, bool forward) {
     if (!state || state->readonly) return;
     
-    // 如果有选择，删除选择的文本
     if (state->selection_start >= 0) {
-        int sel_start = min(state->selection_start, state->selection_end);
-        int sel_end = max(state->selection_start, state->selection_end);
-        state->text.erase(sel_start, sel_end - sel_start);
-        state->cursor_pos = sel_start;
+        int start = min(state->selection_start, state->selection_end);
+        int end = max(state->selection_start, state->selection_end);
+        state->text.erase(start, end - start);
+        state->cursor_pos = start;
         state->selection_start = -1;
         state->selection_end = -1;
         InvalidateRect(state->hwnd, NULL, FALSE);
         return;
     }
     
-    // 删除单个字符
     if (forward) {
-        // Delete键：删除光标后的字符
         if (state->cursor_pos < (int)state->text.length()) {
             state->text.erase(state->cursor_pos, 1);
         }
     } else {
-        // Backspace键：删除光标前的字符
         if (state->cursor_pos > 0) {
             state->text.erase(state->cursor_pos - 1, 1);
             state->cursor_pos--;
         }
     }
-    
     InvalidateRect(state->hwnd, NULL, FALSE);
 }
 
-// 移动光标
 void MoveCursor(D2DEditBoxState* state, int delta, bool select) {
     if (!state) return;
-    
     int new_pos = state->cursor_pos + delta;
     new_pos = max(0, min(new_pos, (int)state->text.length()));
     
     if (select) {
-        // Shift+方向键：选择文本
         if (state->selection_start < 0) {
             state->selection_start = state->cursor_pos;
         }
-        state->cursor_pos = new_pos;
         state->selection_end = new_pos;
     } else {
-        // 普通移动：清除选择
-        state->cursor_pos = new_pos;
         state->selection_start = -1;
         state->selection_end = -1;
     }
-    
+    state->cursor_pos = new_pos;
     InvalidateRect(state->hwnd, NULL, FALSE);
 }
 
-// 复制到剪贴板
 void CopyToClipboard(D2DEditBoxState* state) {
     if (!state || state->selection_start < 0) return;
-    
-    int sel_start = min(state->selection_start, state->selection_end);
-    int sel_end = max(state->selection_start, state->selection_end);
-    
-    if (sel_start >= sel_end) return;
-    
-    std::wstring selected_text = state->text.substr(sel_start, sel_end - sel_start);
+    int start = min(state->selection_start, state->selection_end);
+    int end = max(state->selection_start, state->selection_end);
+    std::wstring selected = state->text.substr(start, end - start);
     
     if (OpenClipboard(state->hwnd)) {
         EmptyClipboard();
-        
-        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, (selected_text.length() + 1) * sizeof(wchar_t));
+        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, (selected.length() + 1) * sizeof(wchar_t));
         if (hMem) {
             wchar_t* pMem = (wchar_t*)GlobalLock(hMem);
             if (pMem) {
-                wcscpy_s(pMem, selected_text.length() + 1, selected_text.c_str());
+                wcscpy_s(pMem, selected.length() + 1, selected.c_str());
                 GlobalUnlock(hMem);
                 SetClipboardData(CF_UNICODETEXT, hMem);
             }
         }
-        
         CloseClipboard();
     }
 }
 
-// 从剪贴板粘贴
 void PasteFromClipboard(D2DEditBoxState* state) {
     if (!state || state->readonly) return;
-    
     if (OpenClipboard(state->hwnd)) {
         HANDLE hData = GetClipboardData(CF_UNICODETEXT);
         if (hData) {
             wchar_t* pData = (wchar_t*)GlobalLock(hData);
             if (pData) {
-                std::wstring paste_text = pData;
-                
-                // 单行模式：移除换行符
-                if (!state->multiline) {
-                    paste_text.erase(
-                        std::remove(paste_text.begin(), paste_text.end(), L'\r'),
-                        paste_text.end()
-                    );
-                    paste_text.erase(
-                        std::remove(paste_text.begin(), paste_text.end(), L'\n'),
-                        paste_text.end()
-                    );
-                }
-                
-                InsertTextAtCursor(state, paste_text);
+                std::wstring text = pData;
                 GlobalUnlock(hData);
+                if (state->selection_start >= 0) {
+                    int start = min(state->selection_start, state->selection_end);
+                    int end = max(state->selection_start, state->selection_end);
+                    state->text.erase(start, end - start);
+                    state->cursor_pos = start;
+                    state->selection_start = -1;
+                    state->selection_end = -1;
+                }
+                InsertTextAtCursor(state, text);
             }
         }
         CloseClipboard();
     }
 }
 
-// 剪切到剪贴板
 void CutToClipboard(D2DEditBoxState* state) {
     if (!state || state->readonly) return;
-    
     CopyToClipboard(state);
-    DeleteCharAtCursor(state, true);  // 删除选择的文本
+    DeleteCharAtCursor(state, true);
 }
 
-
-// D2D编辑框窗口过程
 LRESULT CALLBACK D2DEditBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     D2DEditBoxState* state = nullptr;
     
@@ -7190,9 +7158,7 @@ LRESULT CALLBACK D2DEditBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         state = (D2DEditBoxState*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
     }
     
-    if (!state) {
-        return DefWindowProc(hwnd, msg, wparam, lparam);
-    }
+    if (!state) return DefWindowProc(hwnd, msg, wparam, lparam);
     
     switch (msg) {
     case WM_PAINT: {
@@ -7206,18 +7172,17 @@ LRESULT CALLBACK D2DEditBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
     case WM_SETFOCUS:
         state->has_focus = true;
         state->cursor_visible = true;
-        state->cursor_timer = SetTimer(hwnd, CURSOR_TIMER_ID, CURSOR_BLINK_INTERVAL, NULL);
+        state->cursor_timer = SetTimer(hwnd, CURSOR_TIMER_ID, 500, NULL);
         InvalidateRect(hwnd, NULL, FALSE);
         return 0;
     
     case WM_KILLFOCUS:
         state->has_focus = false;
-        state->cursor_visible = false;
         if (state->cursor_timer) {
             KillTimer(hwnd, CURSOR_TIMER_ID);
             state->cursor_timer = 0;
         }
-        state->selection_start = -1;  // 失去焦点时清除选择
+        state->selection_start = -1;
         state->selection_end = -1;
         InvalidateRect(hwnd, NULL, FALSE);
         return 0;
@@ -7234,21 +7199,16 @@ LRESULT CALLBACK D2DEditBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         
         wchar_t ch = (wchar_t)wparam;
         
-        // 处理特殊字符
         if (ch == VK_BACK) {
             DeleteCharAtCursor(state, false);
-        } else if (ch == VK_RETURN) {
-            if (state->multiline) {
-                InsertTextAtCursor(state, L"\n");
-            }
-        } else if (ch >= 32) {  // 可打印字符
-            std::wstring text(1, ch);
-            InsertTextAtCursor(state, text);
+        } else if (ch == VK_RETURN && state->multiline) {
+            InsertTextAtCursor(state, L"\n");
+        } else if (ch >= 32) {
+            InsertTextAtCursor(state, std::wstring(1, ch));
         }
         
-        // 触发按键回调
         if (state->key_callback) {
-            state->key_callback(hwnd, (int)wparam, 1, 0, 0, 0);
+            state->key_callback((int)(INT_PTR)hwnd, (int)wparam, 1, 0, 0, 0);
         }
         
         return 0;
@@ -7257,105 +7217,97 @@ LRESULT CALLBACK D2DEditBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
     case WM_KEYDOWN: {
         bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
         bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-        bool alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
         
-        switch (wparam) {
-        case VK_LEFT:
+        if (wparam == VK_LEFT) {
             MoveCursor(state, -1, shift);
-            break;
-        case VK_RIGHT:
+        } else if (wparam == VK_RIGHT) {
             MoveCursor(state, 1, shift);
-            break;
-        case VK_HOME:
-            MoveCursor(state, -state->cursor_pos, shift);
-            break;
-        case VK_END:
-            MoveCursor(state, (int)state->text.length() - state->cursor_pos, shift);
-            break;
-        case VK_DELETE:
+        } else if (wparam == VK_HOME) {
+            state->cursor_pos = 0;
+            if (!shift) {
+                state->selection_start = -1;
+                state->selection_end = -1;
+            }
+            InvalidateRect(hwnd, NULL, FALSE);
+        } else if (wparam == VK_END) {
+            state->cursor_pos = (int)state->text.length();
+            if (!shift) {
+                state->selection_start = -1;
+                state->selection_end = -1;
+            }
+            InvalidateRect(hwnd, NULL, FALSE);
+        } else if (wparam == VK_DELETE) {
             DeleteCharAtCursor(state, true);
-            break;
-        case 'A':
-            if (ctrl) {
-                // Ctrl+A: 全选
-                state->selection_start = 0;
-                state->selection_end = (int)state->text.length();
-                state->cursor_pos = (int)state->text.length();
-                InvalidateRect(hwnd, NULL, FALSE);
-            }
-            break;
-        case 'C':
-            if (ctrl) {
-                // Ctrl+C: 复制
-                CopyToClipboard(state);
-            }
-            break;
-        case 'V':
-            if (ctrl) {
-                // Ctrl+V: 粘贴
-                PasteFromClipboard(state);
-            }
-            break;
-        case 'X':
-            if (ctrl) {
-                // Ctrl+X: 剪切
-                CutToClipboard(state);
-            }
-            break;
+        } else if (ctrl && wparam == 'A') {
+            state->selection_start = 0;
+            state->selection_end = (int)state->text.length();
+            state->cursor_pos = (int)state->text.length();
+            InvalidateRect(hwnd, NULL, FALSE);
+        } else if (ctrl && wparam == 'C') {
+            CopyToClipboard(state);
+        } else if (ctrl && wparam == 'V') {
+            PasteFromClipboard(state);
+        } else if (ctrl && wparam == 'X') {
+            CutToClipboard(state);
         }
         
-        // 触发按键回调
         if (state->key_callback) {
-            state->key_callback(hwnd, (int)wparam, 1, shift ? 1 : 0, ctrl ? 1 : 0, alt ? 1 : 0);
+            state->key_callback((int)(INT_PTR)hwnd, (int)wparam, 1, shift ? 1 : 0, ctrl ? 1 : 0, 0);
         }
         
         return 0;
     }
     
-    case WM_KEYUP: {
-        // 触发按键回调
+    case WM_KEYUP:
         if (state->key_callback) {
             bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
             bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-            bool alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
-            state->key_callback(hwnd, (int)wparam, 0, shift ? 1 : 0, ctrl ? 1 : 0, alt ? 1 : 0);
+            state->key_callback((int)(INT_PTR)hwnd, (int)wparam, 0, shift ? 1 : 0, ctrl ? 1 : 0, 0);
         }
         return 0;
-    }
     
     case WM_LBUTTONDOWN: {
         SetFocus(hwnd);
-        
-        // 创建临时布局计算点击位置
-        IDWriteTextFormat* text_format = nullptr;
-        state->dwrite_factory->CreateTextFormat(
-            state->font.font_name.c_str(),
-            nullptr,
-            state->font.bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
-            state->font.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL,
-            (float)state->font.font_size,
-            L"zh-CN",
-            &text_format
-        );
-        
-        std::wstring display_text = state->password && !state->text.empty() ? 
-            std::wstring(state->text.length(), L'*') : state->text;
-        
-        IDWriteTextLayout* layout = nullptr;
-        state->dwrite_factory->CreateTextLayout(
-            display_text.c_str(),
-            (UINT32)display_text.length(),
-            text_format,
-            (float)state->width - 8.0f,
-            (float)state->height - 4.0f,
-            &layout
-        );
+        SetCapture(hwnd);
         
         int x = GET_X_LPARAM(lparam);
         int y = GET_Y_LPARAM(lparam);
         
-        int char_index = GetCharIndexFromPoint(layout, (float)(x - 4 + state->scroll_offset_x), (float)(y - 2 + state->scroll_offset_y));
+        IDWriteTextFormat* text_format = nullptr;
+        state->dwrite_factory->CreateTextFormat(
+            state->font.font_name.c_str(),
+            NULL,
+            state->font.bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
+            state->font.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL,
+            (float)state->font.font_size,
+            L"",
+            &text_format
+        );
+        
+        IDWriteTextLayout* layout = nullptr;
+        state->dwrite_factory->CreateTextLayout(
+            state->text.c_str(),
+            (UINT32)state->text.length(),
+            text_format,
+            (float)state->width,
+            (float)state->height,
+            &layout
+        );
+        
+        BOOL isTrailingHit, isInside;
+        DWRITE_HIT_TEST_METRICS metrics;
+        layout->HitTestPoint(
+            (float)(x - 4 + state->scroll_offset_x),
+            (float)(y - 4),
+            &isTrailingHit,
+            &isInside,
+            &metrics
+        );
+        
+        int char_index = metrics.textPosition;
+        if (isTrailingHit) char_index++;
+        
         state->cursor_pos = char_index;
         state->selection_start = char_index;
         state->selection_end = char_index;
@@ -7363,43 +7315,50 @@ LRESULT CALLBACK D2DEditBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         layout->Release();
         text_format->Release();
         
-        SetCapture(hwnd);
         InvalidateRect(hwnd, NULL, FALSE);
         return 0;
     }
     
     case WM_MOUSEMOVE: {
         if (GetCapture() == hwnd) {
-            // 拖拽选择文本
+            int x = GET_X_LPARAM(lparam);
+            int y = GET_Y_LPARAM(lparam);
+            
             IDWriteTextFormat* text_format = nullptr;
             state->dwrite_factory->CreateTextFormat(
                 state->font.font_name.c_str(),
-                nullptr,
+                NULL,
                 state->font.bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
                 state->font.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
                 DWRITE_FONT_STRETCH_NORMAL,
                 (float)state->font.font_size,
-                L"zh-CN",
+                L"",
                 &text_format
             );
             
-            std::wstring display_text = state->password && !state->text.empty() ? 
-                std::wstring(state->text.length(), L'*') : state->text;
-            
             IDWriteTextLayout* layout = nullptr;
             state->dwrite_factory->CreateTextLayout(
-                display_text.c_str(),
-                (UINT32)display_text.length(),
+                state->text.c_str(),
+                (UINT32)state->text.length(),
                 text_format,
-                (float)state->width - 8.0f,
-                (float)state->height - 4.0f,
+                (float)state->width,
+                (float)state->height,
                 &layout
             );
             
-            int x = GET_X_LPARAM(lparam);
-            int y = GET_Y_LPARAM(lparam);
+            BOOL isTrailingHit, isInside;
+            DWRITE_HIT_TEST_METRICS metrics;
+            layout->HitTestPoint(
+                (float)(x - 4 + state->scroll_offset_x),
+                (float)(y - 4),
+                &isTrailingHit,
+                &isInside,
+                &metrics
+            );
             
-            int char_index = GetCharIndexFromPoint(layout, (float)(x - 4 + state->scroll_offset_x), (float)(y - 2 + state->scroll_offset_y));
+            int char_index = metrics.textPosition;
+            if (isTrailingHit) char_index++;
+            
             state->cursor_pos = char_index;
             state->selection_end = char_index;
             
@@ -7415,7 +7374,6 @@ LRESULT CALLBACK D2DEditBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         if (GetCapture() == hwnd) {
             ReleaseCapture();
             
-            // 如果起始和结束位置相同，清除选择
             if (state->selection_start == state->selection_end) {
                 state->selection_start = -1;
                 state->selection_end = -1;
@@ -7426,7 +7384,6 @@ LRESULT CALLBACK D2DEditBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         return 0;
     
     case WM_LBUTTONDBLCLK: {
-        // 双击选择单词（简化实现：选择整行）
         state->selection_start = 0;
         state->selection_end = (int)state->text.length();
         state->cursor_pos = (int)state->text.length();
@@ -7501,12 +7458,6 @@ LRESULT CALLBACK D2DEditBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
     return DefWindowProc(hwnd, msg, wparam, lparam);
 }
 
-
-// ========================================
-// D2D彩色Emoji编辑框 - 导出函数
-// ========================================
-
-// 创建D2D彩色Emoji编辑框
 __declspec(dllexport) HWND __stdcall CreateD2DColorEmojiEditBox(
     HWND hParent,
     int x, int y, int width, int height,
@@ -7569,9 +7520,9 @@ __declspec(dllexport) HWND __stdcall CreateD2DColorEmojiEditBox(
     state->font.italic = italic;
     state->font.underline = underline;
     
-    if (alignment == 0) state->alignment = ALIGN_LEFT;
-    else if (alignment == 1) state->alignment = ALIGN_CENTER;
-    else state->alignment = ALIGN_RIGHT;
+    if (alignment == 0) state->alignment = TextAlignment::Left;
+    else if (alignment == 1) state->alignment = TextAlignment::Center;
+    else state->alignment = TextAlignment::Right;
     
     state->multiline = multiline;
     state->readonly = readonly;
@@ -7630,7 +7581,6 @@ __declspec(dllexport) HWND __stdcall CreateD2DColorEmojiEditBox(
     return hwnd;
 }
 
-// 获取D2D编辑框文本
 __declspec(dllexport) int __stdcall GetD2DEditBoxText(
     HWND hEdit,
     unsigned char* buffer,
@@ -7656,7 +7606,6 @@ __declspec(dllexport) int __stdcall GetD2DEditBoxText(
     return utf8_len - 1;
 }
 
-// 设置D2D编辑框文本
 __declspec(dllexport) void __stdcall SetD2DEditBoxText(
     HWND hEdit,
     const unsigned char* text_bytes,
@@ -7676,7 +7625,6 @@ __declspec(dllexport) void __stdcall SetD2DEditBoxText(
     InvalidateRect(hEdit, NULL, FALSE);
 }
 
-// 设置D2D编辑框按键回调
 __declspec(dllexport) void __stdcall SetD2DEditBoxKeyCallback(
     HWND hEdit,
     EditBoxKeyCallback callback
@@ -7686,7 +7634,6 @@ __declspec(dllexport) void __stdcall SetD2DEditBoxKeyCallback(
     it->second->key_callback = callback;
 }
 
-// 启用/禁用D2D编辑框
 __declspec(dllexport) void __stdcall EnableD2DEditBox(
     HWND hEdit,
     bool enable
@@ -7700,7 +7647,6 @@ __declspec(dllexport) void __stdcall EnableD2DEditBox(
     InvalidateRect(hEdit, NULL, FALSE);
 }
 
-// 显示/隐藏D2D编辑框
 __declspec(dllexport) void __stdcall ShowD2DEditBox(
     HWND hEdit,
     bool show
@@ -7709,7 +7655,6 @@ __declspec(dllexport) void __stdcall ShowD2DEditBox(
     ShowWindow(hEdit, show ? SW_SHOW : SW_HIDE);
 }
 
-// 设置D2D编辑框位置和大小
 __declspec(dllexport) void __stdcall SetD2DEditBoxBounds(
     HWND hEdit,
     int x, int y, int width, int height
@@ -7725,7 +7670,6 @@ __declspec(dllexport) void __stdcall SetD2DEditBoxBounds(
     SetWindowPos(hEdit, NULL, x, y, width, height, SWP_NOZORDER);
 }
 
-// 设置D2D编辑框字体
 __declspec(dllexport) void __stdcall SetD2DEditBoxFont(
     HWND hEdit,
     const unsigned char* font_name_bytes, int font_name_len,
@@ -7745,7 +7689,6 @@ __declspec(dllexport) void __stdcall SetD2DEditBoxFont(
     InvalidateRect(hEdit, NULL, FALSE);
 }
 
-// 设置D2D编辑框颜色
 __declspec(dllexport) void __stdcall SetD2DEditBoxColor(
     HWND hEdit,
     UINT32 fg_color,

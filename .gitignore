@@ -36,13 +36,9 @@ Desktop.ini
 # Claude Code
 .claude/
 
-# Documentation to exclude (keep main README)
-修复步骤.md
-修复说明.md
-快速开始指南.md
-信息框接口示例.md
-信息框接口说明.md
-易语言修复方案-详细.md
-最终解决方案.md
-修改总结.md
-改造对比文档.md
+# Kiro specs
+.kiro/
+
+# 易语言代码
+易语言代码/
+易语言浏览器示例.bak

@@ -31,6 +31,7 @@ EXPORTS
     ShowEditBox
     SetEditBoxVerticalCenter
     SetEditBoxKeyCallback
+    CreateColorEmojiEditBox
     CreateLabel
     SetLabelText
     SetLabelFont
@@ -87,3 +88,41 @@ EXPORTS
     EnableListBox
     ShowListBox
     SetListBoxBounds
+    CreateComboBox
+    AddComboItem
+    RemoveComboItem
+    ClearComboBox
+    GetComboSelectedIndex
+    SetComboSelectedIndex
+    GetComboItemCount
+    GetComboItemText
+    GetComboBoxText
+    SetComboBoxText
+    SetComboBoxCallback
+    EnableComboBox
+    ShowComboBox
+    SetComboBoxBounds
+    CreateHotKeyControl
+    GetHotKey
+    SetHotKey
+    SetHotKeyCallback
+    EnableHotKeyControl
+    ShowHotKeyControl
+    SetHotKeyControlBounds
+    CreateGroupBox
+    AddChildToGroup
+    RemoveChildFromGroup
+    SetGroupBoxTitle
+    EnableGroupBox
+    ShowGroupBox
+    SetGroupBoxBounds
+    SetGroupBoxCallback
+    CreateD2DColorEmojiEditBox
+    GetD2DEditBoxText
+    SetD2DEditBoxText
+    SetD2DEditBoxKeyCallback
+    EnableD2DEditBox
+    ShowD2DEditBox
+    SetD2DEditBoxBounds
+    SetD2DEditBoxFont
+    SetD2DEditBoxColor
