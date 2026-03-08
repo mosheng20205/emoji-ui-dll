@@ -3349,6 +3349,28 @@ LRESULT CALLBACK PictureBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
                 rt->BeginDraw();
                 rt->Clear(D2D1::ColorF(D2D1::ColorF::White, 0.0f));
                 
+                // ⚠️ 关键修复：每次都从WIC源重新创建位图，确保位图与当前渲染目标兼容
+                if (state->wic_source) {
+                    // 释放旧位图（如果存在）
+                    if (state->bitmap) {
+                        state->bitmap->Release();
+                        state->bitmap = nullptr;
+                    }
+                    // 从WIC源创建新位图
+                    HRESULT hr = rt->CreateBitmapFromWicBitmap(state->wic_source, nullptr, &state->bitmap);
+                    
+                    // 调试输出
+                    if (SUCCEEDED(hr) && state->bitmap) {
+                        D2D1_SIZE_F size = state->bitmap->GetSize();
+                        OutputDebugStringA("位图创建成功，尺寸: ");
+                        char buf[256];
+                        sprintf_s(buf, "%.0fx%.0f\n", size.width, size.height);
+                        OutputDebugStringA(buf);
+                    } else {
+                        OutputDebugStringA("位图创建失败！\n");
+                    }
+                }
+                
                 DrawPictureBox(rt, g_dwrite_factory, state);
                 
                 rt->EndDraw();
@@ -3525,33 +3547,12 @@ BOOL __stdcall LoadImageFromFile(
         return FALSE;
     }
     
-    // 保存WIC源
+    // ⚠️ 关键修复：只保存WIC源，不在这里创建D2D位图
+    // D2D位图会在WM_PAINT时从WIC源创建，这样可以确保位图与渲染目标匹配
     state->wic_source = converter;
     
-    // 创建D2D渲染目标（临时）
-    ID2D1HwndRenderTarget* rt = nullptr;
-    D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties();
-    D2D1_HWND_RENDER_TARGET_PROPERTIES hwndProps = D2D1::HwndRenderTargetProperties(
-        hPictureBox,
-        D2D1::SizeU(state->width, state->height)
-    );
-    
-    if (g_d2d_factory) {
-        g_d2d_factory->CreateHwndRenderTarget(props, hwndProps, &rt);
-    }
-    
-    if (rt) {
-        // 从WIC源创建D2D位图
-        hr = rt->CreateBitmapFromWicBitmap(converter, nullptr, &state->bitmap);
-        rt->Release();
-    }
-    
-    if (FAILED(hr)) {
-        return FALSE;
-    }
-    
-    // 刷新显示
-    InvalidateRect(hPictureBox, nullptr, FALSE);
+    // 触发重绘
+    InvalidateRect(hPictureBox, nullptr, TRUE);
     
     return TRUE;
 }
@@ -3563,7 +3564,10 @@ BOOL __stdcall LoadImageFromMemory(
     int data_len
 ) {
     auto it = g_pictureboxes.find(hPictureBox);
-    if (it == g_pictureboxes.end()) return FALSE;
+    if (it == g_pictureboxes.end()) {
+        OutputDebugStringA("LoadImageFromMemory: 图片框未找到\n");
+        return FALSE;
+    }
     
     PictureBoxState* state = it->second;
     
@@ -3577,16 +3581,27 @@ BOOL __stdcall LoadImageFromMemory(
         state->wic_source = nullptr;
     }
     
-    if (!g_wic_factory) return FALSE;
+    if (!g_wic_factory) {
+        OutputDebugStringA("LoadImageFromMemory: WIC工厂未初始化\n");
+        return FALSE;
+    }
+    
+    char buf[256];
+    sprintf_s(buf, "LoadImageFromMemory: 数据长度=%d\n", data_len);
+    OutputDebugStringA(buf);
     
     // 创建内存流
     IWICStream* stream = nullptr;
     HRESULT hr = g_wic_factory->CreateStream(&stream);
-    if (FAILED(hr)) return FALSE;
+    if (FAILED(hr)) {
+        OutputDebugStringA("LoadImageFromMemory: 创建流失败\n");
+        return FALSE;
+    }
     
     hr = stream->InitializeFromMemory((BYTE*)image_data, data_len);
     if (FAILED(hr)) {
         stream->Release();
+        OutputDebugStringA("LoadImageFromMemory: 初始化流失败\n");
         return FALSE;
     }
     
@@ -3601,14 +3616,20 @@ BOOL __stdcall LoadImageFromMemory(
     
     stream->Release();
     
-    if (FAILED(hr)) return FALSE;
+    if (FAILED(hr)) {
+        OutputDebugStringA("LoadImageFromMemory: 创建解码器失败\n");
+        return FALSE;
+    }
     
     // 获取第一帧
     IWICBitmapFrameDecode* frame = nullptr;
     hr = decoder->GetFrame(0, &frame);
     decoder->Release();
     
-    if (FAILED(hr)) return FALSE;
+    if (FAILED(hr)) {
+        OutputDebugStringA("LoadImageFromMemory: 获取帧失败\n");
+        return FALSE;
+    }
     
     // 转换为32bppPBGRA格式
     IWICFormatConverter* converter = nullptr;
@@ -3629,37 +3650,24 @@ BOOL __stdcall LoadImageFromMemory(
     
     if (FAILED(hr)) {
         if (converter) converter->Release();
+        OutputDebugStringA("LoadImageFromMemory: 格式转换失败\n");
         return FALSE;
     }
     
-    // 保存WIC源
+    // 获取图片尺寸
+    UINT width, height;
+    converter->GetSize(&width, &height);
+    sprintf_s(buf, "LoadImageFromMemory: WIC源创建成功，尺寸=%dx%d\n", width, height);
+    OutputDebugStringA(buf);
+    
+    // 只保存WIC源，不创建D2D位图
+    // D2D位图将在WM_PAINT中从WIC源创建，确保与当前渲染目标兼容
     state->wic_source = converter;
     
-    // 创建D2D渲染目标（临时）
-    ID2D1HwndRenderTarget* rt = nullptr;
-    D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties();
-    D2D1_HWND_RENDER_TARGET_PROPERTIES hwndProps = D2D1::HwndRenderTargetProperties(
-        hPictureBox,
-        D2D1::SizeU(state->width, state->height)
-    );
+    // 刷新显示（TRUE表示擦除背景）
+    InvalidateRect(hPictureBox, nullptr, TRUE);
     
-    if (g_d2d_factory) {
-        g_d2d_factory->CreateHwndRenderTarget(props, hwndProps, &rt);
-    }
-    
-    if (rt) {
-        // 从WIC源创建D2D位图
-        hr = rt->CreateBitmapFromWicBitmap(converter, nullptr, &state->bitmap);
-        rt->Release();
-    }
-    
-    if (FAILED(hr)) {
-        return FALSE;
-    }
-    
-    // 刷新显示
-    InvalidateRect(hPictureBox, nullptr, FALSE);
-    
+    OutputDebugStringA("LoadImageFromMemory: 成功\n");
     return TRUE;
 }
 
