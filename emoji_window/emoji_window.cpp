@@ -10,6 +10,9 @@ std::map<HWND, LabelState*> g_labels;
 std::map<HWND, CheckBoxState*> g_checkboxes;
 std::map<HWND, ProgressBarState*> g_progressbars;
 std::map<HWND, PictureBoxState*> g_pictureboxes;
+std::map<HWND, RadioButtonState*> g_radiobuttons;
+std::map<int, std::vector<HWND>> g_radio_groups;  // 分组管理
+std::map<HWND, ListBoxState*> g_listboxes;
 ButtonClickCallback g_button_callback = nullptr;
 WindowResizeCallback g_window_resize_callback = nullptr;
 WindowCloseCallback g_window_close_callback = nullptr;
@@ -3759,4 +3762,896 @@ void __stdcall SetPictureBoxBackgroundColor(HWND hPictureBox, UINT32 bg_color) {
     
     it->second->bg_color = bg_color;
     InvalidateRect(hPictureBox, nullptr, FALSE);
+}
+
+// ========== 单选按钮功能实现 ==========
+
+// 绘制单选按钮（Element UI风格）
+void DrawRadioButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, RadioButtonState* state) {
+    if (!rt || !factory || !state) return;
+
+    // Element UI 配色
+    UINT32 primary_color = 0xFF409EFF;  // 主色
+    UINT32 border_color = 0xFFDCDFE6;   // 边框色
+    UINT32 disabled_color = 0xFFC0C4CC; // 禁用色
+    UINT32 hover_border = 0xFF409EFF;   // 悬停边框色
+
+    // 单选按钮尺寸（Element UI标准）
+    int circle_size = 14;
+    int circle_x = state->x + circle_size / 2;
+    int circle_y = state->y + state->height / 2;
+
+    // 确定单选按钮颜色
+    UINT32 current_bg = state->bg_color;
+    UINT32 current_border = border_color;
+    
+    if (!state->enabled) {
+        current_bg = 0xFFF5F7FA;
+        current_border = disabled_color;
+    } else if (state->checked) {
+        current_border = primary_color;
+    } else if (state->hovered) {
+        current_border = hover_border;
+    }
+
+    // 绘制单选按钮背景（圆形）
+    ID2D1SolidColorBrush* bg_brush = nullptr;
+    rt->CreateSolidColorBrush(ColorFromUInt32(current_bg), &bg_brush);
+    
+    D2D1_ELLIPSE circle = D2D1::Ellipse(
+        D2D1::Point2F((FLOAT)circle_x, (FLOAT)circle_y),
+        circle_size / 2.0f,
+        circle_size / 2.0f
+    );
+    rt->FillEllipse(circle, bg_brush);
+    bg_brush->Release();
+
+    // 绘制边框
+    ID2D1SolidColorBrush* border_brush = nullptr;
+    rt->CreateSolidColorBrush(ColorFromUInt32(current_border), &border_brush);
+    rt->DrawEllipse(circle, border_brush, 1.0f);
+    border_brush->Release();
+
+    // 如果选中，绘制内部圆点
+    if (state->checked) {
+        ID2D1SolidColorBrush* dot_brush = nullptr;
+        rt->CreateSolidColorBrush(ColorFromUInt32(state->dot_color), &dot_brush);
+
+        D2D1_ELLIPSE dot = D2D1::Ellipse(
+            D2D1::Point2F((FLOAT)circle_x, (FLOAT)circle_y),
+            circle_size / 2.0f - 3.0f,  // 内圆半径
+            circle_size / 2.0f - 3.0f
+        );
+        rt->FillEllipse(dot, dot_brush);
+        dot_brush->Release();
+    }
+
+    // 绘制文本标签
+    if (!state->text.empty()) {
+        IDWriteTextFormat* text_format = nullptr;
+        factory->CreateTextFormat(
+            state->font.font_name.empty() ? L"Microsoft YaHei UI" : state->font.font_name.c_str(),
+            nullptr,
+            state->font.bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
+            state->font.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL,
+            (FLOAT)(state->font.font_size > 0 ? state->font.font_size : 14),
+            L"zh-CN",
+            &text_format
+        );
+
+        text_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        text_format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
+        UINT32 text_color = state->enabled ? state->fg_color : disabled_color;
+        ID2D1SolidColorBrush* text_brush = nullptr;
+        rt->CreateSolidColorBrush(ColorFromUInt32(text_color), &text_brush);
+
+        D2D1_RECT_F text_rect = D2D1::RectF(
+            (FLOAT)(circle_x + circle_size / 2 + 8),
+            (FLOAT)state->y,
+            (FLOAT)(state->x + state->width),
+            (FLOAT)(state->y + state->height)
+        );
+
+        rt->DrawText(
+            state->text.c_str(),
+            (UINT32)state->text.length(),
+            text_format,
+            text_rect,
+            text_brush
+        );
+
+        text_brush->Release();
+        text_format->Release();
+    }
+}
+
+// 单选按钮窗口过程（子类化）
+LRESULT CALLBACK RadioButtonProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
+    RadioButtonState* state = (RadioButtonState*)dwRefData;
+    
+    switch (msg) {
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+            
+            // 创建D2D渲染目标
+            ID2D1HwndRenderTarget* rt = nullptr;
+            D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties();
+            D2D1_HWND_RENDER_TARGET_PROPERTIES hwnd_props = D2D1::HwndRenderTargetProperties(
+                hwnd,
+                D2D1::SizeU(state->width, state->height)
+            );
+            
+            g_d2d_factory->CreateHwndRenderTarget(props, hwnd_props, &rt);
+            
+            if (rt) {
+                rt->BeginDraw();
+                rt->Clear(ColorFromUInt32(state->bg_color));
+                DrawRadioButton(rt, g_dwrite_factory, state);
+                rt->EndDraw();
+                rt->Release();
+            }
+            
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        
+        case WM_LBUTTONDOWN: {
+            if (state->enabled) {
+                state->pressed = true;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return 0;
+        }
+        
+        case WM_LBUTTONUP: {
+            if (state->enabled && state->pressed) {
+                state->pressed = false;
+                
+                // 如果未选中，则选中当前按钮并取消同组其他按钮
+                if (!state->checked) {
+                    // 取消同组其他按钮的选中状态
+                    auto group_it = g_radio_groups.find(state->group_id);
+                    if (group_it != g_radio_groups.end()) {
+                        for (HWND other_hwnd : group_it->second) {
+                            if (other_hwnd != hwnd) {
+                                auto other_it = g_radiobuttons.find(other_hwnd);
+                                if (other_it != g_radiobuttons.end()) {
+                                    other_it->second->checked = false;
+                                    InvalidateRect(other_hwnd, nullptr, FALSE);
+                                }
+                            }
+                        }
+                    }
+                    
+                    // 选中当前按钮
+                    state->checked = true;
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                    
+                    // 触发回调
+                    if (state->callback) {
+                        state->callback(hwnd, state->group_id, TRUE);
+                    }
+                }
+            }
+            return 0;
+        }
+        
+        case WM_MOUSEMOVE: {
+            if (state->enabled && !state->hovered) {
+                state->hovered = true;
+                InvalidateRect(hwnd, nullptr, FALSE);
+                
+                // 跟踪鼠标离开
+                TRACKMOUSEEVENT tme = { sizeof(TRACKMOUSEEVENT) };
+                tme.dwFlags = TME_LEAVE;
+                tme.hwndTrack = hwnd;
+                TrackMouseEvent(&tme);
+            }
+            return 0;
+        }
+        
+        case WM_MOUSELEAVE: {
+            if (state->hovered) {
+                state->hovered = false;
+                state->pressed = false;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return 0;
+        }
+        
+        case WM_NCDESTROY: {
+            // 从分组中移除
+            auto group_it = g_radio_groups.find(state->group_id);
+            if (group_it != g_radio_groups.end()) {
+                auto& group = group_it->second;
+                group.erase(std::remove(group.begin(), group.end(), hwnd), group.end());
+                if (group.empty()) {
+                    g_radio_groups.erase(group_it);
+                }
+            }
+            
+            // 清理资源
+            RemoveWindowSubclass(hwnd, RadioButtonProc, uIdSubclass);
+            g_radiobuttons.erase(hwnd);
+            delete state;
+            return 0;
+        }
+    }
+    
+    return DefSubclassProc(hwnd, msg, wparam, lparam);
+}
+
+// 创建单选按钮
+HWND __stdcall CreateRadioButton(
+    HWND hParent,
+    int x, int y, int width, int height,
+    const unsigned char* text_bytes,
+    int text_len,
+    int group_id,
+    BOOL checked,
+    UINT32 fg_color,
+    UINT32 bg_color
+) {
+    if (!hParent) return nullptr;
+    
+    // 初始化D2D和DirectWrite（如果尚未初始化）
+    if (!g_d2d_factory) {
+        D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &g_d2d_factory);
+    }
+    if (!g_dwrite_factory) {
+        DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
+                           reinterpret_cast<IUnknown**>(&g_dwrite_factory));
+    }
+    
+    // 创建静态控件作为单选按钮容器
+    HWND hwnd = CreateWindowExW(
+        0,
+        L"STATIC",
+        L"",
+        WS_CHILD | WS_VISIBLE | SS_NOTIFY,
+        x, y, width, height,
+        hParent,
+        (HMENU)(INT_PTR)g_next_control_id++,
+        GetModuleHandle(nullptr),
+        nullptr
+    );
+    
+    if (!hwnd) return nullptr;
+    
+    // 创建状态对象
+    RadioButtonState* state = new RadioButtonState();
+    state->hwnd = hwnd;
+    state->parent = hParent;
+    state->id = (int)(INT_PTR)GetMenu(hwnd);
+    state->group_id = group_id;
+    state->x = 0;  // 相对于控件自身
+    state->y = 0;
+    state->width = width;
+    state->height = height;
+    state->text = Utf8ToWide(text_bytes, text_len);
+    state->checked = (checked != 0);
+    state->enabled = true;
+    state->hovered = false;
+    state->pressed = false;
+    state->fg_color = fg_color ? fg_color : 0xFF303133;  // Element UI 主要文本色
+    state->bg_color = bg_color ? bg_color : 0xFFFFFFFF;  // 白色背景
+    state->dot_color = 0xFF409EFF;  // Element UI 主色
+    state->font.font_name = L"Microsoft YaHei UI";
+    state->font.font_size = 14;
+    state->font.bold = false;
+    state->font.italic = false;
+    state->font.underline = false;
+    state->callback = nullptr;
+    
+    // 保存到全局map
+    g_radiobuttons[hwnd] = state;
+    
+    // 添加到分组
+    g_radio_groups[group_id].push_back(hwnd);
+    
+    // 如果设置为选中，取消同组其他按钮
+    if (state->checked) {
+        for (HWND other_hwnd : g_radio_groups[group_id]) {
+            if (other_hwnd != hwnd) {
+                auto other_it = g_radiobuttons.find(other_hwnd);
+                if (other_it != g_radiobuttons.end()) {
+                    other_it->second->checked = false;
+                }
+            }
+        }
+    }
+    
+    // 子类化窗口
+    SetWindowSubclass(hwnd, RadioButtonProc, 0, (DWORD_PTR)state);
+    
+    return hwnd;
+}
+
+// 获取单选按钮选中状态
+BOOL __stdcall GetRadioButtonState(HWND hRadioButton) {
+    auto it = g_radiobuttons.find(hRadioButton);
+    if (it == g_radiobuttons.end()) return FALSE;
+    return it->second->checked ? TRUE : FALSE;
+}
+
+// 设置单选按钮选中状态
+void __stdcall SetRadioButtonState(HWND hRadioButton, BOOL checked) {
+    auto it = g_radiobuttons.find(hRadioButton);
+    if (it == g_radiobuttons.end()) return;
+    
+    if (checked) {
+        // 如果设置为选中，取消同组其他按钮
+        RadioButtonState* state = it->second;
+        auto group_it = g_radio_groups.find(state->group_id);
+        if (group_it != g_radio_groups.end()) {
+            for (HWND other_hwnd : group_it->second) {
+                if (other_hwnd != hRadioButton) {
+                    auto other_it = g_radiobuttons.find(other_hwnd);
+                    if (other_it != g_radiobuttons.end()) {
+                        other_it->second->checked = false;
+                        InvalidateRect(other_hwnd, nullptr, FALSE);
+                    }
+                }
+            }
+        }
+    }
+    
+    it->second->checked = (checked != 0);
+    InvalidateRect(hRadioButton, nullptr, FALSE);
+}
+
+// 设置单选按钮回调
+void __stdcall SetRadioButtonCallback(HWND hRadioButton, RadioButtonCallback callback) {
+    auto it = g_radiobuttons.find(hRadioButton);
+    if (it == g_radiobuttons.end()) return;
+    
+    it->second->callback = callback;
+}
+
+// 启用/禁用单选按钮
+void __stdcall EnableRadioButton(HWND hRadioButton, BOOL enable) {
+    auto it = g_radiobuttons.find(hRadioButton);
+    if (it == g_radiobuttons.end()) return;
+    
+    it->second->enabled = (enable != 0);
+    InvalidateRect(hRadioButton, nullptr, FALSE);
+}
+
+// 显示/隐藏单选按钮
+void __stdcall ShowRadioButton(HWND hRadioButton, BOOL show) {
+    if (!hRadioButton) return;
+    ShowWindow(hRadioButton, show ? SW_SHOW : SW_HIDE);
+}
+
+// 设置单选按钮文本
+void __stdcall SetRadioButtonText(HWND hRadioButton, const unsigned char* text_bytes, int text_len) {
+    auto it = g_radiobuttons.find(hRadioButton);
+    if (it == g_radiobuttons.end()) return;
+    
+    it->second->text = Utf8ToWide(text_bytes, text_len);
+    InvalidateRect(hRadioButton, nullptr, FALSE);
+}
+
+// 设置单选按钮位置和大小
+void __stdcall SetRadioButtonBounds(HWND hRadioButton, int x, int y, int width, int height) {
+    auto it = g_radiobuttons.find(hRadioButton);
+    if (it == g_radiobuttons.end()) return;
+    
+    it->second->width = width;
+    it->second->height = height;
+    SetWindowPos(hRadioButton, nullptr, x, y, width, height, SWP_NOZORDER);
+    InvalidateRect(hRadioButton, nullptr, FALSE);
+}
+
+// ========== 列表框功能实现 ==========
+
+// 绘制列表框 (Element UI风格)
+void DrawListBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ListBoxState* state) {
+    if (!rt || !factory || !state) return;
+
+    D2D1_SIZE_F size = rt->GetSize();
+    
+    // Element UI颜色
+    D2D1_COLOR_F bg_color = ColorFromUInt32(state->bg_color);
+    D2D1_COLOR_F fg_color = ColorFromUInt32(state->fg_color);
+    D2D1_COLOR_F select_color = ColorFromUInt32(state->select_color);
+    D2D1_COLOR_F hover_color = ColorFromUInt32(state->hover_color);
+    D2D1_COLOR_F border_color = D2D1::ColorF(0xDCDFE6, 1.0f);  // Element UI边框色
+    
+    // 如果禁用，使用灰色
+    if (!state->enabled) {
+        bg_color = D2D1::ColorF(0xF5F7FA, 1.0f);
+        fg_color = D2D1::ColorF(0xC0C4CC, 1.0f);
+    }
+    
+    // 创建画刷
+    ID2D1SolidColorBrush* brush = nullptr;
+    rt->CreateSolidColorBrush(bg_color, &brush);
+    if (!brush) return;
+    
+    // 绘制背景
+    D2D1_RECT_F rect = D2D1::RectF(0, 0, size.width, size.height);
+    brush->SetColor(bg_color);
+    rt->FillRectangle(rect, brush);
+    
+    // 绘制边框 (1px, Element UI风格)
+    brush->SetColor(border_color);
+    rt->DrawRectangle(rect, brush, 1.0f);
+    
+    // 创建文本格式
+    IDWriteTextFormat* text_format = nullptr;
+    HRESULT hr = factory->CreateTextFormat(
+        state->font.font_name.c_str(),
+        nullptr,
+        state->font.bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
+        state->font.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        (float)state->font.font_size,
+        L"zh-CN",
+        &text_format
+    );
+    
+    if (FAILED(hr) || !text_format) {
+        brush->Release();
+        return;
+    }
+    
+    text_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+    text_format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    
+    // 计算可见区域
+    int visible_start = state->scroll_offset / state->item_height;
+    int visible_count = (int)(size.height / state->item_height) + 2;
+    int visible_end = min(visible_start + visible_count, (int)state->items.size());
+    
+    // 绘制可见的列表项
+    for (int i = visible_start; i < visible_end; i++) {
+        float y = (float)(i * state->item_height - state->scroll_offset);
+        
+        // 跳过不在可见区域的项目
+        if (y + state->item_height < 0 || y > size.height) continue;
+        
+        D2D1_RECT_F item_rect = D2D1::RectF(
+            1,
+            y,
+            size.width - 1,
+            y + state->item_height
+        );
+        
+        // 绘制选中背景
+        bool is_selected = (i == state->selected_index);
+        if (state->multi_select) {
+            is_selected = std::find(state->selected_indices.begin(), 
+                                   state->selected_indices.end(), i) != state->selected_indices.end();
+        }
+        
+        if (is_selected) {
+            brush->SetColor(select_color);
+            rt->FillRectangle(item_rect, brush);
+        }
+        // 绘制悬停背景
+        else if (i == state->hovered_index && state->enabled) {
+            brush->SetColor(hover_color);
+            rt->FillRectangle(item_rect, brush);
+        }
+        
+        // 绘制文本
+        D2D1_RECT_F text_rect = D2D1::RectF(
+            item_rect.left + 12,  // 左边距12px
+            item_rect.top,
+            item_rect.right - 12,  // 右边距12px
+            item_rect.bottom
+        );
+        
+        brush->SetColor(fg_color);
+        rt->DrawTextW(
+            state->items[i].text.c_str(),
+            (UINT32)state->items[i].text.length(),
+            text_format,
+            text_rect,
+            brush
+        );
+    }
+    
+    text_format->Release();
+    brush->Release();
+}
+
+// 列表框窗口过程
+LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, 
+                             UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
+    auto it = g_listboxes.find(hwnd);
+    if (it == g_listboxes.end()) {
+        return DefSubclassProc(hwnd, msg, wparam, lparam);
+    }
+    
+    ListBoxState* state = it->second;
+    
+    switch (msg) {
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+            
+            // 创建D2D渲染目标
+            ID2D1HwndRenderTarget* rt = nullptr;
+            D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties();
+            D2D1_HWND_RENDER_TARGET_PROPERTIES hwnd_props = D2D1::HwndRenderTargetProperties(
+                hwnd,
+                D2D1::SizeU(state->width, state->height)
+            );
+            
+            if (g_d2d_factory) {
+                g_d2d_factory->CreateHwndRenderTarget(props, hwnd_props, &rt);
+            }
+            
+            if (rt && g_dwrite_factory) {
+                rt->BeginDraw();
+                rt->Clear(D2D1::ColorF(D2D1::ColorF::White));
+                DrawListBox(rt, g_dwrite_factory, state);
+                rt->EndDraw();
+                rt->Release();
+            }
+            
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        
+        case WM_LBUTTONDOWN: {
+            if (!state->enabled) break;
+            
+            int x = LOWORD(lparam);
+            int y = HIWORD(lparam);
+            
+            // 计算点击的项目索引
+            int clicked_index = (y + state->scroll_offset) / state->item_height;
+            
+            if (clicked_index >= 0 && clicked_index < (int)state->items.size()) {
+                if (state->multi_select) {
+                    // 多选模式：切换选中状态
+                    auto it_sel = std::find(state->selected_indices.begin(), 
+                                           state->selected_indices.end(), clicked_index);
+                    if (it_sel != state->selected_indices.end()) {
+                        state->selected_indices.erase(it_sel);
+                    } else {
+                        state->selected_indices.push_back(clicked_index);
+                    }
+                } else {
+                    // 单选模式
+                    state->selected_index = clicked_index;
+                }
+                
+                // 触发回调
+                if (state->callback) {
+                    state->callback(hwnd, clicked_index);
+                }
+                
+                InvalidateRect(hwnd, nullptr, TRUE);
+            }
+            return 0;
+        }
+        
+        case WM_MOUSEMOVE: {
+            if (!state->enabled) break;
+            
+            int y = HIWORD(lparam);
+            int hovered_index = (y + state->scroll_offset) / state->item_height;
+            
+            if (hovered_index >= 0 && hovered_index < (int)state->items.size()) {
+                if (hovered_index != state->hovered_index) {
+                    state->hovered_index = hovered_index;
+                    InvalidateRect(hwnd, nullptr, TRUE);
+                }
+            }
+            
+            // 追踪鼠标离开事件
+            TRACKMOUSEEVENT tme = { sizeof(TRACKMOUSEEVENT) };
+            tme.dwFlags = TME_LEAVE;
+            tme.hwndTrack = hwnd;
+            TrackMouseEvent(&tme);
+            return 0;
+        }
+        
+        case WM_MOUSELEAVE: {
+            if (state->hovered_index != -1) {
+                state->hovered_index = -1;
+                InvalidateRect(hwnd, nullptr, TRUE);
+            }
+            return 0;
+        }
+        
+        case WM_MOUSEWHEEL: {
+            if (!state->enabled) break;
+            
+            int delta = GET_WHEEL_DELTA_WPARAM(wparam);
+            int scroll_amount = -delta / 3;  // 滚动量
+            
+            // 更新滚动偏移
+            int max_scroll = max(0, (int)state->items.size() * state->item_height - state->height);
+            state->scroll_offset = max(0, min(max_scroll, state->scroll_offset + scroll_amount));
+            
+            InvalidateRect(hwnd, nullptr, TRUE);
+            return 0;
+        }
+        
+        case WM_SIZE: {
+            state->width = LOWORD(lparam);
+            state->height = HIWORD(lparam);
+            InvalidateRect(hwnd, nullptr, TRUE);
+            return 0;
+        }
+        
+        case WM_NCDESTROY: {
+            // 清理资源
+            RemoveWindowSubclass(hwnd, ListBoxProc, uIdSubclass);
+            g_listboxes.erase(hwnd);
+            delete state;
+            return 0;
+        }
+    }
+    
+    return DefSubclassProc(hwnd, msg, wparam, lparam);
+}
+
+// 创建列表框
+HWND __stdcall CreateListBox(
+    HWND hParent,
+    int x, int y, int width, int height,
+    BOOL multi_select,
+    UINT32 fg_color,
+    UINT32 bg_color
+) {
+    if (!hParent || !IsWindow(hParent)) return nullptr;
+    
+    // 创建窗口
+    HWND hwnd = CreateWindowExW(
+        0,
+        L"STATIC",
+        L"",
+        WS_CHILD | WS_VISIBLE | SS_NOTIFY,
+        x, y, width, height,
+        hParent,
+        (HMENU)(UINT_PTR)(g_next_control_id++),
+        GetModuleHandle(nullptr),
+        nullptr
+    );
+    
+    if (!hwnd) return nullptr;
+    
+    // 创建状态
+    ListBoxState* state = new ListBoxState();
+    state->hwnd = hwnd;
+    state->parent = hParent;
+    state->id = (int)(UINT_PTR)GetMenu(hwnd);
+    state->x = x;
+    state->y = y;
+    state->width = width;
+    state->height = height;
+    state->selected_index = -1;
+    state->hovered_index = -1;
+    state->scroll_offset = 0;
+    state->item_height = 32;  // Element UI标准行高
+    state->multi_select = (multi_select != 0);
+    state->enabled = true;
+    state->fg_color = fg_color;
+    state->bg_color = bg_color;
+    state->select_color = 0xFFECF5FF;  // Element UI选中背景色
+    state->hover_color = 0xFFF5F7FA;   // Element UI悬停背景色
+    state->callback = nullptr;
+    
+    // 默认字体
+    state->font.font_name = L"Microsoft YaHei UI";
+    state->font.font_size = 14;
+    state->font.bold = false;
+    state->font.italic = false;
+    state->font.underline = false;
+    
+    // 保存状态
+    g_listboxes[hwnd] = state;
+    
+    // 子类化窗口
+    SetWindowSubclass(hwnd, ListBoxProc, 0, (DWORD_PTR)state);
+    
+    return hwnd;
+}
+
+// 添加列表项
+int __stdcall AddListItem(
+    HWND hListBox,
+    const unsigned char* text_bytes,
+    int text_len
+) {
+    auto it = g_listboxes.find(hListBox);
+    if (it == g_listboxes.end()) return -1;
+    
+    ListBoxState* state = it->second;
+    
+    // 创建新项目
+    ListBoxItem item;
+    item.text = Utf8ToWide(text_bytes, text_len);
+    item.id = (int)state->items.size();
+    item.user_data = nullptr;
+    
+    state->items.push_back(item);
+    
+    InvalidateRect(hListBox, nullptr, TRUE);
+    
+    return item.id;
+}
+
+// 移除列表项
+void __stdcall RemoveListItem(
+    HWND hListBox,
+    int index
+) {
+    auto it = g_listboxes.find(hListBox);
+    if (it == g_listboxes.end()) return;
+    
+    ListBoxState* state = it->second;
+    
+    if (index < 0 || index >= (int)state->items.size()) return;
+    
+    state->items.erase(state->items.begin() + index);
+    
+    // 更新选中索引
+    if (state->selected_index == index) {
+        state->selected_index = -1;
+    } else if (state->selected_index > index) {
+        state->selected_index--;
+    }
+    
+    // 更新多选索引
+    if (state->multi_select) {
+        auto it_sel = std::find(state->selected_indices.begin(), 
+                               state->selected_indices.end(), index);
+        if (it_sel != state->selected_indices.end()) {
+            state->selected_indices.erase(it_sel);
+        }
+        
+        // 调整其他选中项的索引
+        for (int& sel_idx : state->selected_indices) {
+            if (sel_idx > index) {
+                sel_idx--;
+            }
+        }
+    }
+    
+    InvalidateRect(hListBox, nullptr, TRUE);
+}
+
+// 清空列表框
+void __stdcall ClearListBox(
+    HWND hListBox
+) {
+    auto it = g_listboxes.find(hListBox);
+    if (it == g_listboxes.end()) return;
+    
+    ListBoxState* state = it->second;
+    
+    state->items.clear();
+    state->selected_index = -1;
+    state->hovered_index = -1;
+    state->selected_indices.clear();
+    state->scroll_offset = 0;
+    
+    InvalidateRect(hListBox, nullptr, TRUE);
+}
+
+// 获取选中项索引
+int __stdcall GetSelectedIndex(
+    HWND hListBox
+) {
+    auto it = g_listboxes.find(hListBox);
+    if (it == g_listboxes.end()) return -1;
+    
+    return it->second->selected_index;
+}
+
+// 设置选中项索引
+void __stdcall SetSelectedIndex(
+    HWND hListBox,
+    int index
+) {
+    auto it = g_listboxes.find(hListBox);
+    if (it == g_listboxes.end()) return;
+    
+    ListBoxState* state = it->second;
+    
+    if (index < -1 || index >= (int)state->items.size()) return;
+    
+    state->selected_index = index;
+    
+    InvalidateRect(hListBox, nullptr, TRUE);
+}
+
+// 获取列表项数量
+int __stdcall GetListItemCount(
+    HWND hListBox
+) {
+    auto it = g_listboxes.find(hListBox);
+    if (it == g_listboxes.end()) return 0;
+    
+    return (int)it->second->items.size();
+}
+
+// 获取列表项文本
+int __stdcall GetListItemText(
+    HWND hListBox,
+    int index,
+    unsigned char* buffer,
+    int buffer_size
+) {
+    auto it = g_listboxes.find(hListBox);
+    if (it == g_listboxes.end()) return 0;
+    
+    ListBoxState* state = it->second;
+    
+    if (index < 0 || index >= (int)state->items.size()) return 0;
+    
+    // 转换为UTF-8
+    std::wstring text = state->items[index].text;
+    int utf8_len = WideCharToMultiByte(CP_UTF8, 0, text.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    
+    if (buffer && buffer_size > 0) {
+        int copied = WideCharToMultiByte(CP_UTF8, 0, text.c_str(), -1, 
+                                        (LPSTR)buffer, buffer_size, nullptr, nullptr);
+        return copied - 1;  // 不包括null终止符
+    }
+    
+    return utf8_len - 1;  // 不包括null终止符
+}
+
+// 设置列表框回调
+void __stdcall SetListBoxCallback(
+    HWND hListBox,
+    ListBoxCallback callback
+) {
+    auto it = g_listboxes.find(hListBox);
+    if (it == g_listboxes.end()) return;
+    
+    it->second->callback = callback;
+}
+
+// 启用/禁用列表框
+void __stdcall EnableListBox(
+    HWND hListBox,
+    BOOL enable
+) {
+    auto it = g_listboxes.find(hListBox);
+    if (it == g_listboxes.end()) return;
+    
+    it->second->enabled = (enable != 0);
+    EnableWindow(hListBox, enable);
+    InvalidateRect(hListBox, nullptr, TRUE);
+}
+
+// 显示/隐藏列表框
+void __stdcall ShowListBox(
+    HWND hListBox,
+    BOOL show
+) {
+    if (!hListBox || !IsWindow(hListBox)) return;
+    
+    ShowWindow(hListBox, show ? SW_SHOW : SW_HIDE);
+}
+
+// 设置列表框位置和大小
+void __stdcall SetListBoxBounds(
+    HWND hListBox,
+    int x, int y, int width, int height
+) {
+    auto it = g_listboxes.find(hListBox);
+    if (it == g_listboxes.end()) return;
+    
+    ListBoxState* state = it->second;
+    state->x = x;
+    state->y = y;
+    state->width = width;
+    state->height = height;
+    
+    SetWindowPos(hListBox, nullptr, x, y, width, height, 
+                SWP_NOZORDER | SWP_NOACTIVATE);
+    InvalidateRect(hListBox, nullptr, TRUE);
 }

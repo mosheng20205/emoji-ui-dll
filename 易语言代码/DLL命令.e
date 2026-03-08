@@ -458,3 +458,106 @@
 .DLL命令 设置图片框背景色, , "emoji_window.dll", "SetPictureBoxBackgroundColor", , , 设置图片框背景色
     .参数 图片框句柄, 整数型
     .参数 背景色, 整数型, , ARGB颜色
+
+.DLL命令 创建单选按钮, 整数型, "emoji_window.dll", "CreateRadioButton", , , 创建单选按钮
+    .参数 父窗口句柄, 整数型
+    .参数 X坐标, 整数型
+    .参数 Y坐标, 整数型
+    .参数 宽度, 整数型
+    .参数 高度, 整数型
+    .参数 文本字节集指针, 整数型, , UTF-8字节集指针
+    .参数 文本长度, 整数型, , 字节集长度
+    .参数 分组ID, 整数型, , 同组互斥
+    .参数 选中状态, 逻辑型, , 是否选中
+    .参数 前景色, 整数型, , ARGB颜色
+    .参数 背景色, 整数型, , ARGB颜色
+
+.DLL命令 获取单选按钮状态, 逻辑型, "emoji_window.dll", "GetRadioButtonState", , , 获取单选按钮选中状态
+    .参数 单选按钮句柄, 整数型
+
+.DLL命令 设置单选按钮状态, , "emoji_window.dll", "SetRadioButtonState", , , 设置单选按钮选中状态
+    .参数 单选按钮句柄, 整数型
+    .参数 选中状态, 逻辑型
+
+.DLL命令 设置单选按钮回调, , "emoji_window.dll", "SetRadioButtonCallback", , , 设置单选按钮回调
+    .参数 单选按钮句柄, 整数型
+    .参数 回调函数, 子程序指针
+
+.DLL命令 启用单选按钮, , "emoji_window.dll", "EnableRadioButton", , , 启用/禁用单选按钮
+    .参数 单选按钮句柄, 整数型
+    .参数 启用, 逻辑型
+
+.DLL命令 显示单选按钮, , "emoji_window.dll", "ShowRadioButton", , , 显示/隐藏单选按钮
+    .参数 单选按钮句柄, 整数型
+    .参数 显示, 逻辑型
+
+.DLL命令 设置单选按钮文本, , "emoji_window.dll", "SetRadioButtonText", , , 设置单选按钮文本
+    .参数 单选按钮句柄, 整数型
+    .参数 文本字节集指针, 整数型, , UTF-8字节集指针
+    .参数 文本长度, 整数型, , 字节集长度
+
+.DLL命令 设置单选按钮位置, , "emoji_window.dll", "SetRadioButtonBounds", , , 设置单选按钮位置和大小
+    .参数 单选按钮句柄, 整数型
+    .参数 X坐标, 整数型
+    .参数 Y坐标, 整数型
+    .参数 宽度, 整数型
+    .参数 高度, 整数型
+
+' ========== 列表框功能 ==========
+
+.DLL命令 创建列表框, 整数型, "emoji_window.dll", "CreateListBox", , , 创建列表框
+    .参数 父窗口句柄, 整数型
+    .参数 X坐标, 整数型
+    .参数 Y坐标, 整数型
+    .参数 宽度, 整数型
+    .参数 高度, 整数型
+    .参数 多选模式, 逻辑型, , 是否支持多选
+    .参数 前景色, 整数型, , ARGB颜色
+    .参数 背景色, 整数型, , ARGB颜色
+
+.DLL命令 添加列表项, 整数型, "emoji_window.dll", "AddListItem", , , 添加列表项，返回项目ID
+    .参数 列表框句柄, 整数型
+    .参数 文本字节集指针, 整数型, , UTF-8字节集指针
+    .参数 文本长度, 整数型, , 字节集长度
+
+.DLL命令 移除列表项, , "emoji_window.dll", "RemoveListItem", , , 移除指定索引的列表项
+    .参数 列表框句柄, 整数型
+    .参数 索引, 整数型, , 项目索引(从0开始)
+
+.DLL命令 清空列表框, , "emoji_window.dll", "ClearListBox", , , 清空列表框所有项目
+    .参数 列表框句柄, 整数型
+
+.DLL命令 获取选中项索引, 整数型, "emoji_window.dll", "GetSelectedIndex", , , 获取当前选中项索引(-1表示无选中)
+    .参数 列表框句柄, 整数型
+
+.DLL命令 设置选中项索引, , "emoji_window.dll", "SetSelectedIndex", , , 设置选中项索引
+    .参数 列表框句柄, 整数型
+    .参数 索引, 整数型, , 项目索引(从0开始，-1表示取消选中)
+
+.DLL命令 获取列表项数量, 整数型, "emoji_window.dll", "GetListItemCount", , , 获取列表项数量
+    .参数 列表框句柄, 整数型
+
+.DLL命令 获取列表项文本, 整数型, "emoji_window.dll", "GetListItemText", , , 获取列表项文本，返回实际复制的字节数
+    .参数 列表框句柄, 整数型
+    .参数 索引, 整数型, , 项目索引(从0开始)
+    .参数 缓冲区指针, 整数型, , UTF-8缓冲区指针
+    .参数 缓冲区大小, 整数型, , 缓冲区大小
+
+.DLL命令 设置列表框回调, , "emoji_window.dll", "SetListBoxCallback", , , 设置列表框选中回调
+    .参数 列表框句柄, 整数型
+    .参数 回调函数, 子程序指针, , 子程序需 stdcall，参数：hListBox(整数型), index(整数型)
+
+.DLL命令 启用列表框, , "emoji_window.dll", "EnableListBox", , , 启用/禁用列表框
+    .参数 列表框句柄, 整数型
+    .参数 启用, 逻辑型
+
+.DLL命令 显示列表框, , "emoji_window.dll", "ShowListBox", , , 显示/隐藏列表框
+    .参数 列表框句柄, 整数型
+    .参数 显示, 逻辑型
+
+.DLL命令 设置列表框位置, , "emoji_window.dll", "SetListBoxBounds", , , 设置列表框位置和大小
+    .参数 列表框句柄, 整数型
+    .参数 X坐标, 整数型
+    .参数 Y坐标, 整数型
+    .参数 宽度, 整数型
+    .参数 高度, 整数型

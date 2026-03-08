@@ -67,3 +67,23 @@ EXPORTS
     SetPictureBoxBounds
     SetPictureBoxScaleMode
     SetPictureBoxBackgroundColor
+    CreateRadioButton
+    GetRadioButtonState
+    SetRadioButtonState
+    SetRadioButtonCallback
+    EnableRadioButton
+    ShowRadioButton
+    SetRadioButtonText
+    SetRadioButtonBounds
+    CreateListBox
+    AddListItem
+    RemoveListItem
+    ClearListBox
+    GetSelectedIndex
+    SetSelectedIndex
+    GetListItemCount
+    GetListItemText
+    SetListBoxCallback
+    EnableListBox
+    ShowListBox
+    SetListBoxBounds

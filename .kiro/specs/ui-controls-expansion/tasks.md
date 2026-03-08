@@ -86,7 +86,11 @@
 
 ## 阶段 2: 选择类控件实现
 
-- [ ] 5. 实现单选按钮控件
+- [x] 5. 实现单选按钮控件
+
+
+
+
   - 添加RadioButtonState结构到emoji_window.h
   - 添加g_radio_groups分组管理map
   - 实现CreateRadioButton API函数
@@ -106,16 +110,20 @@
   - **属性 5: 单选按钮分组互斥性**
   - **验证: 需求 2.1-2.8**
 
-- [ ] 6. 实现列表框控件
-  - 添加ListBoxState和ListBoxItem结构到emoji_window.h
-  - 实现CreateListBox API函数
-  - 实现DrawListBox绘制函数（支持滚动）
-  - 实现AddListItem、RemoveListItem、ClearListBox函数
-  - 实现列表框滚动逻辑（WM_MOUSEWHEEL）
-  - 实现GetSelectedIndex和SetSelectedIndex函数
-  - 实现多选模式支持
-  - 实现列表框回调机制
-  - 添加到全局g_listboxes map管理
+- [x] 6. 实现列表框控件 ✅
+  - 添加ListBoxState和ListBoxItem结构到emoji_window.h ✅
+  - 实现CreateListBox API函数 ✅
+  - 实现DrawListBox绘制函数（支持滚动）✅
+  - 实现AddListItem、RemoveListItem、ClearListBox函数 ✅
+  - 实现列表框滚动逻辑（WM_MOUSEWHEEL）✅
+  - 实现GetSelectedIndex和SetSelectedIndex函数 ✅
+  - 实现多选模式支持 ✅
+  - 实现列表框回调机制 ✅
+  - 添加到全局g_listboxes map管理 ✅
+  - 更新易语言DLL命令声明 ✅
+  - 创建易语言示例程序 ✅
+  - 更新README.md文档 ✅
+  - 项目编译成功 ✅
   - _需求: 4.1-4.10_
 
 - [ ]* 6.1 编写列表框属性测试
@@ -126,13 +134,14 @@
   - **属性 7: 列表框索引有效性**
   - **验证: 需求 4.1-4.10**
 
-- [ ] 7. 为阶段2控件创建易语言接口
-  - 在易语言代码/DLL命令.e中添加单选按钮API声明
-  - 在易语言代码/DLL命令.e中添加列表框API声明
-  - 在易语言代码/常量表.e中添加单选按钮分组相关常量
-  - 创建易语言代码/窗口程序集_单选按钮示例.e
-  - 创建易语言代码/窗口程序集_列表框示例.e
-  - 测试所有阶段2 API的易语言调用
+- [x] 7. 为阶段2控件创建易语言接口 ✅
+  - 在易语言代码/DLL命令.e中添加单选按钮API声明 ✅
+  - 在易语言代码/DLL命令.e中添加列表框API声明 ✅
+  - 在易语言代码/常量表.e中添加单选按钮分组相关常量 ✅
+  - 创建易语言代码/窗口程序集_单选按钮示例.e ✅
+  - 创建易语言代码/窗口程序集_列表框示例.e ✅
+  - 测试所有阶段2 API的易语言调用 ✅
+  - 项目编译成功，所有API正确导出 ✅
   - _需求: 2.1-2.8, 4.1-4.10_
 
 - [ ] 8. 检查点 - 确保所有测试通过

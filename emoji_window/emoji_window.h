@@ -52,6 +52,12 @@ enum ImageScaleMode {
 // 图片框回调函数类型 (stdcall 调用约定)
 typedef void (__stdcall *PictureBoxCallback)(HWND hPictureBox);
 
+// 单选按钮回调函数类型 (stdcall 调用约定)
+typedef void (__stdcall *RadioButtonCallback)(HWND hRadioButton, int group_id, BOOL checked);
+
+// 列表框回调函数类型 (stdcall 调用约定)
+typedef void (__stdcall *ListBoxCallback)(HWND hListBox, int index);
+
 // 文本对齐方式
 enum TextAlignment {
     ALIGN_LEFT = 0,
@@ -155,6 +161,54 @@ struct PictureBoxState {
     PictureBoxCallback callback; // 回调函数
 };
 
+// 单选按钮状态
+struct RadioButtonState {
+    HWND hwnd;                  // 控件句柄
+    HWND parent;                // 父窗口句柄
+    int id;                     // 控件ID
+    int group_id;               // 分组ID，同组互斥
+    int x, y, width, height;    // 位置和尺寸
+    std::wstring text;          // 显示文本
+    bool checked;               // 选中状态
+    bool enabled;               // 启用状态
+    bool hovered;               // 悬停状态
+    bool pressed;               // 按下状态
+    UINT32 fg_color;            // 前景色
+    UINT32 bg_color;            // 背景色
+    UINT32 dot_color;           // 圆点颜色
+    FontStyle font;             // 字体样式
+    RadioButtonCallback callback; // 回调函数
+};
+
+// 列表框项目
+struct ListBoxItem {
+    std::wstring text;          // 项目文本
+    int id;                     // 项目ID
+    void* user_data;            // 用户自定义数据
+};
+
+// 列表框状态
+struct ListBoxState {
+    HWND hwnd;                  // 控件句柄
+    HWND parent;                // 父窗口句柄
+    int id;                     // 控件ID
+    int x, y, width, height;    // 位置和尺寸
+    std::vector<ListBoxItem> items; // 所有项目
+    int selected_index;         // 当前选中项 (-1表示无选中)
+    int hovered_index;          // 悬停项 (-1表示无悬停)
+    int scroll_offset;          // 滚动偏移量（像素）
+    int item_height;            // 项目高度
+    bool multi_select;          // 多选模式
+    std::vector<int> selected_indices; // 多选时的选中项
+    bool enabled;               // 启用状态
+    UINT32 fg_color;            // 前景色
+    UINT32 bg_color;            // 背景色
+    UINT32 select_color;        // 选中背景色
+    UINT32 hover_color;         // 悬停背景色
+    FontStyle font;             // 字体样式
+    ListBoxCallback callback;   // 回调函数
+};
+
 // Button structure
 struct EmojiButton {
     int id;
@@ -226,6 +280,9 @@ extern std::map<HWND, LabelState*> g_labels;
 extern std::map<HWND, CheckBoxState*> g_checkboxes;
 extern std::map<HWND, ProgressBarState*> g_progressbars;
 extern std::map<HWND, PictureBoxState*> g_pictureboxes;
+extern std::map<HWND, RadioButtonState*> g_radiobuttons;
+extern std::map<int, std::vector<HWND>> g_radio_groups;  // 分组管理
+extern std::map<HWND, ListBoxState*> g_listboxes;
 extern ButtonClickCallback g_button_callback;
 extern WindowResizeCallback g_window_resize_callback;
 extern WindowCloseCallback g_window_close_callback;
@@ -690,6 +747,139 @@ extern "C" {
         HWND hPictureBox,
         UINT32 bg_color
     );
+
+    // ========== 单选按钮功能 ==========
+
+    // 创建单选按钮
+    __declspec(dllexport) HWND __stdcall CreateRadioButton(
+        HWND hParent,
+        int x, int y, int width, int height,
+        const unsigned char* text_bytes,
+        int text_len,
+        int group_id,
+        BOOL checked,
+        UINT32 fg_color,
+        UINT32 bg_color
+    );
+
+    // 获取单选按钮选中状态
+    __declspec(dllexport) BOOL __stdcall GetRadioButtonState(
+        HWND hRadioButton
+    );
+
+    // 设置单选按钮选中状态
+    __declspec(dllexport) void __stdcall SetRadioButtonState(
+        HWND hRadioButton,
+        BOOL checked
+    );
+
+    // 设置单选按钮回调
+    __declspec(dllexport) void __stdcall SetRadioButtonCallback(
+        HWND hRadioButton,
+        RadioButtonCallback callback
+    );
+
+    // 启用/禁用单选按钮
+    __declspec(dllexport) void __stdcall EnableRadioButton(
+        HWND hRadioButton,
+        BOOL enable
+    );
+
+    // 显示/隐藏单选按钮
+    __declspec(dllexport) void __stdcall ShowRadioButton(
+        HWND hRadioButton,
+        BOOL show
+    );
+
+    // 设置单选按钮文本
+    __declspec(dllexport) void __stdcall SetRadioButtonText(
+        HWND hRadioButton,
+        const unsigned char* text_bytes,
+        int text_len
+    );
+
+    // 设置单选按钮位置和大小
+    __declspec(dllexport) void __stdcall SetRadioButtonBounds(
+        HWND hRadioButton,
+        int x, int y, int width, int height
+    );
+
+    // ========== 列表框功能 ==========
+
+    // 创建列表框
+    __declspec(dllexport) HWND __stdcall CreateListBox(
+        HWND hParent,
+        int x, int y, int width, int height,
+        BOOL multi_select,
+        UINT32 fg_color,
+        UINT32 bg_color
+    );
+
+    // 添加列表项
+    __declspec(dllexport) int __stdcall AddListItem(
+        HWND hListBox,
+        const unsigned char* text_bytes,
+        int text_len
+    );
+
+    // 移除列表项
+    __declspec(dllexport) void __stdcall RemoveListItem(
+        HWND hListBox,
+        int index
+    );
+
+    // 清空列表框
+    __declspec(dllexport) void __stdcall ClearListBox(
+        HWND hListBox
+    );
+
+    // 获取选中项索引
+    __declspec(dllexport) int __stdcall GetSelectedIndex(
+        HWND hListBox
+    );
+
+    // 设置选中项索引
+    __declspec(dllexport) void __stdcall SetSelectedIndex(
+        HWND hListBox,
+        int index
+    );
+
+    // 获取列表项数量
+    __declspec(dllexport) int __stdcall GetListItemCount(
+        HWND hListBox
+    );
+
+    // 获取列表项文本
+    __declspec(dllexport) int __stdcall GetListItemText(
+        HWND hListBox,
+        int index,
+        unsigned char* buffer,
+        int buffer_size
+    );
+
+    // 设置列表框回调
+    __declspec(dllexport) void __stdcall SetListBoxCallback(
+        HWND hListBox,
+        ListBoxCallback callback
+    );
+
+    // 启用/禁用列表框
+    __declspec(dllexport) void __stdcall EnableListBox(
+        HWND hListBox,
+        BOOL enable
+    );
+
+    // 显示/隐藏列表框
+    __declspec(dllexport) void __stdcall ShowListBox(
+        HWND hListBox,
+        BOOL show
+    );
+
+    // 设置列表框位置和大小
+    __declspec(dllexport) void __stdcall SetListBoxBounds(
+        HWND hListBox,
+        int x, int y, int width, int height
+    );
 }
 
 // Internal functions
@@ -698,11 +888,15 @@ LRESULT CALLBACK MsgBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 LRESULT CALLBACK CheckBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
 LRESULT CALLBACK ProgressBarProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
 LRESULT CALLBACK PictureBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+LRESULT CALLBACK RadioButtonProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
 void DrawButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, const EmojiButton& button);
 void DrawMsgBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, MsgBoxState* state);
 void DrawCheckBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, CheckBoxState* state);
 void DrawProgressBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ProgressBarState* state);
 void DrawPictureBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, PictureBoxState* state);
+void DrawRadioButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, RadioButtonState* state);
+void DrawListBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ListBoxState* state);
 std::wstring Utf8ToWide(const unsigned char* bytes, int len);
 D2D1_COLOR_F ColorFromUInt32(UINT32 color);
 UINT32 LightenColor(UINT32 color, float factor);
