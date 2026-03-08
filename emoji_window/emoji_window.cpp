@@ -48,11 +48,14 @@ std::wstring Utf8ToWide(const unsigned char* bytes, int len) {
 
 // UINT32 color to D2D1_COLOR_F
 D2D1_COLOR_F ColorFromUInt32(UINT32 color) {
+    float a = ((color >> 24) & 0xFF) / 255.0f;
+    // 如果alpha为0，默认为不透明（兼容易语言RGB颜色常量没有alpha通道）
+    if (a == 0.0f) a = 1.0f;
     return D2D1::ColorF(
         ((color >> 16) & 0xFF) / 255.0f,
         ((color >> 8) & 0xFF) / 255.0f,
         (color & 0xFF) / 255.0f,
-        ((color >> 24) & 0xFF) / 255.0f
+        a
     );
 }
 
@@ -2845,12 +2848,17 @@ void DrawCheckBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, CheckBoxSt
 // 复选框窗口过程（子类化）
 LRESULT CALLBACK CheckBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     CheckBoxState* state = (CheckBoxState*)dwRefData;
-    
+
     switch (msg) {
+        case WM_NCHITTEST: {
+            // 确保STATIC控件返回HTCLIENT，允许接收鼠标消息
+            return HTCLIENT;
+        }
+
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
-            
+
             // 创建D2D渲染目标
             ID2D1HwndRenderTarget* rt = nullptr;
             D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties();
@@ -2858,9 +2866,9 @@ LRESULT CALLBACK CheckBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
                 hwnd,
                 D2D1::SizeU(state->width, state->height)
             );
-            
+
             g_d2d_factory->CreateHwndRenderTarget(props, hwnd_props, &rt);
-            
+
             if (rt) {
                 rt->BeginDraw();
                 rt->Clear(ColorFromUInt32(state->bg_color));
@@ -2868,40 +2876,53 @@ LRESULT CALLBACK CheckBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
                 rt->EndDraw();
                 rt->Release();
             }
-            
+
             EndPaint(hwnd, &ps);
             return 0;
         }
-        
+
         case WM_LBUTTONDOWN: {
             if (state->enabled) {
                 state->pressed = true;
+                SetCapture(hwnd);
                 InvalidateRect(hwnd, nullptr, FALSE);
             }
             return 0;
         }
-        
+
         case WM_LBUTTONUP: {
             if (state->enabled && state->pressed) {
                 state->pressed = false;
-                
-                // 切换选中状态
-                state->checked = !state->checked;
-                InvalidateRect(hwnd, nullptr, FALSE);
-                
-                // 触发回调
-                if (state->callback) {
-                    state->callback(hwnd, state->checked);
+                ReleaseCapture();
+
+                // 检查鼠标是否仍在控件区域内
+                POINT pt;
+                pt.x = GET_X_LPARAM(lparam);
+                pt.y = GET_Y_LPARAM(lparam);
+                RECT rc;
+                GetClientRect(hwnd, &rc);
+                if (PtInRect(&rc, pt)) {
+                    // 切换选中状态
+                    state->checked = !state->checked;
+                    InvalidateRect(hwnd, nullptr, FALSE);
+
+                    // 触发回调
+                    if (state->callback) {
+                        state->callback(hwnd, state->checked);
+                    }
                 }
+            } else if (state->pressed) {
+                state->pressed = false;
+                ReleaseCapture();
             }
             return 0;
         }
-        
+
         case WM_MOUSEMOVE: {
             if (state->enabled && !state->hovered) {
                 state->hovered = true;
                 InvalidateRect(hwnd, nullptr, FALSE);
-                
+
                 // 跟踪鼠标离开
                 TRACKMOUSEEVENT tme = { sizeof(TRACKMOUSEEVENT) };
                 tme.dwFlags = TME_LEAVE;
@@ -2910,7 +2931,7 @@ LRESULT CALLBACK CheckBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
             }
             return 0;
         }
-        
+
         case WM_MOUSELEAVE: {
             if (state->hovered) {
                 state->hovered = false;
@@ -2919,7 +2940,7 @@ LRESULT CALLBACK CheckBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
             }
             return 0;
         }
-        
+
         case WM_NCDESTROY: {
             // 清理资源
             RemoveWindowSubclass(hwnd, CheckBoxProc, uIdSubclass);
@@ -2928,7 +2949,7 @@ LRESULT CALLBACK CheckBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
             return 0;
         }
     }
-    
+
     return DefSubclassProc(hwnd, msg, wparam, lparam);
 }
 
@@ -4152,12 +4173,17 @@ void DrawRadioButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, RadioBu
 // 单选按钮窗口过程（子类化）
 LRESULT CALLBACK RadioButtonProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     RadioButtonState* state = (RadioButtonState*)dwRefData;
-    
+
     switch (msg) {
+        case WM_NCHITTEST: {
+            // 确保STATIC控件返回HTCLIENT，允许接收鼠标消息
+            return HTCLIENT;
+        }
+
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
-            
+
             // 创建D2D渲染目标
             ID2D1HwndRenderTarget* rt = nullptr;
             D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties();
@@ -4165,9 +4191,9 @@ LRESULT CALLBACK RadioButtonProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                 hwnd,
                 D2D1::SizeU(state->width, state->height)
             );
-            
+
             g_d2d_factory->CreateHwndRenderTarget(props, hwnd_props, &rt);
-            
+
             if (rt) {
                 rt->BeginDraw();
                 rt->Clear(ColorFromUInt32(state->bg_color));
@@ -4175,57 +4201,70 @@ LRESULT CALLBACK RadioButtonProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                 rt->EndDraw();
                 rt->Release();
             }
-            
+
             EndPaint(hwnd, &ps);
             return 0;
         }
-        
+
         case WM_LBUTTONDOWN: {
             if (state->enabled) {
                 state->pressed = true;
+                SetCapture(hwnd);
                 InvalidateRect(hwnd, nullptr, FALSE);
             }
             return 0;
         }
-        
+
         case WM_LBUTTONUP: {
             if (state->enabled && state->pressed) {
                 state->pressed = false;
-                
-                // 如果未选中，则选中当前按钮并取消同组其他按钮
-                if (!state->checked) {
-                    // 取消同组其他按钮的选中状态
-                    auto group_it = g_radio_groups.find(state->group_id);
-                    if (group_it != g_radio_groups.end()) {
-                        for (HWND other_hwnd : group_it->second) {
-                            if (other_hwnd != hwnd) {
-                                auto other_it = g_radiobuttons.find(other_hwnd);
-                                if (other_it != g_radiobuttons.end()) {
-                                    other_it->second->checked = false;
-                                    InvalidateRect(other_hwnd, nullptr, FALSE);
+                ReleaseCapture();
+
+                // 检查鼠标是否仍在控件区域内
+                POINT pt;
+                pt.x = GET_X_LPARAM(lparam);
+                pt.y = GET_Y_LPARAM(lparam);
+                RECT rc;
+                GetClientRect(hwnd, &rc);
+                if (PtInRect(&rc, pt)) {
+                    // 如果未选中，则选中当前按钮并取消同组其他按钮
+                    if (!state->checked) {
+                        // 取消同组其他按钮的选中状态
+                        auto group_it = g_radio_groups.find(state->group_id);
+                        if (group_it != g_radio_groups.end()) {
+                            for (HWND other_hwnd : group_it->second) {
+                                if (other_hwnd != hwnd) {
+                                    auto other_it = g_radiobuttons.find(other_hwnd);
+                                    if (other_it != g_radiobuttons.end()) {
+                                        other_it->second->checked = false;
+                                        InvalidateRect(other_hwnd, nullptr, FALSE);
+                                    }
                                 }
                             }
                         }
-                    }
-                    
-                    // 选中当前按钮
-                    state->checked = true;
-                    InvalidateRect(hwnd, nullptr, FALSE);
-                    
-                    // 触发回调
-                    if (state->callback) {
-                        state->callback(hwnd, state->group_id, TRUE);
+
+                        // 选中当前按钮
+                        state->checked = true;
+                        InvalidateRect(hwnd, nullptr, FALSE);
+
+                        // 触发回调
+                        if (state->callback) {
+                            state->callback(hwnd, state->group_id, TRUE);
+                        }
                     }
                 }
+            } else if (state->pressed) {
+                state->pressed = false;
+                ReleaseCapture();
             }
             return 0;
         }
-        
+
         case WM_MOUSEMOVE: {
             if (state->enabled && !state->hovered) {
                 state->hovered = true;
                 InvalidateRect(hwnd, nullptr, FALSE);
-                
+
                 // 跟踪鼠标离开
                 TRACKMOUSEEVENT tme = { sizeof(TRACKMOUSEEVENT) };
                 tme.dwFlags = TME_LEAVE;
@@ -4234,7 +4273,7 @@ LRESULT CALLBACK RadioButtonProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
             }
             return 0;
         }
-        
+
         case WM_MOUSELEAVE: {
             if (state->hovered) {
                 state->hovered = false;
@@ -4243,7 +4282,7 @@ LRESULT CALLBACK RadioButtonProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
             }
             return 0;
         }
-        
+
         case WM_NCDESTROY: {
             // 从分组中移除
             auto group_it = g_radio_groups.find(state->group_id);
@@ -4254,7 +4293,7 @@ LRESULT CALLBACK RadioButtonProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                     g_radio_groups.erase(group_it);
                 }
             }
-            
+
             // 清理资源
             RemoveWindowSubclass(hwnd, RadioButtonProc, uIdSubclass);
             g_radiobuttons.erase(hwnd);
@@ -4262,7 +4301,7 @@ LRESULT CALLBACK RadioButtonProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
             return 0;
         }
     }
-    
+
     return DefSubclassProc(hwnd, msg, wparam, lparam);
 }
 
@@ -6523,15 +6562,32 @@ void __stdcall EnableGroupBox(
 ) {
     auto it = g_groupboxes.find(hGroupBox);
     if (it == g_groupboxes.end()) return;
-    
+
     GroupBoxState* state = it->second;
     state->enabled = enable ? true : false;
-    
-    // 同步启用/禁用所有子控件
+
+    // 同步启用/禁用所有子控件（使用各控件自己的启用函数）
     for (HWND hChild : state->children) {
+        // 检查是否是复选框
+        auto cb_it = g_checkboxes.find(hChild);
+        if (cb_it != g_checkboxes.end()) {
+            cb_it->second->enabled = (enable != 0);
+            InvalidateRect(hChild, nullptr, FALSE);
+            continue;
+        }
+
+        // 检查是否是单选按钮
+        auto rb_it = g_radiobuttons.find(hChild);
+        if (rb_it != g_radiobuttons.end()) {
+            rb_it->second->enabled = (enable != 0);
+            InvalidateRect(hChild, nullptr, FALSE);
+            continue;
+        }
+
+        // 其他控件使用Windows API
         EnableWindow(hChild, enable);
     }
-    
+
     InvalidateRect(hGroupBox, nullptr, FALSE);
 }
 
@@ -6612,10 +6668,26 @@ LRESULT CALLBACK GroupBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
     GroupBoxState* state = it->second;
     
     switch (msg) {
+        case WM_NCHITTEST: {
+            // 分组框应该对鼠标透明，让子控件接收点击
+            // 检查点击位置是否有子控件
+            POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
+            for (HWND hChild : state->children) {
+                if (IsWindowVisible(hChild)) {
+                    RECT rc;
+                    GetWindowRect(hChild, &rc);
+                    if (PtInRect(&rc, pt)) {
+                        return HTTRANSPARENT;
+                    }
+                }
+            }
+            return HTCLIENT;
+        }
+
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
-            
+
             // 创建 D2D1 渲染目标
             RECT rc;
             GetClientRect(hwnd, &rc);
