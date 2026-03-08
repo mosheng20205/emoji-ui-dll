@@ -46,3 +46,24 @@ EXPORTS
     ShowCheckBox
     SetCheckBoxText
     SetCheckBoxBounds
+    CreateProgressBar
+    SetProgressValue
+    GetProgressValue
+    SetProgressIndeterminate
+    SetProgressBarColor
+    SetProgressBarCallback
+    EnableProgressBar
+    ShowProgressBar
+    SetProgressBarBounds
+    SetProgressBarShowText
+    CreatePictureBox
+    LoadImageFromFile
+    LoadImageFromMemory
+    ClearImage
+    SetImageOpacity
+    SetPictureBoxCallback
+    EnablePictureBox
+    ShowPictureBox
+    SetPictureBoxBounds
+    SetPictureBoxScaleMode
+    SetPictureBoxBackgroundColor

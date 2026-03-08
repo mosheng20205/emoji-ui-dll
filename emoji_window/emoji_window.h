@@ -133,6 +133,7 @@ struct ProgressBarState {
     UINT32 fg_color;            // 前景色 (进度条颜色)
     UINT32 bg_color;            // 背景色
     UINT32 border_color;        // 边框颜色
+    UINT32 text_color;          // 文本颜色
     bool show_text;             // 是否显示百分比文本
     FontStyle font;             // 字体样式
     ProgressBarCallback callback; // 回调函数
@@ -561,7 +562,8 @@ extern "C" {
         int initial_value,  // 初始值 (0-100)
         UINT32 fg_color,
         UINT32 bg_color,
-        BOOL show_text      // 是否显示百分比文本
+        BOOL show_text,     // 是否显示百分比文本
+        UINT32 text_color   // 文本颜色
     );
 
     // 设置进度条值 (0-100)

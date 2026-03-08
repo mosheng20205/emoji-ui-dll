@@ -511,7 +511,8 @@ HWND __stdcall CreateProgressBar(
     int initial_value,
     UINT32 fg_color,
     UINT32 bg_color,
-    BOOL show_text
+    BOOL show_text,
+    UINT32 text_color
 );
 ```
 
@@ -524,6 +525,7 @@ HWND __stdcall CreateProgressBar(
 | `fg_color` | 前景色/进度条颜色（ARGB格式，如 0xFF409EFF） |
 | `bg_color` | 背景色（ARGB格式，如 0xFFEBEEF5） |
 | `show_text` | 是否显示百分比文本（TRUE=显示，FALSE=不显示） |
+| `text_color` | 文本颜色（ARGB格式，如 0xFFFFFFFF 白色） |
 
 **返回值**：进度条控件句柄
 
@@ -539,17 +541,18 @@ HWND __stdcall CreateProgressBar(
     .参数 前景色, 整数型, , ARGB颜色
     .参数 背景色, 整数型, , ARGB颜色
     .参数 显示文本, 逻辑型
+    .参数 文本颜色, 整数型, , ARGB颜色
 ```
 
 **易语言使用示例：**
 ```
 .局部变量 进度条句柄, 整数型
 
-' 创建显示百分比的进度条
-进度条句柄 = 创建进度条 (窗口句柄, 50, 80, 400, 30, 0, #409EFF, #EBEEF5, 真)
+' 创建显示百分比的进度条（白色文本）
+进度条句柄 = 创建进度条 (窗口句柄, 50, 80, 400, 30, 0, #409EFF, #EBEEF5, 真, #FFFFFFFF)
 
 ' 创建不显示百分比的进度条
-进度条句柄 = 创建进度条 (窗口句柄, 50, 120, 400, 20, 50, #67C23A, #EBEEF5, 假)
+进度条句柄 = 创建进度条 (窗口句柄, 50, 120, 400, 20, 50, #67C23A, #EBEEF5, 假, #FFFFFFFF)
 ```
 
 #### 设置进度条值
@@ -779,11 +782,11 @@ void __stdcall SetProgressBarShowText(HWND hProgressBar, BOOL show_text);
 
 窗口句柄 = 创建Emoji窗口 ("进度条示例", 600, 400)
 
-' 创建普通进度条（显示百分比）
-进度条1 = 创建进度条 (窗口句柄, 50, 80, 500, 30, 0, #409EFF, #EBEEF5, 真)
+' 创建普通进度条（显示百分比，白色文本）
+进度条1 = 创建进度条 (窗口句柄, 50, 80, 500, 30, 0, #409EFF, #EBEEF5, 真, #FFFFFFFF)
 
 ' 创建不确定模式进度条
-进度条2 = 创建进度条 (窗口句柄, 50, 130, 500, 30, 0, #E6A23C, #EBEEF5, 假)
+进度条2 = 创建进度条 (窗口句柄, 50, 130, 500, 30, 0, #E6A23C, #EBEEF5, 假, #FFFFFFFF)
 设置进度条不确定模式 (进度条2, 真)
 
 ' 设置回调

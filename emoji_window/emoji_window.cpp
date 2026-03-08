@@ -2923,7 +2923,7 @@ void DrawProgressBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, Progres
             text_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
             text_format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
             
-            brush->SetColor(D2D1::ColorF(D2D1::ColorF::White));
+            brush->SetColor(ColorFromUInt32(state->text_color));
             rt->DrawText(
                 text,
                 (UINT32)wcslen(text),
@@ -3035,7 +3035,8 @@ __declspec(dllexport) HWND __stdcall CreateProgressBar(
     int initial_value,
     UINT32 fg_color,
     UINT32 bg_color,
-    BOOL show_text
+    BOOL show_text,
+    UINT32 text_color
 ) {
     if (!hParent) return NULL;
     
@@ -3081,6 +3082,7 @@ __declspec(dllexport) HWND __stdcall CreateProgressBar(
     state->fg_color = fg_color;
     state->bg_color = bg_color;
     state->border_color = 0xFFDCDFE6;  // Element UI 边框色
+    state->text_color = text_color;
     state->show_text = show_text != 0;
     state->font.font_name = L"Microsoft YaHei UI";
     state->font.font_size = 12;
