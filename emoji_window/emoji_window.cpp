@@ -1960,39 +1960,130 @@ LRESULT CALLBACK LabelSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             RECT rect;
             GetClientRect(hwnd, &rect);
             
-            FillRect(hdc, &rect, state->bg_brush);
+            // 使用Direct2D渲染以支持彩色Emoji
+            ID2D1HwndRenderTarget* rt = nullptr;
+            D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties();
+            D2D1_HWND_RENDER_TARGET_PROPERTIES hwnd_props = D2D1::HwndRenderTargetProperties(
+                hwnd,
+                D2D1::SizeU(rect.right - rect.left, rect.bottom - rect.top)
+            );
             
-            SetTextColor(hdc, RGB(
-                (state->fg_color >> 16) & 0xFF,
-                (state->fg_color >> 8) & 0xFF,
-                state->fg_color & 0xFF
-            ));
-            SetBkMode(hdc, TRANSPARENT);
+            if (g_d2d_factory) {
+                g_d2d_factory->CreateHwndRenderTarget(props, hwnd_props, &rt);
+            }
             
-            HFONT hFont = CreateCustomFont(state->font);
-            HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
-            
-            // ✅ 根据 word_wrap 参数决定是否换行
-            UINT format = 0;
-            if (state->word_wrap) {
-                // 换行模式: 使用 DT_WORDBREAK 自动换行
-                format = DT_WORDBREAK;
+            if (rt && g_dwrite_factory) {
+                rt->BeginDraw();
+                
+                // 绘制背景
+                D2D1_COLOR_F bg_color = ColorFromUInt32(state->bg_color);
+                rt->Clear(bg_color);
+                
+                // 创建文本格式（使用Segoe UI Emoji支持彩色Emoji）
+                IDWriteTextFormat* text_format = nullptr;
+                HRESULT hr = g_dwrite_factory->CreateTextFormat(
+                    L"Segoe UI Emoji",  // 使用支持彩色Emoji的字体
+                    nullptr,
+                    state->font.bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
+                    state->font.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
+                    DWRITE_FONT_STRETCH_NORMAL,
+                    (float)state->font.font_size,
+                    L"zh-CN",
+                    &text_format
+                );
+                
+                if (SUCCEEDED(hr) && text_format) {
+                    // 设置对齐方式
+                    switch (state->alignment) {
+                        case ALIGN_LEFT:
+                            text_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+                            break;
+                        case ALIGN_CENTER:
+                            text_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                            break;
+                        case ALIGN_RIGHT:
+                            text_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+                            break;
+                    }
+                    
+                    // 设置垂直对齐
+                    if (state->word_wrap) {
+                        text_format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+                        text_format->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+                    } else {
+                        text_format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+                        text_format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+                    }
+                    
+                    // 创建TextLayout以支持彩色Emoji
+                    IDWriteTextLayout* text_layout = nullptr;
+                    hr = g_dwrite_factory->CreateTextLayout(
+                        state->text.c_str(),
+                        (UINT32)state->text.length(),
+                        text_format,
+                        (float)(rect.right - rect.left),
+                        (float)(rect.bottom - rect.top),
+                        &text_layout
+                    );
+                    
+                    if (SUCCEEDED(hr) && text_layout) {
+                        // 创建画刷
+                        ID2D1SolidColorBrush* brush = nullptr;
+                        D2D1_COLOR_F fg_color = ColorFromUInt32(state->fg_color);
+                        rt->CreateSolidColorBrush(fg_color, &brush);
+                        
+                        if (brush) {
+                            // 绘制文本（启用彩色字体）
+                            rt->DrawTextLayout(
+                                D2D1::Point2F(0, 0),
+                                text_layout,
+                                brush,
+                                D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT  // 启用彩色字体！
+                            );
+                            
+                            brush->Release();
+                        }
+                        
+                        text_layout->Release();
+                    }
+                    
+                    text_format->Release();
+                }
+                
+                rt->EndDraw();
+                rt->Release();
             } else {
-                // 单行模式: 使用 DT_SINGLELINE 和 DT_VCENTER
-                format = DT_VCENTER | DT_SINGLELINE;
+                // 降级到GDI渲染（如果Direct2D不可用）
+                FillRect(hdc, &rect, state->bg_brush);
+                
+                SetTextColor(hdc, RGB(
+                    (state->fg_color >> 16) & 0xFF,
+                    (state->fg_color >> 8) & 0xFF,
+                    state->fg_color & 0xFF
+                ));
+                SetBkMode(hdc, TRANSPARENT);
+                
+                HFONT hFont = CreateCustomFont(state->font);
+                HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
+                
+                UINT format = 0;
+                if (state->word_wrap) {
+                    format = DT_WORDBREAK;
+                } else {
+                    format = DT_VCENTER | DT_SINGLELINE;
+                }
+                
+                switch (state->alignment) {
+                    case ALIGN_LEFT: format |= DT_LEFT; break;
+                    case ALIGN_CENTER: format |= DT_CENTER; break;
+                    case ALIGN_RIGHT: format |= DT_RIGHT; break;
+                }
+                
+                DrawTextW(hdc, state->text.c_str(), -1, &rect, format);
+                
+                SelectObject(hdc, hOldFont);
+                DeleteObject(hFont);
             }
-            
-            // 添加对齐方式
-            switch (state->alignment) {
-                case ALIGN_LEFT: format |= DT_LEFT; break;
-                case ALIGN_CENTER: format |= DT_CENTER; break;
-                case ALIGN_RIGHT: format |= DT_RIGHT; break;
-            }
-            
-            DrawTextW(hdc, state->text.c_str(), -1, &rect, format);
-            
-            SelectObject(hdc, hOldFont);
-            DeleteObject(hFont);
             
             EndPaint(hwnd, &ps);
             return 0;
@@ -4181,13 +4272,13 @@ void DrawListBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ListBoxStat
     brush->SetColor(border_color);
     rt->DrawRectangle(rect, brush, 1.0f);
     
-    // 创建文本格式
+    // 创建文本格式（使用Segoe UI Emoji支持彩色Emoji）
     IDWriteTextFormat* text_format = nullptr;
     HRESULT hr = factory->CreateTextFormat(
-        state->font.font_name.c_str(),
+        L"Segoe UI Emoji",  // 使用支持彩色Emoji的字体
         nullptr,
-        state->font.bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
-        state->font.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_WEIGHT_NORMAL,
+        DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL,
         (float)state->font.font_size,
         L"zh-CN",
@@ -4201,6 +4292,19 @@ void DrawListBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ListBoxStat
     
     text_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
     text_format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    
+    // 创建备用文本格式（用于中文等非Emoji字符）
+    IDWriteTextFormat* fallback_format = nullptr;
+    factory->CreateTextFormat(
+        state->font.font_name.c_str(),
+        nullptr,
+        state->font.bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
+        state->font.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        (float)state->font.font_size,
+        L"zh-CN",
+        &fallback_format
+    );
     
     // 计算可见区域
     int visible_start = state->scroll_offset / state->item_height;
@@ -4238,7 +4342,7 @@ void DrawListBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ListBoxStat
             rt->FillRectangle(item_rect, brush);
         }
         
-        // 绘制文本
+        // 绘制文本（使用TextLayout支持彩色Emoji）
         D2D1_RECT_F text_rect = D2D1::RectF(
             item_rect.left + 12,  // 左边距12px
             item_rect.top,
@@ -4246,15 +4350,33 @@ void DrawListBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ListBoxStat
             item_rect.bottom
         );
         
-        brush->SetColor(fg_color);
-        rt->DrawTextW(
+        // 创建TextLayout以支持彩色Emoji
+        IDWriteTextLayout* text_layout = nullptr;
+        hr = factory->CreateTextLayout(
             state->items[i].text.c_str(),
             (UINT32)state->items[i].text.length(),
             text_format,
-            text_rect,
-            brush
+            text_rect.right - text_rect.left,
+            text_rect.bottom - text_rect.top,
+            &text_layout
         );
+        
+        if (text_layout) {
+            brush->SetColor(fg_color);
+            
+            // 使用DrawTextLayout而不是DrawTextW，这样可以支持彩色Emoji
+            rt->DrawTextLayout(
+                D2D1::Point2F(text_rect.left, text_rect.top),
+                text_layout,
+                brush,
+                D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT  // 启用彩色字体！
+            );
+            
+            text_layout->Release();
+        }
     }
+    
+    if (fallback_format) fallback_format->Release();
     
     text_format->Release();
     brush->Release();
