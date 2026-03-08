@@ -126,3 +126,17 @@ EXPORTS
     SetD2DEditBoxBounds
     SetD2DEditBoxFont
     SetD2DEditBoxColor
+    CreateD2DComboBox
+    AddD2DComboItem
+    RemoveD2DComboItem
+    ClearD2DComboBox
+    GetD2DComboSelectedIndex
+    SetD2DComboSelectedIndex
+    GetD2DComboItemCount
+    GetD2DComboItemText
+    GetD2DComboText
+    SetD2DComboText
+    SetD2DComboBoxCallback
+    EnableD2DComboBox
+    ShowD2DComboBox
+    SetD2DComboBoxBounds

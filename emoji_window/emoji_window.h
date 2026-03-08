@@ -276,6 +276,45 @@ struct ComboBoxState {
     ComboBoxCallback callback;  // 回调函数
 };
 
+
+// D2D组合框状态（完全自定义，支持彩色emoji）
+struct D2DComboBoxState {
+    HWND hwnd;                      // 主控件句柄
+    HWND parent;                    // 父窗口句柄
+    HWND edit_hwnd;                 // D2D编辑框句柄
+    HWND dropdown_hwnd;             // 下拉列表窗口句柄
+    int id;                         // 控件ID
+    int x, y, width, height;        // 位置和尺寸
+    
+    std::vector<std::wstring> items; // 下拉项目
+    int selected_index;             // 当前选中项 (-1表示无选中)
+    int hovered_index;              // 悬停项 (-1表示无悬停)
+    int scroll_offset;              // 滚动偏移量（像素）
+    
+    bool dropdown_visible;          // 下拉列表是否可见
+    bool readonly;                  // 只读模式
+    bool enabled;                   // 启用状态
+    bool button_hovered;            // 下拉按钮悬停状态
+    bool button_pressed;            // 下拉按钮按下状态
+    
+    int item_height;                // 表项高度
+    int button_width;               // 下拉按钮宽度（默认30）
+    int max_dropdown_items;         // 下拉列表最多显示项数（默认10）
+    
+    UINT32 fg_color;                // 前景色
+    UINT32 bg_color;                // 背景色
+    UINT32 select_color;            // 选中背景色
+    UINT32 hover_color;             // 悬停背景色
+    UINT32 border_color;            // 边框颜色
+    UINT32 button_color;            // 按钮颜色
+    
+    FontStyle font;                 // 字体样式
+    ComboBoxCallback callback;      // 回调函数
+    
+    ID2D1HwndRenderTarget* render_target; // D2D渲染目标（用于下拉列表）
+    IDWriteFactory* dwrite_factory;       // DirectWrite工厂
+};
+
 // 热键控件状态
 struct HotKeyState {
     HWND hwnd;                  // 控件句柄
@@ -390,6 +429,7 @@ extern std::map<HWND, RadioButtonState*> g_radiobuttons;
 extern std::map<int, std::vector<HWND>> g_radio_groups;  // 分组管理
 extern std::map<HWND, ListBoxState*> g_listboxes;
 extern std::map<HWND, ComboBoxState*> g_comboboxes;
+extern std::map<HWND, D2DComboBoxState*> g_d2d_comboboxes;
 extern std::map<HWND, HotKeyState*> g_hotkeys;
 extern std::map<HWND, GroupBoxState*> g_groupboxes;
 extern ButtonClickCallback g_button_callback;
@@ -1109,6 +1149,105 @@ extern "C" {
         const unsigned char* text_bytes,
         int text_len
     );
+
+    // ========== D2D组合框功能（支持彩色emoji） ==========
+
+    // 创建D2D组合框
+    __declspec(dllexport) HWND __stdcall CreateD2DComboBox(
+        HWND hParent,
+        int x, int y, int width, int height,
+        BOOL readonly,
+        UINT32 fg_color,
+        UINT32 bg_color,
+        int item_height,
+        const unsigned char* font_name_bytes,
+        int font_name_len,
+        int font_size,
+        BOOL bold,
+        BOOL italic,
+        BOOL underline
+    );
+
+    // 添加D2D组合框项目
+    __declspec(dllexport) int __stdcall AddD2DComboItem(
+        HWND hComboBox,
+        const unsigned char* text_bytes,
+        int text_len
+    );
+
+    // 移除D2D组合框项目
+    __declspec(dllexport) void __stdcall RemoveD2DComboItem(
+        HWND hComboBox,
+        int index
+    );
+
+    // 清空D2D组合框
+    __declspec(dllexport) void __stdcall ClearD2DComboBox(
+        HWND hComboBox
+    );
+
+    // 获取D2D组合框选中项索引
+    __declspec(dllexport) int __stdcall GetD2DComboSelectedIndex(
+        HWND hComboBox
+    );
+
+    // 设置D2D组合框选中项索引
+    __declspec(dllexport) void __stdcall SetD2DComboSelectedIndex(
+        HWND hComboBox,
+        int index
+    );
+
+    // 获取D2D组合框项目数量
+    __declspec(dllexport) int __stdcall GetD2DComboItemCount(
+        HWND hComboBox
+    );
+
+    // 获取D2D组合框项目文本
+    __declspec(dllexport) int __stdcall GetD2DComboItemText(
+        HWND hComboBox,
+        int index,
+        unsigned char* buffer,
+        int buffer_size
+    );
+
+    // 获取D2D组合框编辑框文本
+    __declspec(dllexport) int __stdcall GetD2DComboText(
+        HWND hComboBox,
+        unsigned char* buffer,
+        int buffer_size
+    );
+
+    // 设置D2D组合框编辑框文本
+    __declspec(dllexport) void __stdcall SetD2DComboText(
+        HWND hComboBox,
+        const unsigned char* text_bytes,
+        int text_len
+    );
+
+    // 设置D2D组合框回调
+    __declspec(dllexport) void __stdcall SetD2DComboBoxCallback(
+        HWND hComboBox,
+        ComboBoxCallback callback
+    );
+
+    // 启用/禁用D2D组合框
+    __declspec(dllexport) void __stdcall EnableD2DComboBox(
+        HWND hComboBox,
+        BOOL enable
+    );
+
+    // 显示/隐藏D2D组合框
+    __declspec(dllexport) void __stdcall ShowD2DComboBox(
+        HWND hComboBox,
+        BOOL show
+    );
+
+    // 设置D2D组合框位置和大小
+    __declspec(dllexport) void __stdcall SetD2DComboBoxBounds(
+        HWND hComboBox,
+        int x, int y, int width, int height
+    );
+
 
     // ========== 热键控件功能 ==========
 
