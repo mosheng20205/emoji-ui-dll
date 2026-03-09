@@ -20,6 +20,7 @@ std::map<HWND, ComboBoxState*> g_comboboxes;
 std::map<HWND, HotKeyState*> g_hotkeys;
 std::map<HWND, GroupBoxState*> g_groupboxes;
 std::map<HWND, DataGridViewState*> g_datagrids;
+std::map<HWND, LayoutManager*> g_layout_managers;
 ButtonClickCallback g_button_callback = nullptr;
 WindowResizeCallback g_window_resize_callback = nullptr;
 WindowCloseCallback g_window_close_callback = nullptr;
@@ -480,6 +481,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             UINT width = LOWORD(lparam);
             UINT height = HIWORD(lparam);
             state->render_target->Resize(D2D1::SizeU(width, height));
+
+            // 自动触发布局管理器更新
+            auto lm_it = g_layout_managers.find(hwnd);
+            if (lm_it != g_layout_managers.end()) {
+                UpdateLayout(hwnd);
+            }
 
             if (g_window_resize_callback) {
                 g_window_resize_callback(hwnd, (int)width, (int)height);
@@ -10211,6 +10218,376 @@ __declspec(dllexport) void __stdcall SetCharCallback(HWND hControl, CharCallback
 __declspec(dllexport) void __stdcall SetValueChangedCallback(HWND hControl, ValueChangedCallback callback) {
     EventCallbacks* ec = FindEventCallbacks(hControl);
     if (ec) ec->on_value_changed = callback;
+}
+
+// ========== 布局管理器实现 ==========
+
+} // extern "C" (event callbacks block end)
+
+// 流式布局计算（水平/垂直）
+void CalculateFlowLayout(LayoutManager* lm, int client_width, int client_height) {
+    int x = lm->padding_left;
+    int y = lm->padding_top;
+    int available_width = client_width - lm->padding_left - lm->padding_right;
+    int available_height = client_height - lm->padding_top - lm->padding_bottom;
+    int line_max_size = 0;  // 当前行/列中最大的控件尺寸（用于换行/换列）
+
+    for (HWND hChild : lm->control_order) {
+        if (!IsWindow(hChild) || !IsWindowVisible(hChild)) continue;
+
+        auto prop_it = lm->control_props.find(hChild);
+        LayoutProperties props = {};
+        if (prop_it != lm->control_props.end()) {
+            props = prop_it->second;
+        }
+
+        RECT rc;
+        GetWindowRect(hChild, &rc);
+        HWND hParent = GetParent(hChild);
+        MapWindowPoints(HWND_DESKTOP, hParent, (LPPOINT)&rc, 2);
+        int cw = rc.right - rc.left;
+        int ch = rc.bottom - rc.top;
+
+        if (lm->type == LAYOUT_FLOW_HORIZONTAL) {
+            // 水平流式：检查是否需要换行
+            int needed_width = props.margin_left + cw + props.margin_right;
+            if (x + needed_width > lm->padding_left + available_width && x > lm->padding_left) {
+                // 换行
+                x = lm->padding_left;
+                y += line_max_size + lm->spacing;
+                line_max_size = 0;
+            }
+
+            int ctrl_x = x + props.margin_left;
+            int ctrl_y = y + props.margin_top;
+            int ctrl_h = props.stretch_vertical ? (available_height - props.margin_top - props.margin_bottom) : ch;
+
+            SetWindowPos(hChild, nullptr, ctrl_x, ctrl_y, cw, ctrl_h, SWP_NOZORDER | SWP_NOACTIVATE);
+
+            int total_h = props.margin_top + ctrl_h + props.margin_bottom;
+            if (total_h > line_max_size) line_max_size = total_h;
+            x += needed_width + lm->spacing;
+        } else {
+            // 垂直流式：检查是否需要换列
+            int needed_height = props.margin_top + ch + props.margin_bottom;
+            if (y + needed_height > lm->padding_top + available_height && y > lm->padding_top) {
+                // 换列
+                y = lm->padding_top;
+                x += line_max_size + lm->spacing;
+                line_max_size = 0;
+            }
+
+            int ctrl_x = x + props.margin_left;
+            int ctrl_y = y + props.margin_top;
+            int ctrl_w = props.stretch_horizontal ? (available_width - props.margin_left - props.margin_right) : cw;
+
+            SetWindowPos(hChild, nullptr, ctrl_x, ctrl_y, ctrl_w, ch, SWP_NOZORDER | SWP_NOACTIVATE);
+
+            int total_w = props.margin_left + ctrl_w + props.margin_right;
+            if (total_w > line_max_size) line_max_size = total_w;
+            y += needed_height + lm->spacing;
+        }
+    }
+}
+
+// 网格布局计算
+void CalculateGridLayout(LayoutManager* lm, int client_width, int client_height) {
+    if (lm->rows <= 0 || lm->columns <= 0) return;
+
+    int available_width = client_width - lm->padding_left - lm->padding_right;
+    int available_height = client_height - lm->padding_top - lm->padding_bottom;
+
+    // 计算每个单元格的大小（减去间距）
+    int total_h_spacing = (lm->columns - 1) * lm->spacing;
+    int total_v_spacing = (lm->rows - 1) * lm->spacing;
+    int cell_width = (available_width - total_h_spacing) / lm->columns;
+    int cell_height = (available_height - total_v_spacing) / lm->rows;
+
+    if (cell_width < 0) cell_width = 0;
+    if (cell_height < 0) cell_height = 0;
+
+    int index = 0;
+    for (HWND hChild : lm->control_order) {
+        if (!IsWindow(hChild) || !IsWindowVisible(hChild)) continue;
+
+        int row = index / lm->columns;
+        int col = index % lm->columns;
+        if (row >= lm->rows) break;  // 超出网格范围
+
+        auto prop_it = lm->control_props.find(hChild);
+        LayoutProperties props = {};
+        if (prop_it != lm->control_props.end()) {
+            props = prop_it->second;
+        }
+
+        int cell_x = lm->padding_left + col * (cell_width + lm->spacing);
+        int cell_y = lm->padding_top + row * (cell_height + lm->spacing);
+
+        // 在单元格内应用边距
+        int ctrl_x = cell_x + props.margin_left;
+        int ctrl_y = cell_y + props.margin_top;
+        int ctrl_w, ctrl_h;
+
+        if (props.stretch_horizontal) {
+            ctrl_w = cell_width - props.margin_left - props.margin_right;
+        } else {
+            RECT rc;
+            GetWindowRect(hChild, &rc);
+            ctrl_w = rc.right - rc.left;
+        }
+
+        if (props.stretch_vertical) {
+            ctrl_h = cell_height - props.margin_top - props.margin_bottom;
+        } else {
+            RECT rc;
+            GetWindowRect(hChild, &rc);
+            ctrl_h = rc.bottom - rc.top;
+        }
+
+        if (ctrl_w < 0) ctrl_w = 0;
+        if (ctrl_h < 0) ctrl_h = 0;
+
+        SetWindowPos(hChild, nullptr, ctrl_x, ctrl_y, ctrl_w, ctrl_h, SWP_NOZORDER | SWP_NOACTIVATE);
+        index++;
+    }
+}
+
+// 停靠布局计算
+void CalculateDockLayout(LayoutManager* lm, int client_width, int client_height) {
+    // 可用区域（被停靠控件逐步缩小）
+    int left = lm->padding_left;
+    int top = lm->padding_top;
+    int right = client_width - lm->padding_right;
+    int bottom = client_height - lm->padding_bottom;
+
+    // 收集FILL控件（最后处理）
+    std::vector<HWND> fill_controls;
+
+    for (HWND hChild : lm->control_order) {
+        if (!IsWindow(hChild) || !IsWindowVisible(hChild)) continue;
+
+        auto prop_it = lm->control_props.find(hChild);
+        LayoutProperties props = {};
+        if (prop_it != lm->control_props.end()) {
+            props = prop_it->second;
+        }
+
+        if (props.dock == DOCK_FILL) {
+            fill_controls.push_back(hChild);
+            continue;
+        }
+
+        RECT rc;
+        GetWindowRect(hChild, &rc);
+        int cw = rc.right - rc.left;
+        int ch = rc.bottom - rc.top;
+
+        int ctrl_x, ctrl_y, ctrl_w, ctrl_h;
+
+        switch (props.dock) {
+        case DOCK_TOP:
+            ctrl_x = left + props.margin_left;
+            ctrl_y = top + props.margin_top;
+            ctrl_w = (right - left) - props.margin_left - props.margin_right;
+            ctrl_h = ch;
+            if (ctrl_w < 0) ctrl_w = 0;
+            SetWindowPos(hChild, nullptr, ctrl_x, ctrl_y, ctrl_w, ctrl_h, SWP_NOZORDER | SWP_NOACTIVATE);
+            top += props.margin_top + ctrl_h + props.margin_bottom + lm->spacing;
+            break;
+
+        case DOCK_BOTTOM:
+            ctrl_w = (right - left) - props.margin_left - props.margin_right;
+            ctrl_h = ch;
+            ctrl_x = left + props.margin_left;
+            ctrl_y = bottom - props.margin_bottom - ctrl_h;
+            if (ctrl_w < 0) ctrl_w = 0;
+            SetWindowPos(hChild, nullptr, ctrl_x, ctrl_y, ctrl_w, ctrl_h, SWP_NOZORDER | SWP_NOACTIVATE);
+            bottom -= props.margin_bottom + ctrl_h + props.margin_top + lm->spacing;
+            break;
+
+        case DOCK_LEFT:
+            ctrl_x = left + props.margin_left;
+            ctrl_y = top + props.margin_top;
+            ctrl_w = cw;
+            ctrl_h = (bottom - top) - props.margin_top - props.margin_bottom;
+            if (ctrl_h < 0) ctrl_h = 0;
+            SetWindowPos(hChild, nullptr, ctrl_x, ctrl_y, ctrl_w, ctrl_h, SWP_NOZORDER | SWP_NOACTIVATE);
+            left += props.margin_left + ctrl_w + props.margin_right + lm->spacing;
+            break;
+
+        case DOCK_RIGHT:
+            ctrl_w = cw;
+            ctrl_h = (bottom - top) - props.margin_top - props.margin_bottom;
+            ctrl_x = right - props.margin_right - ctrl_w;
+            ctrl_y = top + props.margin_top;
+            if (ctrl_h < 0) ctrl_h = 0;
+            SetWindowPos(hChild, nullptr, ctrl_x, ctrl_y, ctrl_w, ctrl_h, SWP_NOZORDER | SWP_NOACTIVATE);
+            right -= props.margin_right + ctrl_w + props.margin_left + lm->spacing;
+            break;
+
+        default:
+            // DOCK_NONE - 不处理
+            break;
+        }
+    }
+
+    // 处理FILL控件 - 填充剩余空间
+    for (HWND hChild : fill_controls) {
+        auto prop_it = lm->control_props.find(hChild);
+        LayoutProperties props = {};
+        if (prop_it != lm->control_props.end()) {
+            props = prop_it->second;
+        }
+
+        int ctrl_x = left + props.margin_left;
+        int ctrl_y = top + props.margin_top;
+        int ctrl_w = (right - left) - props.margin_left - props.margin_right;
+        int ctrl_h = (bottom - top) - props.margin_top - props.margin_bottom;
+        if (ctrl_w < 0) ctrl_w = 0;
+        if (ctrl_h < 0) ctrl_h = 0;
+
+        SetWindowPos(hChild, nullptr, ctrl_x, ctrl_y, ctrl_w, ctrl_h, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+}
+
+// 设置窗口的布局管理器
+extern "C" {
+
+__declspec(dllexport) void __stdcall SetLayoutManager(
+    HWND hParent, int layout_type, int rows, int columns, int spacing)
+{
+    if (!IsWindow(hParent)) return;
+
+    // 如果已有布局管理器，先删除
+    auto it = g_layout_managers.find(hParent);
+    if (it != g_layout_managers.end()) {
+        delete it->second;
+        g_layout_managers.erase(it);
+    }
+
+    if (layout_type == LAYOUT_NONE) return;
+
+    LayoutManager* lm = new LayoutManager();
+    lm->parent_hwnd = hParent;
+    lm->type = (LayoutType)layout_type;
+    lm->rows = rows;
+    lm->columns = columns;
+    lm->spacing = spacing;
+    g_layout_managers[hParent] = lm;
+}
+
+// 设置布局管理器的内边距
+__declspec(dllexport) void __stdcall SetLayoutPadding(
+    HWND hParent, int padding_left, int padding_top, int padding_right, int padding_bottom)
+{
+    auto it = g_layout_managers.find(hParent);
+    if (it == g_layout_managers.end()) return;
+
+    LayoutManager* lm = it->second;
+    lm->padding_left = padding_left;
+    lm->padding_top = padding_top;
+    lm->padding_right = padding_right;
+    lm->padding_bottom = padding_bottom;
+}
+
+// 设置控件的布局属性
+__declspec(dllexport) void __stdcall SetControlLayoutProps(
+    HWND hControl, int margin_left, int margin_top, int margin_right, int margin_bottom,
+    int dock_position, BOOL stretch_horizontal, BOOL stretch_vertical)
+{
+    if (!IsWindow(hControl)) return;
+
+    HWND hParent = GetParent(hControl);
+    if (!hParent) return;
+
+    auto it = g_layout_managers.find(hParent);
+    if (it == g_layout_managers.end()) return;
+
+    LayoutManager* lm = it->second;
+    LayoutProperties& props = lm->control_props[hControl];
+    props.margin_left = margin_left;
+    props.margin_top = margin_top;
+    props.margin_right = margin_right;
+    props.margin_bottom = margin_bottom;
+    props.dock = (DockPosition)dock_position;
+    props.stretch_horizontal = stretch_horizontal ? true : false;
+    props.stretch_vertical = stretch_vertical ? true : false;
+}
+
+// 将控件添加到布局管理器
+__declspec(dllexport) void __stdcall AddControlToLayout(HWND hParent, HWND hControl) {
+    if (!IsWindow(hParent) || !IsWindow(hControl)) return;
+
+    auto it = g_layout_managers.find(hParent);
+    if (it == g_layout_managers.end()) return;
+
+    LayoutManager* lm = it->second;
+
+    // 检查是否已添加
+    for (HWND h : lm->control_order) {
+        if (h == hControl) return;
+    }
+
+    lm->control_order.push_back(hControl);
+
+    // 如果没有布局属性，添加默认属性
+    if (lm->control_props.find(hControl) == lm->control_props.end()) {
+        lm->control_props[hControl] = LayoutProperties();
+    }
+}
+
+// 从布局管理器移除控件
+__declspec(dllexport) void __stdcall RemoveControlFromLayout(HWND hParent, HWND hControl) {
+    auto it = g_layout_managers.find(hParent);
+    if (it == g_layout_managers.end()) return;
+
+    LayoutManager* lm = it->second;
+
+    // 从顺序列表中移除
+    auto order_it = std::find(lm->control_order.begin(), lm->control_order.end(), hControl);
+    if (order_it != lm->control_order.end()) {
+        lm->control_order.erase(order_it);
+    }
+
+    // 从属性map中移除
+    lm->control_props.erase(hControl);
+}
+
+// 立即重新计算布局
+__declspec(dllexport) void __stdcall UpdateLayout(HWND hParent) {
+    auto it = g_layout_managers.find(hParent);
+    if (it == g_layout_managers.end()) return;
+
+    LayoutManager* lm = it->second;
+
+    RECT rc;
+    GetClientRect(hParent, &rc);
+    int client_width = rc.right - rc.left;
+    int client_height = rc.bottom - rc.top;
+
+    switch (lm->type) {
+    case LAYOUT_FLOW_HORIZONTAL:
+    case LAYOUT_FLOW_VERTICAL:
+        CalculateFlowLayout(lm, client_width, client_height);
+        break;
+    case LAYOUT_GRID:
+        CalculateGridLayout(lm, client_width, client_height);
+        break;
+    case LAYOUT_DOCK:
+        CalculateDockLayout(lm, client_width, client_height);
+        break;
+    default:
+        break;
+    }
+}
+
+// 移除窗口的布局管理器
+__declspec(dllexport) void __stdcall RemoveLayoutManager(HWND hParent) {
+    auto it = g_layout_managers.find(hParent);
+    if (it != g_layout_managers.end()) {
+        delete it->second;
+        g_layout_managers.erase(it);
+    }
 }
 
 } // extern "C"

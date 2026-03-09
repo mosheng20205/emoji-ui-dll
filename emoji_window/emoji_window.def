@@ -191,3 +191,10 @@ EXPORTS
     SetKeyUpCallback
     SetCharCallback
     SetValueChangedCallback
+    SetLayoutManager
+    SetLayoutPadding
+    SetControlLayoutProps
+    AddControlToLayout
+    RemoveControlFromLayout
+    UpdateLayout
+    RemoveLayoutManager

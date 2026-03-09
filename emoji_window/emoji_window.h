@@ -624,6 +624,52 @@ struct TabControlState {
     TAB_CALLBACK callback;          // 切换回调函数
 };
 
+// ========== 布局管理器 ==========
+
+enum LayoutType {
+    LAYOUT_NONE = 0,
+    LAYOUT_FLOW_HORIZONTAL = 1,     // 水平流式布局
+    LAYOUT_FLOW_VERTICAL = 2,       // 垂直流式布局
+    LAYOUT_GRID = 3,                // 网格布局
+    LAYOUT_DOCK = 4                 // 停靠布局
+};
+
+enum DockPosition {
+    DOCK_NONE = 0,
+    DOCK_TOP = 1,
+    DOCK_BOTTOM = 2,
+    DOCK_LEFT = 3,
+    DOCK_RIGHT = 4,
+    DOCK_FILL = 5
+};
+
+struct LayoutProperties {
+    int margin_left = 0;
+    int margin_top = 0;
+    int margin_right = 0;
+    int margin_bottom = 0;
+    DockPosition dock = DOCK_NONE;
+    bool stretch_horizontal = false;
+    bool stretch_vertical = false;
+    int order = 0;  // 控件在布局中的顺序
+};
+
+struct LayoutManager {
+    HWND parent_hwnd = nullptr;
+    LayoutType type = LAYOUT_NONE;
+    int rows = 0;
+    int columns = 0;
+    int spacing = 0;
+    int padding_left = 0;
+    int padding_top = 0;
+    int padding_right = 0;
+    int padding_bottom = 0;
+    std::map<HWND, LayoutProperties> control_props;
+    std::vector<HWND> control_order;  // 按添加顺序排列的控件列表
+};
+
+extern std::map<HWND, LayoutManager*> g_layout_managers;
+
 // Global variables
 extern std::map<HWND, WindowState*> g_windows;
 extern std::map<HWND, MsgBoxState*> g_msgboxes;
@@ -1878,6 +1924,57 @@ extern "C" {
 
     // 设置值改变回调
     __declspec(dllexport) void __stdcall SetValueChangedCallback(HWND hControl, ValueChangedCallback callback);
+
+    // ========== 布局管理器功能 ==========
+
+    // 设置窗口的布局管理器
+    // layout_type: 0=无, 1=水平流式, 2=垂直流式, 3=网格, 4=停靠
+    __declspec(dllexport) void __stdcall SetLayoutManager(
+        HWND hParent,
+        int layout_type,
+        int rows,
+        int columns,
+        int spacing
+    );
+
+    // 设置布局管理器的内边距
+    __declspec(dllexport) void __stdcall SetLayoutPadding(
+        HWND hParent,
+        int padding_left,
+        int padding_top,
+        int padding_right,
+        int padding_bottom
+    );
+
+    // 设置控件的布局属性
+    __declspec(dllexport) void __stdcall SetControlLayoutProps(
+        HWND hControl,
+        int margin_left,
+        int margin_top,
+        int margin_right,
+        int margin_bottom,
+        int dock_position,
+        BOOL stretch_horizontal,
+        BOOL stretch_vertical
+    );
+
+    // 将控件添加到布局管理器
+    __declspec(dllexport) void __stdcall AddControlToLayout(
+        HWND hParent,
+        HWND hControl
+    );
+
+    // 从布局管理器移除控件
+    __declspec(dllexport) void __stdcall RemoveControlFromLayout(
+        HWND hParent,
+        HWND hControl
+    );
+
+    // 立即重新计算布局
+    __declspec(dllexport) void __stdcall UpdateLayout(HWND hParent);
+
+    // 移除窗口的布局管理器
+    __declspec(dllexport) void __stdcall RemoveLayoutManager(HWND hParent);
 }
 
 // Internal functions
@@ -1917,3 +2014,8 @@ void CloseMessageBox(HWND hwnd, bool result);
 // TabControl 内部辅助函数
 void UpdateTabLayout(TabControlState* state);
 LRESULT CALLBACK TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+
+// 布局管理器内部函数
+void CalculateFlowLayout(LayoutManager* lm, int client_width, int client_height);
+void CalculateGridLayout(LayoutManager* lm, int client_width, int client_height);
+void CalculateDockLayout(LayoutManager* lm, int client_width, int client_height);
