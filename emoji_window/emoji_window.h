@@ -7,6 +7,7 @@
 #include <uxtheme.h>
 #include <wincodec.h>  // WIC (Windows Imaging Component)
 #include <richedit.h>  // RichEdit控件（支持彩色emoji）
+#include <dwmapi.h>    // DWM (Desktop Window Manager) - 自定义标题栏
 #include <string>
 #include <vector>
 #include <map>
@@ -16,6 +17,7 @@
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "uxtheme.lib")
 #pragma comment(lib, "windowscodecs.lib")  // WIC库
+#pragma comment(lib, "dwmapi.lib")         // DWM库
 
 // Button click callback type (stdcall)
 typedef void (__stdcall *ButtonClickCallback)(int button_id);
@@ -186,6 +188,7 @@ struct LabelState {
     HWND hwnd;                  // 标签句柄
     HWND parent;                // 父窗口句柄
     int id;                     // 控件ID
+    int x, y, width, height;    // 位置和尺寸
     std::wstring text;          // 文本内容
     UINT32 fg_color;            // 前景色 (ARGB)
     UINT32 bg_color;            // 背景色 (ARGB)
@@ -193,6 +196,8 @@ struct LabelState {
     TextAlignment alignment;    // 文字对齐
     HBRUSH bg_brush;            // 背景画刷（避免每次创建）
     bool word_wrap;             // 是否换行显示
+    bool parent_drawn = false;  // 是否改为父窗口统一绘制
+    bool visible = true;        // 父绘制模式下的可见状态
     EventCallbacks events;      // 通用事件回调
 };
 
@@ -588,6 +593,13 @@ struct WindowState {
     ID2D1HwndRenderTarget* render_target;
     IDWriteFactory* dwrite_factory;
     std::vector<EmojiButton> buttons;
+    // 自定义标题栏支持
+    std::wstring title;           // 窗口标题（用于D2D彩色emoji绘制）
+    UINT32 titlebar_color = 0;    // 标题栏背景色（0=跟随主题）
+    int titlebar_height = 30;     // 标题栏高度（像素）
+    bool custom_titlebar = true;  // 是否启用自定义标题栏
+    int hovered_titlebar_button = 0; // 0=无 1=最小化 2=最大化 3=关闭
+    bool titlebar_mouse_tracking = false;
 };
 
 // Message box button type
@@ -775,6 +787,9 @@ extern WindowCloseCallback g_window_close_callback;
 // Export functions (stdcall calling convention)
 extern "C" {
     __declspec(dllexport) HWND __stdcall create_window(const char* title, int width, int height);
+    __declspec(dllexport) HWND __stdcall create_window_bytes(const unsigned char* title_bytes, int title_len, int width, int height);
+    __declspec(dllexport) HWND __stdcall create_window_bytes_ex(const unsigned char* title_bytes, int title_len, int width, int height, UINT32 titlebar_color);
+    __declspec(dllexport) void __stdcall set_window_titlebar_color(HWND hwnd, UINT32 color);
 
     __declspec(dllexport) int __stdcall create_emoji_button_bytes(
         HWND parent,
@@ -2156,6 +2171,6 @@ void UpdateTabLayout(TabControlState* state);
 LRESULT CALLBACK TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
 
 // 布局管理器内部函数
-void CalculateFlowLayout(LayoutManager* lm, int client_width, int client_height);
-void CalculateGridLayout(LayoutManager* lm, int client_width, int client_height);
-void CalculateDockLayout(LayoutManager* lm, int client_width, int client_height);
+void CalculateFlowLayout(LayoutManager* lm, int client_width, int client_height, HDWP* hdwp);
+void CalculateGridLayout(LayoutManager* lm, int client_width, int client_height, HDWP* hdwp);
+void CalculateDockLayout(LayoutManager* lm, int client_width, int client_height, HDWP* hdwp);

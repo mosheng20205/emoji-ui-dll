@@ -1,6 +1,7 @@
 LIBRARY emoji_window
 EXPORTS
     create_window
+    create_window_bytes
     create_emoji_button_bytes
     set_button_click_callback
     run_message_loop
@@ -210,3 +211,5 @@ EXPORTS
     IsDarkMode
     EW_GetCurrentThemeName
     SetThemeChangedCallback
+    create_window_bytes_ex
+    set_window_titlebar_color

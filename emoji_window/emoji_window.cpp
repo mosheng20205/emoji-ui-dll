@@ -309,6 +309,212 @@ UINT32 DarkenColor(UINT32 color, float factor) {
     return (a << 24) | (r << 16) | (g << 8) | b;
 }
 
+// ========== 自定义标题栏辅助函数 ==========
+
+struct WindowCreateInit {
+    std::wstring title;
+    UINT32 titlebar_color = 0;
+    bool custom_titlebar = true;
+};
+
+enum TitleBarButtonType {
+    TITLEBAR_BUTTON_NONE = 0,
+    TITLEBAR_BUTTON_MINIMIZE,
+    TITLEBAR_BUTTON_MAXIMIZE,
+    TITLEBAR_BUTTON_CLOSE
+};
+
+static void GetTitleBarButtonRects(WindowState* state, RECT* min_rect, RECT* max_rect, RECT* close_rect) {
+    RECT rc = {};
+    GetClientRect(state->hwnd, &rc);
+    int btn_w = 44;
+    int btn_h = state->titlebar_height;
+
+    if (close_rect) {
+        close_rect->left = rc.right - btn_w;
+        close_rect->top = 0;
+        close_rect->right = rc.right;
+        close_rect->bottom = btn_h;
+    }
+    if (max_rect) {
+        max_rect->left = rc.right - btn_w * 2;
+        max_rect->top = 0;
+        max_rect->right = rc.right - btn_w;
+        max_rect->bottom = btn_h;
+    }
+    if (min_rect) {
+        min_rect->left = rc.right - btn_w * 3;
+        min_rect->top = 0;
+        min_rect->right = rc.right - btn_w * 2;
+        min_rect->bottom = btn_h;
+    }
+}
+
+static TitleBarButtonType HitTestTitleBarButton(WindowState* state, POINT pt) {
+    RECT min_rect = {}, max_rect = {}, close_rect = {};
+    GetTitleBarButtonRects(state, &min_rect, &max_rect, &close_rect);
+    if (PtInRect(&close_rect, pt)) return TITLEBAR_BUTTON_CLOSE;
+    if (PtInRect(&max_rect, pt)) return TITLEBAR_BUTTON_MAXIMIZE;
+    if (PtInRect(&min_rect, pt)) return TITLEBAR_BUTTON_MINIMIZE;
+    return TITLEBAR_BUTTON_NONE;
+}
+
+static TitleBarButtonType HitTestTitleBarButtonFromScreen(WindowState* state, LPARAM lparam) {
+    POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
+    ScreenToClient(state->hwnd, &pt);
+    return HitTestTitleBarButton(state, pt);
+}
+
+// 获取父窗口的标题栏偏移量（如果有自定义标题栏）
+static int GetTitleBarOffset(HWND hParent) {
+    auto it = g_windows.find(hParent);
+    if (it != g_windows.end() && it->second->custom_titlebar) {
+        return it->second->titlebar_height;
+    }
+    return 0;
+}
+
+// 绘制自定义标题栏（D2D彩色emoji支持）
+void DrawWindowTitleBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, WindowState* state) {
+    if (!state->custom_titlebar) return;
+
+    RECT rc;
+    GetClientRect(state->hwnd, &rc);
+    float width = (float)(rc.right - rc.left);
+    float tb_h = (float)state->titlebar_height;
+
+    // 1. 标题栏背景色
+    UINT32 bg = state->titlebar_color;
+    if (bg == 0) bg = ThemeColor_BackgroundLight();  // 跟随主题
+    bg &= 0x00FFFFFF;  // 去掉alpha
+
+    ID2D1SolidColorBrush* bg_brush = nullptr;
+    rt->CreateSolidColorBrush(D2D1::ColorF(
+        ((bg >> 16) & 0xFF) / 255.0f,
+        ((bg >> 8) & 0xFF) / 255.0f,
+        (bg & 0xFF) / 255.0f,
+        1.0f), &bg_brush);
+    rt->FillRectangle(D2D1::RectF(0, 0, width, tb_h), bg_brush);
+    bg_brush->Release();
+
+    // 1.5 绘制标题栏按钮（最小化/最大化/关闭）
+    RECT min_rect = {}, max_rect = {}, close_rect = {};
+    GetTitleBarButtonRects(state, &min_rect, &max_rect, &close_rect);
+
+    UINT32 hover_bg = IsDarkMode() ? LightenColor(bg | 0xFF000000, 1.18f) : DarkenColor(bg | 0xFF000000, 0.92f);
+    hover_bg &= 0x00FFFFFF;
+
+    auto fill_rect = [&](RECT r, UINT32 color) {
+        ID2D1SolidColorBrush* b = nullptr;
+        rt->CreateSolidColorBrush(D2D1::ColorF(
+            ((color >> 16) & 0xFF) / 255.0f,
+            ((color >> 8) & 0xFF) / 255.0f,
+            (color & 0xFF) / 255.0f,
+            1.0f), &b);
+        rt->FillRectangle(D2D1::RectF((FLOAT)r.left, (FLOAT)r.top, (FLOAT)r.right, (FLOAT)r.bottom), b);
+        b->Release();
+    };
+
+    if (state->hovered_titlebar_button == TITLEBAR_BUTTON_MINIMIZE) fill_rect(min_rect, hover_bg);
+    if (state->hovered_titlebar_button == TITLEBAR_BUTTON_MAXIMIZE) fill_rect(max_rect, hover_bg);
+    if (state->hovered_titlebar_button == TITLEBAR_BUTTON_CLOSE) fill_rect(close_rect, 0xE81123);
+
+    ID2D1SolidColorBrush* icon_brush = nullptr;
+    UINT32 icon_fg = ThemeColor_TextPrimary() & 0x00FFFFFF;
+    rt->CreateSolidColorBrush(D2D1::ColorF(
+        ((icon_fg >> 16) & 0xFF) / 255.0f,
+        ((icon_fg >> 8) & 0xFF) / 255.0f,
+        (icon_fg & 0xFF) / 255.0f,
+        1.0f), &icon_brush);
+
+    ID2D1SolidColorBrush* close_brush = nullptr;
+    UINT32 close_icon_fg = (state->hovered_titlebar_button == TITLEBAR_BUTTON_CLOSE) ? 0xFFFFFF : 0xE81123;
+    rt->CreateSolidColorBrush(D2D1::ColorF(
+        ((close_icon_fg >> 16) & 0xFF) / 255.0f,
+        ((close_icon_fg >> 8) & 0xFF) / 255.0f,
+        (close_icon_fg & 0xFF) / 255.0f,
+        1.0f), &close_brush);
+
+    // 最小化图标
+    rt->DrawLine(
+        D2D1::Point2F((FLOAT)min_rect.left + 15.0f, tb_h / 2 + 4.5f),
+        D2D1::Point2F((FLOAT)min_rect.right - 15.0f, tb_h / 2 + 4.5f),
+        icon_brush,
+        1.0f);
+
+    // 最大化/还原图标
+    bool is_zoomed = IsZoomed(state->hwnd) ? true : false;
+    if (!is_zoomed) {
+        rt->DrawRectangle(
+            D2D1::RectF((FLOAT)max_rect.left + 15.5f, 9.0f, (FLOAT)max_rect.right - 15.5f, tb_h - 9.0f),
+            icon_brush,
+            1.0f);
+    } else {
+        rt->DrawRectangle(
+            D2D1::RectF((FLOAT)max_rect.left + 18.0f, 10.0f, (FLOAT)max_rect.right - 12.5f, tb_h - 10.5f),
+            icon_brush,
+            0.95f);
+        rt->DrawRectangle(
+            D2D1::RectF((FLOAT)max_rect.left + 12.5f, 13.5f, (FLOAT)max_rect.right - 18.0f, tb_h - 7.0f),
+            icon_brush,
+            0.95f);
+    }
+
+    // 关闭图标
+    rt->DrawLine(
+        D2D1::Point2F((FLOAT)close_rect.left + 16.0f, 9.0f),
+        D2D1::Point2F((FLOAT)close_rect.right - 16.0f, tb_h - 9.0f),
+        close_brush,
+        1.2f);
+    rt->DrawLine(
+        D2D1::Point2F((FLOAT)close_rect.left + 16.0f, tb_h - 9.0f),
+        D2D1::Point2F((FLOAT)close_rect.right - 16.0f, 9.0f),
+        close_brush,
+        1.2f);
+
+    close_brush->Release();
+    icon_brush->Release();
+
+    // 2. 标题文本（彩色emoji）
+    if (!state->title.empty()) {
+        IDWriteTextFormat* fmt = nullptr;
+        factory->CreateTextFormat(
+            L"Segoe UI Emoji",
+            nullptr,
+            DWRITE_FONT_WEIGHT_NORMAL,
+            DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL,
+            13.0f,
+            L"zh-CN",
+            &fmt);
+        if (fmt) {
+            fmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+            fmt->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
+            UINT32 fg = ThemeColor_TextPrimary() & 0x00FFFFFF;
+            ID2D1SolidColorBrush* text_brush = nullptr;
+            rt->CreateSolidColorBrush(D2D1::ColorF(
+                ((fg >> 16) & 0xFF) / 255.0f,
+                ((fg >> 8) & 0xFF) / 255.0f,
+                (fg & 0xFF) / 255.0f,
+                1.0f), &text_brush);
+
+            // 左侧留10px边距，右侧留136px给标题栏按钮
+            D2D1_RECT_F text_rect = D2D1::RectF(10.0f, 0, width - 136.0f, tb_h);
+            rt->DrawText(
+                state->title.c_str(),
+                (UINT32)state->title.length(),
+                fmt,
+                text_rect,
+                text_brush,
+                D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+
+            text_brush->Release();
+            fmt->Release();
+        }
+    }
+}
+
 // Draw button (Element UI style - supports both main window buttons and message box buttons)
 void DrawButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, const EmojiButton& button) {
     // ========== Calculate button color based on state (Element UI style) ==========
@@ -531,18 +737,243 @@ void DrawButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, const EmojiB
     text_brush->Release();
 }
 
+static void DrawParentLabel(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, LabelState* state) {
+    if (!rt || !factory || !state || !state->visible) return;
+
+    D2D1_RECT_F rect = D2D1::RectF(
+        (FLOAT)state->x,
+        (FLOAT)state->y,
+        (FLOAT)(state->x + state->width),
+        (FLOAT)(state->y + state->height)
+    );
+
+    ID2D1SolidColorBrush* bg_brush = nullptr;
+    ID2D1SolidColorBrush* text_brush = nullptr;
+    IDWriteTextFormat* text_format = nullptr;
+    IDWriteTextLayout* text_layout = nullptr;
+
+    rt->CreateSolidColorBrush(ColorFromUInt32(ResolveThemeColor(state->bg_color)), &bg_brush);
+    rt->CreateSolidColorBrush(ColorFromUInt32(ResolveThemeColor(state->fg_color)), &text_brush);
+
+    if (bg_brush) {
+        rt->FillRectangle(rect, bg_brush);
+    }
+
+    HRESULT hr = factory->CreateTextFormat(
+        state->font.font_name.c_str(),
+        nullptr,
+        state->font.bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
+        state->font.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        (FLOAT)state->font.font_size,
+        L"zh-CN",
+        &text_format
+    );
+
+    if (SUCCEEDED(hr) && text_format && text_brush) {
+        switch (state->alignment) {
+        case ALIGN_LEFT:
+            text_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+            break;
+        case ALIGN_CENTER:
+            text_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            break;
+        case ALIGN_RIGHT:
+            text_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+            break;
+        }
+
+        if (state->word_wrap) {
+            text_format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+            text_format->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+        } else {
+            text_format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+            text_format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        }
+
+        hr = factory->CreateTextLayout(
+            state->text.c_str(),
+            (UINT32)state->text.length(),
+            text_format,
+            (FLOAT)state->width,
+            (FLOAT)state->height,
+            &text_layout
+        );
+
+        if (SUCCEEDED(hr) && text_layout) {
+            rt->DrawTextLayout(
+                D2D1::Point2F((FLOAT)state->x, (FLOAT)state->y),
+                text_layout,
+                text_brush,
+                D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT
+            );
+        }
+    }
+
+    if (text_layout) text_layout->Release();
+    if (text_format) text_format->Release();
+    if (text_brush) text_brush->Release();
+    if (bg_brush) bg_brush->Release();
+}
+
 // Window procedure
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     auto it = g_windows.find(hwnd);
-    if (it == g_windows.end() && msg != WM_CREATE) {
+    if (it == g_windows.end() && msg != WM_NCCREATE && msg != WM_CREATE) {
         return DefWindowProc(hwnd, msg, wparam, lparam);
     }
 
     WindowState* state = (it != g_windows.end()) ? it->second : nullptr;
 
     switch (msg) {
+    case WM_NCCREATE: {
+        CREATESTRUCTW* cs = reinterpret_cast<CREATESTRUCTW*>(lparam);
+        WindowCreateInit* init = reinterpret_cast<WindowCreateInit*>(cs->lpCreateParams);
+
+        WindowState* new_state = new WindowState();
+        new_state->hwnd = hwnd;
+        if (init) {
+            new_state->title = init->title;
+            new_state->titlebar_color = init->titlebar_color;
+            new_state->custom_titlebar = init->custom_titlebar;
+        }
+        g_windows[hwnd] = new_state;
+        state = new_state;
+        return TRUE;
+    }
+
+    default:
+        break;
+    }
+
+    // DWM自定义标题栏：让DWM优先处理系统按钮（最小化/最大化/关闭）
+    if (state && state->custom_titlebar) {
+        LRESULT dwm_result = 0;
+        if (DwmDefWindowProc(hwnd, msg, wparam, lparam, &dwm_result))
+            return dwm_result;
+    }
+
+    switch (msg) {
+    case WM_NCCALCSIZE: {
+        // 自定义标题栏：移除系统标题栏，让客户区占满整个窗口
+        if (state && state->custom_titlebar) {
+            return 0;
+        }
+        break;
+    }
+
+    case WM_NCHITTEST: {
+        if (state && state->custom_titlebar) {
+            POINT screen_pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
+            RECT win_rc = {};
+            GetWindowRect(hwnd, &win_rc);
+
+            const int resize_border = GetSystemMetrics(SM_CXSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+            bool on_left = screen_pt.x >= win_rc.left && screen_pt.x < win_rc.left + resize_border;
+            bool on_right = screen_pt.x < win_rc.right && screen_pt.x >= win_rc.right - resize_border;
+            bool on_top = screen_pt.y >= win_rc.top && screen_pt.y < win_rc.top + resize_border;
+            bool on_bottom = screen_pt.y < win_rc.bottom && screen_pt.y >= win_rc.bottom - resize_border;
+
+            if (on_top && on_left) return HTTOPLEFT;
+            if (on_top && on_right) return HTTOPRIGHT;
+            if (on_bottom && on_left) return HTBOTTOMLEFT;
+            if (on_bottom && on_right) return HTBOTTOMRIGHT;
+            if (on_left) return HTLEFT;
+            if (on_right) return HTRIGHT;
+            if (on_top) return HTTOP;
+            if (on_bottom) return HTBOTTOM;
+
+            POINT pt = screen_pt;
+            ScreenToClient(hwnd, &pt);
+
+            TitleBarButtonType btn = HitTestTitleBarButton(state, pt);
+            if (btn == TITLEBAR_BUTTON_CLOSE) return HTCLOSE;
+            if (btn == TITLEBAR_BUTTON_MAXIMIZE) return HTMAXBUTTON;
+            if (btn == TITLEBAR_BUTTON_MINIMIZE) return HTMINBUTTON;
+
+            // 标题栏区域 → HTCAPTION（支持拖拽移动窗口）
+            if (pt.y < state->titlebar_height) {
+                return HTCAPTION;
+            }
+            return HTCLIENT;
+        }
+        break;
+    }
+
+    case WM_SETCURSOR: {
+        if (state && state->custom_titlebar) {
+            switch (LOWORD(lparam)) {
+            case HTCAPTION:
+                SetCursor(LoadCursor(nullptr, IDC_SIZEALL));
+                return TRUE;
+            case HTMINBUTTON:
+            case HTMAXBUTTON:
+            case HTCLOSE:
+                SetCursor(LoadCursor(nullptr, IDC_ARROW));
+                return TRUE;
+            }
+        }
+        break;
+    }
+
+    case WM_NCMOUSEMOVE: {
+        if (state && state->custom_titlebar) {
+            TitleBarButtonType hovered_btn = HitTestTitleBarButtonFromScreen(state, lparam);
+            if ((int)hovered_btn != state->hovered_titlebar_button) {
+                state->hovered_titlebar_button = (int)hovered_btn;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            if (!state->titlebar_mouse_tracking) {
+                TRACKMOUSEEVENT tme = { sizeof(TRACKMOUSEEVENT) };
+                tme.dwFlags = TME_LEAVE | TME_NONCLIENT;
+                tme.hwndTrack = hwnd;
+                TrackMouseEvent(&tme);
+                state->titlebar_mouse_tracking = true;
+            }
+            return 0;
+        }
+        break;
+    }
+
+    case WM_NCMOUSELEAVE: {
+        if (state && state->custom_titlebar) {
+            state->titlebar_mouse_tracking = false;
+            if (state->hovered_titlebar_button != 0) {
+                state->hovered_titlebar_button = 0;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return 0;
+        }
+        break;
+    }
+
+    case WM_NCLBUTTONDOWN:
+    case WM_NCLBUTTONUP: {
+        if (state && state->custom_titlebar) {
+            switch ((int)wparam) {
+            case HTMINBUTTON:
+                ShowWindow(hwnd, SW_MINIMIZE);
+                return 0;
+            case HTMAXBUTTON:
+                ShowWindow(hwnd, IsZoomed(hwnd) ? SW_RESTORE : SW_MAXIMIZE);
+                return 0;
+            case HTCLOSE:
+                SendMessage(hwnd, WM_CLOSE, 0, 0);
+                return 0;
+            }
+        }
+        break;
+    }
+
+    case WM_ACTIVATE: {
+        if (state && state->custom_titlebar) {
+            MARGINS margins = { 0, 0, state->titlebar_height, 0 };
+            DwmExtendFrameIntoClientArea(hwnd, &margins);
+        }
+        break;
+    }
     case WM_PAINT: {
-        if (state) {
+        if (state && state->render_target) {
             PAINTSTRUCT ps;
             BeginPaint(hwnd, &ps);
 
@@ -555,8 +986,18 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
                 (win_bg & 0xFF) / 255.0f,
                 1.0f));
 
+            // 绘制自定义标题栏（彩色emoji）
+            DrawWindowTitleBar(state->render_target, state->dwrite_factory, state);
+
             for (const auto& button : state->buttons) {
                 DrawButton(state->render_target, state->dwrite_factory, button);
+            }
+
+            for (const auto& pair : g_labels) {
+                LabelState* label = pair.second;
+                if (label && label->parent == hwnd && label->parent_drawn) {
+                    DrawParentLabel(state->render_target, state->dwrite_factory, label);
+                }
             }
 
             state->render_target->EndDraw();
@@ -617,6 +1058,22 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
                 }
             }
 
+            if (state->custom_titlebar) {
+                POINT pt = { x, y };
+                TitleBarButtonType hovered_btn = HitTestTitleBarButton(state, pt);
+                if ((int)hovered_btn != state->hovered_titlebar_button) {
+                    state->hovered_titlebar_button = (int)hovered_btn;
+                    needs_redraw = true;
+                }
+                if (!state->titlebar_mouse_tracking) {
+                    TRACKMOUSEEVENT tme = { sizeof(TRACKMOUSEEVENT) };
+                    tme.dwFlags = TME_LEAVE;
+                    tme.hwndTrack = hwnd;
+                    TrackMouseEvent(&tme);
+                    state->titlebar_mouse_tracking = true;
+                }
+            }
+
             if (needs_redraw) {
                 InvalidateRect(hwnd, nullptr, FALSE);
             }
@@ -624,8 +1081,19 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         return 0;
     }
 
+    case WM_MOUSELEAVE: {
+        if (state && state->custom_titlebar) {
+            state->titlebar_mouse_tracking = false;
+            if (state->hovered_titlebar_button != 0) {
+                state->hovered_titlebar_button = 0;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+        }
+        return 0;
+    }
+
     case WM_SIZE: {
-        if (state) {
+        if (state && state->render_target) {
             UINT width = LOWORD(lparam);
             UINT height = HIWORD(lparam);
             state->render_target->Resize(D2D1::SizeU(width, height));
@@ -785,6 +1253,11 @@ HWND __stdcall create_window(const char* title, int width, int height) {
     std::wstring wtitle(title_len, 0);
     MultiByteToWideChar(CP_ACP, 0, title, -1, &wtitle[0], title_len);
 
+    WindowCreateInit init_data;
+    init_data.title = wtitle;
+    init_data.titlebar_color = 0;
+    init_data.custom_titlebar = true;
+
     HWND hwnd = CreateWindowExW(
         0,
         class_name,
@@ -794,7 +1267,7 @@ HWND __stdcall create_window(const char* title, int width, int height) {
         width, height,
         nullptr, nullptr,
         GetModuleHandle(nullptr),
-        nullptr
+        &init_data
     );
 
     if (!hwnd) return nullptr;
@@ -812,11 +1285,127 @@ HWND __stdcall create_window(const char* title, int width, int height) {
         &render_target
     );
 
-    WindowState* state = new WindowState();
-    state->hwnd = hwnd;
+    auto state_it = g_windows.find(hwnd);
+    if (state_it == g_windows.end()) return nullptr;
+
+    WindowState* state = state_it->second;
     state->render_target = render_target;
     state->dwrite_factory = g_dwrite_factory;
-    g_windows[hwnd] = state;
+
+    // DWM扩展客户区到标题栏区域
+    MARGINS margins = { 0, 0, state->titlebar_height, 0 };
+    DwmExtendFrameIntoClientArea(hwnd, &margins);
+
+    // 确保系统窗口文本存在，任务栏/Alt+Tab 也能显示标题
+    SetWindowTextW(hwnd, wtitle.c_str());
+
+    ShowWindow(hwnd, SW_SHOW);
+    UpdateWindow(hwnd);
+
+    return hwnd;
+}
+
+// Create window (UTF-8 bytes version) - supports emoji in title
+HWND __stdcall create_window_bytes(const unsigned char* title_bytes, int title_len, int width, int height) {
+    // 向后兼容：titlebar_color=0 表示跟随主题
+    return create_window_bytes_ex(title_bytes, title_len, width, height, 0);
+}
+
+// Create window with custom titlebar color (UTF-8 bytes version)
+HWND __stdcall create_window_bytes_ex(const unsigned char* title_bytes, int title_len, int width, int height, UINT32 titlebar_color) {
+    // Convert UTF-8 bytes to wide string
+    std::string utf8_title;
+    if (title_bytes && title_len > 0) {
+        utf8_title.assign(reinterpret_cast<const char*>(title_bytes), title_len);
+    }
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8_title.c_str(), (int)utf8_title.size(), nullptr, 0);
+    std::wstring wtitle(wlen, 0);
+    MultiByteToWideChar(CP_UTF8, 0, utf8_title.c_str(), (int)utf8_title.size(), &wtitle[0], wlen);
+
+    // Delegate to create_window logic but with wide title
+    static bool com_initialized = false;
+    if (!com_initialized) {
+        CoInitialize(nullptr);
+        com_initialized = true;
+    }
+
+    static bool richedit_loaded = false;
+    if (!richedit_loaded) {
+        LoadLibraryW(L"Msftedit.dll");
+        richedit_loaded = true;
+    }
+
+    if (!g_d2d_factory) {
+        D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &g_d2d_factory);
+    }
+
+    if (!g_dwrite_factory) {
+        DWriteCreateFactory(
+            DWRITE_FACTORY_TYPE_SHARED,
+            __uuidof(IDWriteFactory),
+            reinterpret_cast<IUnknown**>(&g_dwrite_factory)
+        );
+    }
+
+    static bool class_registered = false;
+    const wchar_t* class_name = L"EmojiWindowClass";
+
+    if (!class_registered) {
+        WNDCLASSW wc = {};
+        wc.lpfnWndProc = WindowProc;
+        wc.hInstance = GetModuleHandle(nullptr);
+        wc.lpszClassName = class_name;
+        wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+        wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+        RegisterClassW(&wc);
+        class_registered = true;
+    }
+
+    WindowCreateInit init_data;
+    init_data.title = wtitle;
+    init_data.titlebar_color = titlebar_color;
+    init_data.custom_titlebar = true;
+
+    HWND hwnd = CreateWindowExW(
+        0,
+        class_name,
+        wtitle.c_str(),
+        WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_CLIPCHILDREN,
+        CW_USEDEFAULT, CW_USEDEFAULT,
+        width, height,
+        nullptr, nullptr,
+        GetModuleHandle(nullptr),
+        &init_data
+    );
+
+    if (!hwnd) return nullptr;
+
+    RECT rc;
+    GetClientRect(hwnd, &rc);
+
+    ID2D1HwndRenderTarget* render_target = nullptr;
+    g_d2d_factory->CreateHwndRenderTarget(
+        D2D1::RenderTargetProperties(),
+        D2D1::HwndRenderTargetProperties(
+            hwnd,
+            D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top)
+        ),
+        &render_target
+    );
+
+    auto state_it = g_windows.find(hwnd);
+    if (state_it == g_windows.end()) return nullptr;
+
+    WindowState* state = state_it->second;
+    state->render_target = render_target;
+    state->dwrite_factory = g_dwrite_factory;
+
+    // DWM扩展客户区到标题栏区域
+    MARGINS margins = { 0, 0, state->titlebar_height, 0 };
+    DwmExtendFrameIntoClientArea(hwnd, &margins);
+
+    // 确保系统窗口文本存在，任务栏/Alt+Tab 也能显示标题
+    SetWindowTextW(hwnd, wtitle.c_str());
 
     ShowWindow(hwnd, SW_SHOW);
     UpdateWindow(hwnd);
@@ -844,7 +1433,7 @@ int __stdcall create_emoji_button_bytes(
     button.emoji = Utf8ToWide(emoji_bytes, emoji_len);
     button.text = Utf8ToWide(text_bytes, text_len);
     button.x = x;
-    button.y = y;
+    button.y = y + GetTitleBarOffset(parent);
     button.width = width;
     button.height = height;
     button.bg_color = bg_color;
@@ -986,6 +1575,23 @@ void __stdcall set_window_title(HWND hwnd, const char* title_utf8, int title_len
 
     // Set window title
     SetWindowTextW(hwnd, wtitle.c_str());
+
+    // 更新WindowState中的title用于D2D彩色emoji绘制
+    auto it = g_windows.find(hwnd);
+    if (it != g_windows.end()) {
+        it->second->title = wtitle;
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+}
+
+// 设置窗口标题栏颜色
+void __stdcall set_window_titlebar_color(HWND hwnd, UINT32 color) {
+    if (!hwnd) return;
+    auto it = g_windows.find(hwnd);
+    if (it != g_windows.end()) {
+        it->second->titlebar_color = color;
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
 }
 
 // Draw message box - Element UI Style
@@ -1774,13 +2380,14 @@ HWND __stdcall CreateTabControl(HWND hParent, int x, int y, int width, int heigh
     }
 
     // 创建 Tab Control（TCS_OWNERDRAWFIXED：父窗口自绘标签，实现彩色 Emoji 渲染）
+    int tb_offset = GetTitleBarOffset(hParent);
     HWND hTabControl = CreateWindowExW(
         0,
         WC_TABCONTROLW,
         L"",
         WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | TCS_TABS | TCS_FOCUSNEVER
         | TCS_OWNERDRAWFIXED | TCS_FIXEDWIDTH,
-        x, y, width, height,
+        x, y + tb_offset, width, height,
         hParent,
         nullptr,
         GetModuleHandle(nullptr),
@@ -2235,98 +2842,118 @@ LRESULT CALLBACK LabelSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             RECT rect;
             GetClientRect(hwnd, &rect);
             
-            // 使用Direct2D渲染以支持彩色Emoji
-            ID2D1HwndRenderTarget* rt = nullptr;
-            D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties();
-            D2D1_HWND_RENDER_TARGET_PROPERTIES hwnd_props = D2D1::HwndRenderTargetProperties(
-                hwnd,
-                D2D1::SizeU(rect.right - rect.left, rect.bottom - rect.top)
-            );
-            
-            if (g_d2d_factory) {
-                g_d2d_factory->CreateHwndRenderTarget(props, hwnd_props, &rt);
-            }
-            
-            if (rt && g_dwrite_factory) {
-                rt->BeginDraw();
-                
-                // 绘制背景（解析主题颜色索引）
-                D2D1_COLOR_F bg_color = ColorFromUInt32(ResolveThemeColor(state->bg_color));
-                rt->Clear(bg_color);
-                
-                // 创建文本格式（使用用户指定的字体，DirectWrite会自动fallback到emoji字体）
-                IDWriteTextFormat* text_format = nullptr;
-                HRESULT hr = g_dwrite_factory->CreateTextFormat(
-                    state->font.font_name.c_str(),  // 使用用户指定的字体
-                    nullptr,
-                    state->font.bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
-                    state->font.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
-                    DWRITE_FONT_STRETCH_NORMAL,
-                    (float)state->font.font_size,
-                    L"zh-CN",
-                    &text_format
-                );
-                
-                if (SUCCEEDED(hr) && text_format) {
-                    // 设置对齐方式
-                    switch (state->alignment) {
-                        case ALIGN_LEFT:
-                            text_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-                            break;
-                        case ALIGN_CENTER:
-                            text_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-                            break;
-                        case ALIGN_RIGHT:
-                            text_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
-                            break;
-                    }
-                    
-                    // 设置垂直对齐
-                    if (state->word_wrap) {
-                        text_format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-                        text_format->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
-                    } else {
-                        text_format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-                        text_format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-                    }
-                    
-                    // 创建TextLayout以支持彩色Emoji
-                    IDWriteTextLayout* text_layout = nullptr;
-                    hr = g_dwrite_factory->CreateTextLayout(
-                        state->text.c_str(),
-                        (UINT32)state->text.length(),
-                        text_format,
-                        (float)(rect.right - rect.left),
-                        (float)(rect.bottom - rect.top),
-                        &text_layout
-                    );
-                    
-                    if (SUCCEEDED(hr) && text_layout) {
-                        // 创建画刷
-                        ID2D1SolidColorBrush* brush = nullptr;
-                        D2D1_COLOR_F fg_color = ColorFromUInt32(ResolveThemeColor(state->fg_color));
-                        rt->CreateSolidColorBrush(fg_color, &brush);
-                        
-                        if (brush) {
-                            // 绘制文本（启用彩色字体）
-                            rt->DrawTextLayout(
-                                D2D1::Point2F(0, 0),
-                                text_layout,
-                                brush,
-                                D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT  // 启用彩色字体！
+            // 使用Direct2D渲染以支持彩色Emoji（先画到内存位图，再一次性 BitBlt 到窗口，避免缩放时闪烁/透底）
+            int w = rect.right - rect.left;
+            int h = rect.bottom - rect.top;
+            if (w > 0 && h > 0 && g_d2d_factory && g_dwrite_factory) {
+                HDC memDC = CreateCompatibleDC(hdc);
+                if (memDC) {
+                    BITMAPINFO bmi = {};
+                    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                    bmi.bmiHeader.biWidth = w;
+                    bmi.bmiHeader.biHeight = -h;
+                    bmi.bmiHeader.biPlanes = 1;
+                    bmi.bmiHeader.biBitCount = 32;
+                    bmi.bmiHeader.biCompression = BI_RGB;
+
+                    void* pvBits = nullptr;
+                    HBITMAP hBmp = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, &pvBits, nullptr, 0);
+                    if (hBmp) {
+                        HBITMAP hOldBmp = (HBITMAP)SelectObject(memDC, hBmp);
+
+                        ID2D1DCRenderTarget* rt = nullptr;
+                        D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
+                            D2D1_RENDER_TARGET_TYPE_DEFAULT,
+                            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)
+                        );
+
+                        if (SUCCEEDED(g_d2d_factory->CreateDCRenderTarget(&props, &rt))) {
+                            RECT rcBind = { 0, 0, w, h };
+                            rt->BindDC(memDC, &rcBind);
+                            rt->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+                            rt->BeginDraw();
+
+                            // 绘制背景（解析主题颜色索引）
+                            D2D1_COLOR_F bg_color = ColorFromUInt32(ResolveThemeColor(state->bg_color));
+                            ID2D1SolidColorBrush* bg_brush = nullptr;
+                            rt->CreateSolidColorBrush(bg_color, &bg_brush);
+                            if (bg_brush) {
+                                rt->FillRectangle(D2D1::RectF(0, 0, (FLOAT)w, (FLOAT)h), bg_brush);
+                                bg_brush->Release();
+                            }
+
+                            // 创建文本格式（使用用户指定的字体，DirectWrite会自动 fallback 到 emoji 字体）
+                            IDWriteTextFormat* text_format = nullptr;
+                            HRESULT hr = g_dwrite_factory->CreateTextFormat(
+                                state->font.font_name.c_str(),
+                                nullptr,
+                                state->font.bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
+                                state->font.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
+                                DWRITE_FONT_STRETCH_NORMAL,
+                                (float)state->font.font_size,
+                                L"zh-CN",
+                                &text_format
                             );
-                            
-                            brush->Release();
+
+                            if (SUCCEEDED(hr) && text_format) {
+                                switch (state->alignment) {
+                                case ALIGN_LEFT:
+                                    text_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+                                    break;
+                                case ALIGN_CENTER:
+                                    text_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                                    break;
+                                case ALIGN_RIGHT:
+                                    text_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+                                    break;
+                                }
+
+                                if (state->word_wrap) {
+                                    text_format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+                                    text_format->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+                                } else {
+                                    text_format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+                                    text_format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+                                }
+
+                                IDWriteTextLayout* text_layout = nullptr;
+                                hr = g_dwrite_factory->CreateTextLayout(
+                                    state->text.c_str(),
+                                    (UINT32)state->text.length(),
+                                    text_format,
+                                    (float)w,
+                                    (float)h,
+                                    &text_layout
+                                );
+
+                                if (SUCCEEDED(hr) && text_layout) {
+                                    ID2D1SolidColorBrush* brush = nullptr;
+                                    D2D1_COLOR_F fg_color = ColorFromUInt32(ResolveThemeColor(state->fg_color));
+                                    rt->CreateSolidColorBrush(fg_color, &brush);
+                                    if (brush) {
+                                        rt->DrawTextLayout(
+                                            D2D1::Point2F(0, 0),
+                                            text_layout,
+                                            brush,
+                                            D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT
+                                        );
+                                        brush->Release();
+                                    }
+                                    text_layout->Release();
+                                }
+                                text_format->Release();
+                            }
+
+                            rt->EndDraw();
+                            rt->Release();
                         }
-                        
-                        text_layout->Release();
+
+                        BitBlt(hdc, 0, 0, w, h, memDC, 0, 0, SRCCOPY);
+                        SelectObject(memDC, hOldBmp);
+                        DeleteObject(hBmp);
                     }
-                    
-                    text_format->Release();
+                    DeleteDC(memDC);
                 }
-                
-                rt->EndDraw();
-                rt->Release();
             } else {
                 // 降级到GDI渲染（如果Direct2D不可用）
                 // 解析主题颜色索引
@@ -2368,10 +2995,12 @@ LRESULT CALLBACK LabelSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                 SelectObject(hdc, hOldFont);
                 DeleteObject(hFont);
             }
-            
+
             EndPaint(hwnd, &ps);
             return 0;
         }
+        case WM_ERASEBKGND:
+            return 1;  // 防止布局调整时标签先被系统擦背景导致闪烁
         case WM_NCDESTROY: {
             RemoveWindowSubclass(hwnd, LabelSubclassProc, uIdSubclass);
             g_labels.erase(hwnd);
@@ -2444,13 +3073,14 @@ __declspec(dllexport) HWND __stdcall CreateEditBox(
     }
     
     // 创建编辑框
+    int tb_offset = GetTitleBarOffset(hParent);
     int id = g_next_control_id++;
     HWND hEdit = CreateWindowExW(
         0,
         L"EDIT",
         text.c_str(),
         style,
-        x, y, width, height,
+        x, y + tb_offset, width, height,
         hParent,
         (HMENU)(INT_PTR)id,
         GetModuleHandle(NULL),
@@ -2709,13 +3339,14 @@ __declspec(dllexport) HWND __stdcall CreateColorEmojiEditBox(
     }
     
     // 创建RichEdit控件
+    int tb_offset = GetTitleBarOffset(hParent);
     int id = g_next_control_id++;
     HWND hEdit = CreateWindowExW(
         0,
         MSFTEDIT_CLASS,  // "RICHEDIT50W" - RichEdit 4.1
         text.c_str(),
         style,
-        x, y, width, height,
+        x, y + tb_offset, width, height,
         hParent,
         (HMENU)(INT_PTR)id,
         GetModuleHandle(NULL),
@@ -2855,13 +3486,14 @@ __declspec(dllexport) HWND __stdcall CreateLabel(
     std::wstring font_name = Utf8ToWide(font_name_bytes, font_name_len);
     
     // 创建标签
+    int tb_offset = GetTitleBarOffset(hParent);
     int id = g_next_control_id++;
     HWND hLabel = CreateWindowExW(
         0,
         L"STATIC",
         text.c_str(),
         WS_CHILD | WS_VISIBLE | SS_OWNERDRAW,
-        x, y, width, height,
+        x, y + tb_offset, width, height,
         hParent,
         (HMENU)(INT_PTR)id,
         GetModuleHandle(NULL),
@@ -2877,6 +3509,10 @@ __declspec(dllexport) HWND __stdcall CreateLabel(
     state->hwnd = hLabel;
     state->parent = hParent;
     state->id = id;
+    state->x = x;
+    state->y = y;
+    state->width = width;
+    state->height = height;
     state->text = text;
     state->fg_color = fg_color;
     state->bg_color = bg_color;
@@ -2887,12 +3523,13 @@ __declspec(dllexport) HWND __stdcall CreateLabel(
     state->font.underline = underline != 0;
     state->alignment = (TextAlignment)alignment;
     state->word_wrap = word_wrap != 0;  // ✅ 保存换行设置
-    
-    // ✅ 创建背景画刷（只创建一次，避免重复创建导致闪烁）
+
+    // ✅ 创建背景画刷（解析主题颜色索引）
+    UINT32 resolved_bg_init = ResolveThemeColor(bg_color);
     state->bg_brush = CreateSolidBrush(RGB(
-        (bg_color >> 16) & 0xFF,
-        (bg_color >> 8) & 0xFF,
-        bg_color & 0xFF
+        (resolved_bg_init >> 16) & 0xFF,
+        (resolved_bg_init >> 8) & 0xFF,
+        resolved_bg_init & 0xFF
     ));
     
     g_labels[hLabel] = state;
@@ -2913,8 +3550,9 @@ __declspec(dllexport) void __stdcall SetLabelText(
     
     LabelState* state = it->second;
     state->text = Utf8ToWide(text_bytes, text_len);
-    
-    InvalidateRect(hLabel, NULL, TRUE);
+
+    if (state->parent_drawn) InvalidateRect(state->parent, NULL, FALSE);
+    else InvalidateRect(hLabel, NULL, TRUE);
 }
 
 __declspec(dllexport) void __stdcall SetLabelFont(
@@ -2935,8 +3573,9 @@ __declspec(dllexport) void __stdcall SetLabelFont(
     state->font.bold = bold != 0;
     state->font.italic = italic != 0;
     state->font.underline = underline != 0;
-    
-    InvalidateRect(hLabel, NULL, TRUE);
+
+    if (state->parent_drawn) InvalidateRect(state->parent, NULL, FALSE);
+    else InvalidateRect(hLabel, NULL, TRUE);
 }
 
 __declspec(dllexport) void __stdcall SetLabelColor(
@@ -2950,7 +3589,7 @@ __declspec(dllexport) void __stdcall SetLabelColor(
     LabelState* state = it->second;
     state->fg_color = fg_color;
     state->bg_color = bg_color;
-    
+
     // ✅ 重新创建背景画刷
     if (state->bg_brush) {
         DeleteObject(state->bg_brush);
@@ -2960,16 +3599,27 @@ __declspec(dllexport) void __stdcall SetLabelColor(
         (bg_color >> 8) & 0xFF,
         bg_color & 0xFF
     ));
-    
-    InvalidateRect(hLabel, NULL, TRUE);
+
+    if (state->parent_drawn) InvalidateRect(state->parent, NULL, FALSE);
+    else InvalidateRect(hLabel, NULL, TRUE);
 }
 
 __declspec(dllexport) void __stdcall SetLabelBounds(
     HWND hLabel,
     int x, int y, int width, int height
 ) {
-    if (!hLabel) return;
-    SetWindowPos(hLabel, NULL, x, y, width, height, SWP_NOZORDER);
+    auto it = g_labels.find(hLabel);
+    if (it == g_labels.end()) return;
+    LabelState* state = it->second;
+    state->x = x;
+    state->y = y;
+    state->width = width;
+    state->height = height;
+    if (state->parent_drawn) {
+        InvalidateRect(state->parent, NULL, FALSE);
+    } else {
+        SetWindowPos(hLabel, NULL, x, y, width, height, SWP_NOZORDER);
+    }
 }
 
 __declspec(dllexport) void __stdcall EnableLabel(
@@ -2984,8 +3634,15 @@ __declspec(dllexport) void __stdcall ShowLabel(
     HWND hLabel,
     BOOL show
 ) {
-    if (!hLabel) return;
-    ShowWindow(hLabel, show ? SW_SHOW : SW_HIDE);
+    auto it = g_labels.find(hLabel);
+    if (it == g_labels.end()) return;
+    LabelState* state = it->second;
+    state->visible = show ? true : false;
+    if (state->parent_drawn) {
+        InvalidateRect(state->parent, NULL, FALSE);
+    } else {
+        ShowWindow(hLabel, show ? SW_SHOW : SW_HIDE);
+    }
 }
 
 } // extern "C"
@@ -3143,7 +3800,7 @@ LRESULT CALLBACK CheckBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
 
             if (rt) {
                 rt->BeginDraw();
-                rt->Clear(ColorFromUInt32(state->bg_color));
+                rt->Clear(ColorFromUInt32(ResolveThemeColor(state->bg_color)));
                 DrawCheckBox(rt, g_dwrite_factory, state);
                 rt->EndDraw();
                 rt->Release();
@@ -3250,20 +3907,21 @@ HWND __stdcall CreateCheckBox(
     }
     
     // 创建静态控件作为复选框容器
+    int tb_offset = GetTitleBarOffset(hParent);
     HWND hwnd = CreateWindowExW(
         0,
         L"STATIC",
         L"",
         WS_CHILD | WS_VISIBLE | SS_NOTIFY,
-        x, y, width, height,
+        x, y + tb_offset, width, height,
         hParent,
         (HMENU)(INT_PTR)g_next_control_id++,
         GetModuleHandle(nullptr),
         nullptr
     );
-    
+
     if (!hwnd) return nullptr;
-    
+
     // 创建状态对象
     CheckBoxState* state = new CheckBoxState();
     state->hwnd = hwnd;
@@ -3504,7 +4162,7 @@ void DrawProgressBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, Progres
             text_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
             text_format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
             
-            brush->SetColor(ColorFromUInt32(state->text_color));
+            brush->SetColor(ColorFromUInt32(ResolveThemeColor(state->text_color)));
             rt->DrawText(
                 text,
                 (UINT32)wcslen(text),
@@ -3546,8 +4204,14 @@ LRESULT CALLBACK ProgressBarProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
             
             if (rt && g_dwrite_factory) {
                 rt->BeginDraw();
-                rt->Clear(D2D1::ColorF(D2D1::ColorF::White, 0.0f));
-                
+
+                UINT32 clear_color = ResolveThemeColor(state->bg_color);
+                rt->Clear(D2D1::ColorF(
+                    ((clear_color >> 16) & 0xFF) / 255.0f,
+                    ((clear_color >> 8) & 0xFF) / 255.0f,
+                    (clear_color & 0xFF) / 255.0f,
+                    1.0f));
+
                 DrawProgressBar(rt, g_dwrite_factory, state);
                 
                 rt->EndDraw();
@@ -3632,12 +4296,13 @@ __declspec(dllexport) HWND __stdcall CreateProgressBar(
     int id = g_next_control_id++;
     
     // 创建静态控件作为容器
+    int tb_offset = GetTitleBarOffset(hParent);
     HWND hProgressBar = CreateWindowExW(
         0,
         L"STATIC",
         L"",
         WS_CHILD | WS_VISIBLE | SS_OWNERDRAW,
-        x, y, width, height,
+        x, y + tb_offset, width, height,
         hParent,
         (HMENU)(INT_PTR)id,
         GetModuleHandle(NULL),
@@ -3665,7 +4330,7 @@ __declspec(dllexport) HWND __stdcall CreateProgressBar(
     state->enabled = true;
     state->fg_color = fg_color;
     state->bg_color = bg_color;
-    state->border_color = 0xFFDCDFE6;  // Element UI 边框色
+    state->border_color = 9;  // 主题边框色索引 (THEME_COLOR_BORDER_BASE)
     state->text_color = text_color;
     state->show_text = show_text != 0;
     state->font.font_name = L"Microsoft YaHei UI";
@@ -4030,20 +4695,21 @@ HWND __stdcall CreatePictureBox(
     }
     
     // 创建静态控件作为图片框容器
+    int tb_offset = GetTitleBarOffset(hParent);
     HWND hwnd = CreateWindowExW(
         0,
         L"STATIC",
         L"",
         WS_CHILD | WS_VISIBLE | SS_NOTIFY,
-        x, y, width, height,
+        x, y + tb_offset, width, height,
         hParent,
         (HMENU)(INT_PTR)g_next_control_id++,
         GetModuleHandle(nullptr),
         nullptr
     );
-    
+
     if (!hwnd) return nullptr;
-    
+
     // 创建状态对象
     PictureBoxState* state = new PictureBoxState();
     state->hwnd = hwnd;
@@ -4618,12 +5284,13 @@ HWND __stdcall CreateRadioButton(
     }
     
     // 创建静态控件作为单选按钮容器
+    int tb_offset = GetTitleBarOffset(hParent);
     HWND hwnd = CreateWindowExW(
         0,
         L"STATIC",
         L"",
         WS_CHILD | WS_VISIBLE | SS_NOTIFY,
-        x, y, width, height,
+        x, y + tb_offset, width, height,
         hParent,
         (HMENU)(INT_PTR)g_next_control_id++,
         GetModuleHandle(nullptr),
@@ -4768,8 +5435,8 @@ void DrawListBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ListBoxStat
     // Element UI颜色（解析主题颜色索引）
     D2D1_COLOR_F bg_color = ColorFromUInt32(ResolveThemeColor(state->bg_color));
     D2D1_COLOR_F fg_color = ColorFromUInt32(ResolveThemeColor(state->fg_color));
-    D2D1_COLOR_F select_color = ColorFromUInt32(ResolveThemeColor(state->select_color));
-    D2D1_COLOR_F hover_color = ColorFromUInt32(ResolveThemeColor(state->hover_color));
+    D2D1_COLOR_F select_color = ColorFromUInt32(ThemeColor_LightBg(ThemeColor_Primary()));
+    D2D1_COLOR_F hover_color = ColorFromUInt32(ThemeColor_BackgroundLight());
     D2D1_COLOR_F border_color = ColorFromUInt32(ThemeColor_BorderBase());
     
     // 如果禁用，使用主题颜色
@@ -4934,7 +5601,7 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
             
             if (rt && g_dwrite_factory) {
                 rt->BeginDraw();
-                rt->Clear(D2D1::ColorF(D2D1::ColorF::White));
+                rt->Clear(ColorFromUInt32(ResolveThemeColor(state->bg_color)));
                 DrawListBox(rt, g_dwrite_factory, state);
                 rt->EndDraw();
                 rt->Release();
@@ -5052,22 +5719,23 @@ HWND __stdcall CreateListBox(
     UINT32 bg_color
 ) {
     if (!hParent || !IsWindow(hParent)) return nullptr;
-    
+
     // 创建窗口
+    int tb_offset = GetTitleBarOffset(hParent);
     HWND hwnd = CreateWindowExW(
         0,
         L"STATIC",
         L"",
         WS_CHILD | WS_VISIBLE | SS_NOTIFY,
-        x, y, width, height,
+        x, y + tb_offset, width, height,
         hParent,
         (HMENU)(UINT_PTR)(g_next_control_id++),
         GetModuleHandle(nullptr),
         nullptr
     );
-    
+
     if (!hwnd) return nullptr;
-    
+
     // 创建状态
     ListBoxState* state = new ListBoxState();
     state->hwnd = hwnd;
@@ -5300,7 +5968,7 @@ void __stdcall SetListBoxBounds(
     state->height = height;
     
     SetWindowPos(hListBox, nullptr, x, y, width, height, 
-                SWP_NOZORDER | SWP_NOACTIVATE);
+                SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW);
     InvalidateRect(hListBox, nullptr, TRUE);
 }
 // ========== 组合框控件实�?==========
@@ -5871,12 +6539,13 @@ HWND __stdcall CreateComboBox(
     }
     
     // 创建主控件容�?
+    int tb_offset = GetTitleBarOffset(hParent);
     HWND hwnd = CreateWindowExW(
         0,
         L"STATIC",
         L"",
         WS_CHILD | WS_VISIBLE | SS_NOTIFY,
-        x, y, width, height,
+        x, y + tb_offset, width, height,
         hParent,
         (HMENU)(INT_PTR)g_next_control_id++,
         GetModuleHandle(nullptr),
@@ -6612,20 +7281,21 @@ HWND __stdcall CreateHotKeyControl(
     if (!hParent || !IsWindow(hParent)) return nullptr;
     
     // 创建静态控件作为基础
+    int tb_offset = GetTitleBarOffset(hParent);
     HWND hwnd = CreateWindowExW(
         0,
         L"STATIC",
         L"",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | SS_NOTIFY,
-        x, y, width, height,
+        x, y + tb_offset, width, height,
         hParent,
         nullptr,
         GetModuleHandle(nullptr),
         nullptr
     );
-    
+
     if (!hwnd) return nullptr;
-    
+
     // 创建状态
     HotKeyState* state = new HotKeyState();
     state->hwnd = hwnd;
@@ -6749,22 +7419,23 @@ HWND __stdcall CreateGroupBox(
     UINT32 bg_color
 ) {
     if (!hParent || !IsWindow(hParent)) return nullptr;
-    
+
     // 创建静态控件作为基础
+    int tb_offset = GetTitleBarOffset(hParent);
     HWND hwnd = CreateWindowExW(
         0,
         L"STATIC",
         L"",
         WS_CHILD | WS_VISIBLE | SS_NOTIFY,
-        x, y, width, height,
+        x, y + tb_offset, width, height,
         hParent,
         nullptr,
         GetModuleHandle(nullptr),
         nullptr
     );
-    
+
     if (!hwnd) return nullptr;
-    
+
     // 创建状态
     GroupBoxState* state = new GroupBoxState();
     state->hwnd = hwnd;
@@ -7971,13 +8642,14 @@ __declspec(dllexport) HWND __stdcall CreateD2DColorEmojiEditBox(
     state->render_target = nullptr;
     state->dwrite_factory = g_dwrite_factory;
     state->key_callback = nullptr;
-    
+
+    int tb_offset = GetTitleBarOffset(hParent);
     HWND hwnd = CreateWindowExW(
         WS_EX_CLIENTEDGE,
         D2D_EDITBOX_CLASS,
         L"",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-        x, y, width, height,
+        x, y + tb_offset, width, height,
         hParent,
         NULL,
         GetModuleHandle(NULL),
@@ -8244,12 +8916,13 @@ extern "C" __declspec(dllexport) HWND __stdcall CreateD2DComboBox(
     }
 
     // 创建主容器窗口
+    int tb_offset = GetTitleBarOffset(hParent);
     HWND hwnd = CreateWindowExW(
         0,
         D2D_COMBOBOX_CLASS,
         L"",
         WS_CHILD | WS_VISIBLE,
-        x, y, width, height,
+        x, y + tb_offset, width, height,
         hParent,
         NULL,
         GetModuleHandle(NULL),
@@ -9987,9 +10660,10 @@ __declspec(dllexport) HWND __stdcall CreateDataGridView(
 ) {
     if (!hParent || !IsWindow(hParent)) return nullptr;
 
+    int tb_offset = GetTitleBarOffset(hParent);
     HWND hwnd = CreateWindowExW(0, L"STATIC", L"",
         WS_CHILD | WS_VISIBLE | SS_NOTIFY | WS_TABSTOP,
-        x, y, width, height, hParent,
+        x, y + tb_offset, width, height, hParent,
         (HMENU)(UINT_PTR)(g_next_control_id++),
         GetModuleHandle(nullptr), nullptr);
     if (!hwnd) return nullptr;
@@ -10495,12 +11169,41 @@ static EmojiButton* FindEmojiButton(HWND hParent, int button_id) {
     return nullptr;
 }
 
+static LabelState* FindLabelState(HWND hwnd) {
+    auto it = g_labels.find(hwnd);
+    return it != g_labels.end() ? it->second : nullptr;
+}
+
+static bool IsParentDrawnLabel(HWND hwnd) {
+    LabelState* label = FindLabelState(hwnd);
+    return label && label->parent_drawn;
+}
+
+static void SetParentDrawnLabelBounds(HWND hwnd, int x, int y, int width, int height) {
+    LabelState* label = FindLabelState(hwnd);
+    if (!label) return;
+    label->x = x;
+    label->y = y;
+    label->width = width;
+    label->height = height;
+}
+
+static void ApplyDeferredWindowPos(HDWP* hdwp, HWND hChild, int x, int y, int width, int height) {
+    UINT flags = SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW;
+    if (hdwp && *hdwp) {
+        *hdwp = DeferWindowPos(*hdwp, hChild, nullptr, x, y, width, height, flags);
+        if (*hdwp) return;
+    }
+    SetWindowPos(hChild, nullptr, x, y, width, height, flags);
+}
+
 // 流式布局计算（水平/垂直）
-void CalculateFlowLayout(LayoutManager* lm, int client_width, int client_height) {
+void CalculateFlowLayout(LayoutManager* lm, int client_width, int client_height, HDWP* hdwp) {
+    int tb_offset = GetTitleBarOffset(lm->parent_hwnd);
     int x = lm->padding_left;
-    int y = lm->padding_top;
+    int y = lm->padding_top + tb_offset;
     int available_width = client_width - lm->padding_left - lm->padding_right;
-    int available_height = client_height - lm->padding_top - lm->padding_bottom;
+    int available_height = client_height - lm->padding_top - lm->padding_bottom - tb_offset;
     int line_max_size = 0;
 
     for (auto& item : lm->item_order) {
@@ -10531,8 +11234,8 @@ void CalculateFlowLayout(LayoutManager* lm, int client_width, int client_height)
                 x += needed_width + lm->spacing;
             } else {
                 int needed_height = props.margin_top + ch + props.margin_bottom;
-                if (y + needed_height > lm->padding_top + available_height && y > lm->padding_top) {
-                    y = lm->padding_top;
+                if (y + needed_height > lm->padding_top + tb_offset + available_height && y > lm->padding_top + tb_offset) {
+                    y = lm->padding_top + tb_offset;
                     x += line_max_size + lm->spacing;
                     line_max_size = 0;
                 }
@@ -10546,16 +11249,22 @@ void CalculateFlowLayout(LayoutManager* lm, int client_width, int client_height)
             }
         } else {
             HWND hChild = item.hwnd;
-            if (!IsWindow(hChild) || !IsWindowVisible(hChild)) continue;
+            if (!IsWindow(hChild) || (!IsWindowVisible(hChild) && !IsParentDrawnLabel(hChild))) continue;
             auto prop_it = lm->control_props.find(hChild);
             if (prop_it != lm->control_props.end()) props = prop_it->second;
 
-            RECT rc;
-            GetWindowRect(hChild, &rc);
-            HWND hParent = GetParent(hChild);
-            MapWindowPoints(HWND_DESKTOP, hParent, (LPPOINT)&rc, 2);
-            cw = rc.right - rc.left;
-            ch = rc.bottom - rc.top;
+            if (IsParentDrawnLabel(hChild)) {
+                LabelState* label = FindLabelState(hChild);
+                cw = label->width;
+                ch = label->height;
+            } else {
+                RECT rc;
+                GetWindowRect(hChild, &rc);
+                HWND hParent = GetParent(hChild);
+                MapWindowPoints(HWND_DESKTOP, hParent, (LPPOINT)&rc, 2);
+                cw = rc.right - rc.left;
+                ch = rc.bottom - rc.top;
+            }
 
             if (lm->type == LAYOUT_FLOW_HORIZONTAL) {
                 int needed_width = props.margin_left + cw + props.margin_right;
@@ -10565,19 +11274,21 @@ void CalculateFlowLayout(LayoutManager* lm, int client_width, int client_height)
                     line_max_size = 0;
                 }
                 int ctrl_h = props.stretch_vertical ? (available_height - props.margin_top - props.margin_bottom) : ch;
-                SetWindowPos(hChild, nullptr, x + props.margin_left, y + props.margin_top, cw, ctrl_h, SWP_NOZORDER | SWP_NOACTIVATE);
+                if (IsParentDrawnLabel(hChild)) SetParentDrawnLabelBounds(hChild, x + props.margin_left, y + props.margin_top, cw, ctrl_h);
+                else ApplyDeferredWindowPos(hdwp, hChild, x + props.margin_left, y + props.margin_top, cw, ctrl_h);
                 int total_h = props.margin_top + ctrl_h + props.margin_bottom;
                 if (total_h > line_max_size) line_max_size = total_h;
                 x += needed_width + lm->spacing;
             } else {
                 int needed_height = props.margin_top + ch + props.margin_bottom;
-                if (y + needed_height > lm->padding_top + available_height && y > lm->padding_top) {
-                    y = lm->padding_top;
+                if (y + needed_height > lm->padding_top + tb_offset + available_height && y > lm->padding_top + tb_offset) {
+                    y = lm->padding_top + tb_offset;
                     x += line_max_size + lm->spacing;
                     line_max_size = 0;
                 }
                 int ctrl_w = props.stretch_horizontal ? (available_width - props.margin_left - props.margin_right) : cw;
-                SetWindowPos(hChild, nullptr, x + props.margin_left, y + props.margin_top, ctrl_w, ch, SWP_NOZORDER | SWP_NOACTIVATE);
+                if (IsParentDrawnLabel(hChild)) SetParentDrawnLabelBounds(hChild, x + props.margin_left, y + props.margin_top, ctrl_w, ch);
+                else ApplyDeferredWindowPos(hdwp, hChild, x + props.margin_left, y + props.margin_top, ctrl_w, ch);
                 int total_w = props.margin_left + ctrl_w + props.margin_right;
                 if (total_w > line_max_size) line_max_size = total_w;
                 y += needed_height + lm->spacing;
@@ -10587,11 +11298,12 @@ void CalculateFlowLayout(LayoutManager* lm, int client_width, int client_height)
 }
 
 // 网格布局计算
-void CalculateGridLayout(LayoutManager* lm, int client_width, int client_height) {
+void CalculateGridLayout(LayoutManager* lm, int client_width, int client_height, HDWP* hdwp) {
     if (lm->rows <= 0 || lm->columns <= 0) return;
+    int tb_offset = GetTitleBarOffset(lm->parent_hwnd);
 
     int available_width = client_width - lm->padding_left - lm->padding_right;
-    int available_height = client_height - lm->padding_top - lm->padding_bottom;
+    int available_height = client_height - lm->padding_top - lm->padding_bottom - tb_offset;
 
     // 计算每个单元格的大小（减去间距）
     int total_h_spacing = (lm->columns - 1) * lm->spacing;
@@ -10619,7 +11331,7 @@ void CalculateGridLayout(LayoutManager* lm, int client_width, int client_height)
             if (prop_it != lm->button_props.end()) props = prop_it->second;
 
             int cell_x = lm->padding_left + col * (cell_width + lm->spacing);
-            int cell_y = lm->padding_top + row * (cell_height + lm->spacing);
+            int cell_y = lm->padding_top + tb_offset + row * (cell_height + lm->spacing);
 
             int ctrl_x = cell_x + props.margin_left;
             int ctrl_y = cell_y + props.margin_top;
@@ -10635,13 +11347,13 @@ void CalculateGridLayout(LayoutManager* lm, int client_width, int client_height)
         } else {
             // HWND控件
             HWND hChild = item.hwnd;
-            if (!IsWindow(hChild) || !IsWindowVisible(hChild)) continue;
+            if (!IsWindow(hChild) || (!IsWindowVisible(hChild) && !IsParentDrawnLabel(hChild))) continue;
 
             auto prop_it = lm->control_props.find(hChild);
             if (prop_it != lm->control_props.end()) props = prop_it->second;
 
             int cell_x = lm->padding_left + col * (cell_width + lm->spacing);
-            int cell_y = lm->padding_top + row * (cell_height + lm->spacing);
+            int cell_y = lm->padding_top + tb_offset + row * (cell_height + lm->spacing);
 
             int ctrl_x = cell_x + props.margin_left;
             int ctrl_y = cell_y + props.margin_top;
@@ -10650,33 +11362,45 @@ void CalculateGridLayout(LayoutManager* lm, int client_width, int client_height)
             if (props.stretch_horizontal) {
                 ctrl_w = cell_width - props.margin_left - props.margin_right;
             } else {
-                RECT rc;
-                GetWindowRect(hChild, &rc);
-                ctrl_w = rc.right - rc.left;
+                if (!IsParentDrawnLabel(hChild)) {
+                    RECT rc;
+                    GetWindowRect(hChild, &rc);
+                    ctrl_w = rc.right - rc.left;
+                } else {
+                    LabelState* label = FindLabelState(hChild);
+                    ctrl_w = label->width;
+                }
             }
 
             if (props.stretch_vertical) {
                 ctrl_h = cell_height - props.margin_top - props.margin_bottom;
             } else {
-                RECT rc;
-                GetWindowRect(hChild, &rc);
-                ctrl_h = rc.bottom - rc.top;
+                if (!IsParentDrawnLabel(hChild)) {
+                    RECT rc;
+                    GetWindowRect(hChild, &rc);
+                    ctrl_h = rc.bottom - rc.top;
+                } else {
+                    LabelState* label = FindLabelState(hChild);
+                    ctrl_h = label->height;
+                }
             }
 
             if (ctrl_w < 0) ctrl_w = 0;
             if (ctrl_h < 0) ctrl_h = 0;
 
-            SetWindowPos(hChild, nullptr, ctrl_x, ctrl_y, ctrl_w, ctrl_h, SWP_NOZORDER | SWP_NOACTIVATE);
+            if (IsParentDrawnLabel(hChild)) SetParentDrawnLabelBounds(hChild, ctrl_x, ctrl_y, ctrl_w, ctrl_h);
+            else ApplyDeferredWindowPos(hdwp, hChild, ctrl_x, ctrl_y, ctrl_w, ctrl_h);
         }
         index++;
     }
 }
 
 // 停靠布局计算
-void CalculateDockLayout(LayoutManager* lm, int client_width, int client_height) {
+void CalculateDockLayout(LayoutManager* lm, int client_width, int client_height, HDWP* hdwp) {
     // 可用区域（被停靠控件逐步缩小）
+    int tb_offset = GetTitleBarOffset(lm->parent_hwnd);
     int left = lm->padding_left;
-    int top = lm->padding_top;
+    int top = lm->padding_top + tb_offset;
     int right = client_width - lm->padding_right;
     int bottom = client_height - lm->padding_bottom;
 
@@ -10700,13 +11424,19 @@ void CalculateDockLayout(LayoutManager* lm, int client_width, int client_height)
             ch = btn->height;
         } else {
             hChild = item.hwnd;
-            if (!IsWindow(hChild) || !IsWindowVisible(hChild)) continue;
+            if (!IsWindow(hChild) || (!IsWindowVisible(hChild) && !IsParentDrawnLabel(hChild))) continue;
             auto prop_it = lm->control_props.find(hChild);
             if (prop_it != lm->control_props.end()) props = prop_it->second;
-            RECT rc;
-            GetWindowRect(hChild, &rc);
-            cw = rc.right - rc.left;
-            ch = rc.bottom - rc.top;
+            if (IsParentDrawnLabel(hChild)) {
+                LabelState* label = FindLabelState(hChild);
+                cw = label->width;
+                ch = label->height;
+            } else {
+                RECT rc;
+                GetWindowRect(hChild, &rc);
+                cw = rc.right - rc.left;
+                ch = rc.bottom - rc.top;
+            }
         }
 
         if (props.dock == DOCK_FILL) {
@@ -10724,7 +11454,8 @@ void CalculateDockLayout(LayoutManager* lm, int client_width, int client_height)
             ctrl_h = ch;
             if (ctrl_w < 0) ctrl_w = 0;
             if (is_btn) { btn->x = ctrl_x; btn->y = ctrl_y; btn->width = ctrl_w; btn->height = ctrl_h; }
-            else { SetWindowPos(hChild, nullptr, ctrl_x, ctrl_y, ctrl_w, ctrl_h, SWP_NOZORDER | SWP_NOACTIVATE); }
+            else if (IsParentDrawnLabel(hChild)) { SetParentDrawnLabelBounds(hChild, ctrl_x, ctrl_y, ctrl_w, ctrl_h); }
+            else { ApplyDeferredWindowPos(hdwp, hChild, ctrl_x, ctrl_y, ctrl_w, ctrl_h); }
             top += props.margin_top + ctrl_h + props.margin_bottom + lm->spacing;
             break;
         case DOCK_BOTTOM:
@@ -10734,7 +11465,8 @@ void CalculateDockLayout(LayoutManager* lm, int client_width, int client_height)
             ctrl_y = bottom - props.margin_bottom - ctrl_h;
             if (ctrl_w < 0) ctrl_w = 0;
             if (is_btn) { btn->x = ctrl_x; btn->y = ctrl_y; btn->width = ctrl_w; btn->height = ctrl_h; }
-            else { SetWindowPos(hChild, nullptr, ctrl_x, ctrl_y, ctrl_w, ctrl_h, SWP_NOZORDER | SWP_NOACTIVATE); }
+            else if (IsParentDrawnLabel(hChild)) { SetParentDrawnLabelBounds(hChild, ctrl_x, ctrl_y, ctrl_w, ctrl_h); }
+            else { ApplyDeferredWindowPos(hdwp, hChild, ctrl_x, ctrl_y, ctrl_w, ctrl_h); }
             bottom -= props.margin_bottom + ctrl_h + props.margin_top + lm->spacing;
             break;
         case DOCK_LEFT:
@@ -10744,7 +11476,8 @@ void CalculateDockLayout(LayoutManager* lm, int client_width, int client_height)
             ctrl_h = (bottom - top) - props.margin_top - props.margin_bottom;
             if (ctrl_h < 0) ctrl_h = 0;
             if (is_btn) { btn->x = ctrl_x; btn->y = ctrl_y; btn->width = ctrl_w; btn->height = ctrl_h; }
-            else { SetWindowPos(hChild, nullptr, ctrl_x, ctrl_y, ctrl_w, ctrl_h, SWP_NOZORDER | SWP_NOACTIVATE); }
+            else if (IsParentDrawnLabel(hChild)) { SetParentDrawnLabelBounds(hChild, ctrl_x, ctrl_y, ctrl_w, ctrl_h); }
+            else { ApplyDeferredWindowPos(hdwp, hChild, ctrl_x, ctrl_y, ctrl_w, ctrl_h); }
             left += props.margin_left + ctrl_w + props.margin_right + lm->spacing;
             break;
         case DOCK_RIGHT:
@@ -10754,7 +11487,8 @@ void CalculateDockLayout(LayoutManager* lm, int client_width, int client_height)
             ctrl_y = top + props.margin_top;
             if (ctrl_h < 0) ctrl_h = 0;
             if (is_btn) { btn->x = ctrl_x; btn->y = ctrl_y; btn->width = ctrl_w; btn->height = ctrl_h; }
-            else { SetWindowPos(hChild, nullptr, ctrl_x, ctrl_y, ctrl_w, ctrl_h, SWP_NOZORDER | SWP_NOACTIVATE); }
+            else if (IsParentDrawnLabel(hChild)) { SetParentDrawnLabelBounds(hChild, ctrl_x, ctrl_y, ctrl_w, ctrl_h); }
+            else { ApplyDeferredWindowPos(hdwp, hChild, ctrl_x, ctrl_y, ctrl_w, ctrl_h); }
             right -= props.margin_right + ctrl_w + props.margin_left + lm->spacing;
             break;
         default:
@@ -10787,7 +11521,8 @@ void CalculateDockLayout(LayoutManager* lm, int client_width, int client_height)
             int ctrl_h = (bottom - top) - props.margin_top - props.margin_bottom;
             if (ctrl_w < 0) ctrl_w = 0;
             if (ctrl_h < 0) ctrl_h = 0;
-            SetWindowPos(hChild, nullptr, ctrl_x, ctrl_y, ctrl_w, ctrl_h, SWP_NOZORDER | SWP_NOACTIVATE);
+            if (IsParentDrawnLabel(hChild)) SetParentDrawnLabelBounds(hChild, ctrl_x, ctrl_y, ctrl_w, ctrl_h);
+            else ApplyDeferredWindowPos(hdwp, hChild, ctrl_x, ctrl_y, ctrl_w, ctrl_h);
         }
     }
 }
@@ -10918,6 +11653,13 @@ __declspec(dllexport) void __stdcall AddControlToLayout(HWND hParent, HWND hCont
         if (lm->control_props.find(hControl) == lm->control_props.end()) {
             lm->control_props[hControl] = LayoutProperties();
         }
+        // 如果是标签，则切换为父窗口统一绘制，避免 live resize 时子窗口闪烁
+        auto label_it = g_labels.find(hControl);
+        if (label_it != g_labels.end()) {
+            label_it->second->parent_drawn = true;
+            label_it->second->visible = IsWindowVisible(hControl) ? true : false;
+            ShowWindow(hControl, SW_HIDE);
+        }
         // 同步到统一顺序列表
         LayoutItem item;
         item.hwnd = hControl;
@@ -10947,6 +11689,11 @@ __declspec(dllexport) void __stdcall RemoveControlFromLayout(HWND hParent, HWND 
 
     // 不是Emoji按钮，尝试作为HWND控件处理
     if (IsWindow(hControl)) {
+        auto label_it = g_labels.find(hControl);
+        if (label_it != g_labels.end()) {
+            label_it->second->parent_drawn = false;
+            ShowWindow(hControl, label_it->second->visible ? SW_SHOW : SW_HIDE);
+        }
         auto order_it = std::find(lm->control_order.begin(), lm->control_order.end(), hControl);
         if (order_it != lm->control_order.end()) {
             lm->control_order.erase(order_it);
@@ -10972,27 +11719,51 @@ __declspec(dllexport) void __stdcall UpdateLayout(HWND hParent) {
     int client_width = rc.right - rc.left;
     int client_height = rc.bottom - rc.top;
 
+    HDWP hdwp = nullptr;
+    int child_count = 0;
+    for (auto& item : lm->item_order) {
+        if (!item.is_button && item.hwnd && IsWindow(item.hwnd) && (IsWindowVisible(item.hwnd) || IsParentDrawnLabel(item.hwnd))) {
+            child_count++;
+        }
+    }
+    if (child_count > 0) {
+        hdwp = BeginDeferWindowPos(child_count);
+    }
+
     switch (lm->type) {
     case LAYOUT_FLOW_HORIZONTAL:
     case LAYOUT_FLOW_VERTICAL:
-        CalculateFlowLayout(lm, client_width, client_height);
+        CalculateFlowLayout(lm, client_width, client_height, &hdwp);
         break;
     case LAYOUT_GRID:
-        CalculateGridLayout(lm, client_width, client_height);
+        CalculateGridLayout(lm, client_width, client_height, &hdwp);
         break;
     case LAYOUT_DOCK:
-        CalculateDockLayout(lm, client_width, client_height);
+        CalculateDockLayout(lm, client_width, client_height, &hdwp);
         break;
     default:
         break;
     }
 
-    // 布局更新后，如果有Emoji按钮，需要触发重绘
-    bool has_buttons = false;
-    for (auto& item : lm->item_order) {
-        if (item.is_button) { has_buttons = true; break; }
+    if (hdwp) {
+        EndDeferWindowPos(hdwp);
     }
-    if (has_buttons) {
+
+    // 布局更新后，统一触发子控件重绘，避免缩放时逐个 SetWindowPos 造成闪烁
+    bool has_buttons = false;
+    bool has_parent_drawn_labels = false;
+    for (auto& item : lm->item_order) {
+        if (item.is_button) {
+            has_buttons = true;
+        } else if (item.hwnd && IsWindow(item.hwnd)) {
+            if (IsParentDrawnLabel(item.hwnd)) {
+                has_parent_drawn_labels = true;
+            } else if (IsWindowVisible(item.hwnd)) {
+                InvalidateRect(item.hwnd, nullptr, TRUE);
+            }
+        }
+    }
+    if (has_buttons || has_parent_drawn_labels) {
         InvalidateRect(hParent, nullptr, FALSE);
     }
 }
