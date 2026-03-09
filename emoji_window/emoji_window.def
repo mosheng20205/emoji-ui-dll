@@ -203,6 +203,7 @@ EXPORTS
     SetTheme
     SetDarkMode
     EW_GetThemeColor
+    EW_GetThemeColorByIndex
     EW_GetThemeFont
     GetThemeFontSize
     GetThemeSize

@@ -11339,7 +11339,7 @@ __declspec(dllexport) void __stdcall SetDarkMode(BOOL dark_mode) {
     }
 }
 
-// 获取主题颜色
+// 获取主题颜色（字符串版本）
 __declspec(dllexport) UINT32 __stdcall EW_GetThemeColor(
     const unsigned char* color_name_bytes,
     int name_len
@@ -11348,6 +11348,34 @@ __declspec(dllexport) UINT32 __stdcall EW_GetThemeColor(
     if (!color_name_bytes || name_len <= 0) return 0;
     std::string name((const char*)color_name_bytes, name_len);
     return GetCurrentThemeColorValue(name);
+}
+
+// 获取主题颜色（数值索引版本，供易语言常量使用）
+// 索引: 0=primary, 1=success, 2=warning, 3=danger, 4=info,
+//       5=text_primary, 6=text_regular, 7=text_secondary, 8=text_placeholder,
+//       9=border_base, 10=border_light, 11=border_lighter, 12=border_extra_light,
+//       13=background, 14=background_light
+__declspec(dllexport) UINT32 __stdcall EW_GetThemeColorByIndex(int color_index) {
+    EnsureThemesInitialized();
+    const ThemeColors& c = g_current_theme->colors;
+    switch (color_index) {
+        case 0:  return c.primary;
+        case 1:  return c.success;
+        case 2:  return c.warning;
+        case 3:  return c.danger;
+        case 4:  return c.info;
+        case 5:  return c.text_primary;
+        case 6:  return c.text_regular;
+        case 7:  return c.text_secondary;
+        case 8:  return c.text_placeholder;
+        case 9:  return c.border_base;
+        case 10: return c.border_light;
+        case 11: return c.border_lighter;
+        case 12: return c.border_extra_light;
+        case 13: return c.background;
+        case 14: return c.background_light;
+        default: return 0;
+    }
 }
 
 // 获取主题字体名称
