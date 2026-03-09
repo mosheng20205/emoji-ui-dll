@@ -43,6 +43,7 @@ static bool g_own_message_loop_running = false;
 
 // Forward declarations
 LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+static void EnsureThemesInitialized();
 
 // ========== 主题辅助函数 ==========
 // 获取主题颜色，如果主题未初始化则返回默认值
@@ -138,6 +139,40 @@ static inline float ThemeSize_BorderRadius() {
 static inline float ThemeSize_BorderWidth() {
     if (g_current_theme) return g_current_theme->sizes.border_width;
     return 1.0f;
+}
+
+// ========== 主题颜色索引解析 ==========
+// 易语言侧传入的颜色值如果是 0~14，表示主题颜色索引，需要在渲染时动态解析为当前主题颜色
+// 索引: 0=primary, 1=success, 2=warning, 3=danger, 4=info,
+//       5=text_primary, 6=text_regular, 7=text_secondary, 8=text_placeholder,
+//       9=border_base, 10=border_light, 11=border_lighter, 12=border_extra_light,
+//       13=background, 14=background_light
+static inline bool IsThemeColorIndex(UINT32 color) {
+    return color <= 14;
+}
+
+static inline UINT32 ResolveThemeColor(UINT32 color) {
+    if (!IsThemeColorIndex(color)) return color;
+    EnsureThemesInitialized();
+    const ThemeColors& c = g_current_theme->colors;
+    switch (color) {
+        case 0:  return c.primary;
+        case 1:  return c.success;
+        case 2:  return c.warning;
+        case 3:  return c.danger;
+        case 4:  return c.info;
+        case 5:  return c.text_primary;
+        case 6:  return c.text_regular;
+        case 7:  return c.text_secondary;
+        case 8:  return c.text_placeholder;
+        case 9:  return c.border_base;
+        case 10: return c.border_light;
+        case 11: return c.border_lighter;
+        case 12: return c.border_extra_light;
+        case 13: return c.background;
+        case 14: return c.background_light;
+        default: return color;
+    }
 }
 
 // 鼠标进入跟踪集合
@@ -277,35 +312,38 @@ UINT32 DarkenColor(UINT32 color, float factor) {
 // Draw button (Element UI style - supports both main window buttons and message box buttons)
 void DrawButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, const EmojiButton& button) {
     // ========== Calculate button color based on state (Element UI style) ==========
-    UINT32 bg_color = button.bg_color;
+    // 解析主题颜色索引（如果传入的是0-14的索引值）
+    UINT32 bg_color = ResolveThemeColor(button.bg_color);
     UINT32 bg_rgb = bg_color & 0x00FFFFFF;
 
-    // Element UI button colors
-    bool is_primary = (bg_rgb == 0x409EFF);  // Primary blue
-    bool is_success = (bg_rgb == 0x67C23A);  // Success green
-    bool is_warning = (bg_rgb == 0xE6A23C);  // Warning orange
-    bool is_danger = (bg_rgb == 0xF56C6C);   // Danger red
-    bool is_info = (bg_rgb == 0x909399);     // Info gray
-    bool is_default = (bg_rgb == 0xFFFFFF || bg_rgb == 0xF2F2F7);  // Default white/light gray
+    // 将默认亮色主题的固定颜色映射到当前主题颜色
+    // 这样当主题切换时，按钮颜色也会跟着变化
+    if (bg_rgb == 0x409EFF) bg_color = ThemeColor_Primary();
+    else if (bg_rgb == 0x67C23A) bg_color = ThemeColor_Success();
+    else if (bg_rgb == 0xE6A23C) bg_color = ThemeColor_Warning();
+    else if (bg_rgb == 0xF56C6C) bg_color = ThemeColor_Danger();
+    else if (bg_rgb == 0x909399) bg_color = ThemeColor_Info();
+    bg_rgb = bg_color & 0x00FFFFFF;
+
+    // Element UI button colors (使用当前主题颜色比较)
+    UINT32 theme_primary_rgb = ThemeColor_Primary() & 0x00FFFFFF;
+    UINT32 theme_success_rgb = ThemeColor_Success() & 0x00FFFFFF;
+    UINT32 theme_warning_rgb = ThemeColor_Warning() & 0x00FFFFFF;
+    UINT32 theme_danger_rgb = ThemeColor_Danger() & 0x00FFFFFF;
+    UINT32 theme_info_rgb = ThemeColor_Info() & 0x00FFFFFF;
+    bool is_primary = (bg_rgb == theme_primary_rgb);
+    bool is_success = (bg_rgb == theme_success_rgb);
+    bool is_warning = (bg_rgb == theme_warning_rgb);
+    bool is_danger = (bg_rgb == theme_danger_rgb);
+    bool is_info = (bg_rgb == theme_info_rgb);
+    bool is_default = (bg_rgb == 0xFFFFFF || bg_rgb == 0xF2F2F7);
 
     if (button.is_pressed) {
-        // Pressed state: darker
-        if (is_primary) bg_color = 0xFF3A8EE6;
-        else if (is_success) bg_color = 0xFF5DAF34;
-        else if (is_warning) bg_color = 0xFFCF9236;
-        else if (is_danger) bg_color = 0xFFDD6161;
-        else if (is_info) bg_color = 0xFF82848A;
-        else if (is_default) bg_color = 0xFFECF5FF;
-        else bg_color = DarkenColor(bg_color, 0.9f);
+        // Pressed state: 使用主题辅助函数动态计算按下色
+        bg_color = DarkenColor(bg_color, 0.85f);
     } else if (button.is_hovered) {
-        // Hover state: lighter
-        if (is_primary) bg_color = 0xFF66B1FF;
-        else if (is_success) bg_color = 0xFF85CE61;
-        else if (is_warning) bg_color = 0xFFEBB563;
-        else if (is_danger) bg_color = 0xFFF78989;
-        else if (is_info) bg_color = 0xFFA6A9AD;
-        else if (is_default) bg_color = 0xFFECF5FF;
-        else bg_color = LightenColor(bg_color, 1.1f);
+        // Hover state: 使用主题辅助函数动态计算悬停色
+        bg_color = LightenColor(bg_color, 1.15f);
     }
 
     // ========== Draw button with Element UI style ==========
@@ -336,7 +374,7 @@ void DrawButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, const EmojiB
     // ========== Determine text color ==========
     UINT32 text_color;
     if (is_default) {
-        text_color = 0xFF606266;  // Element UI regular text color for default button
+        text_color = ThemeColor_TextRegular();  // 使用主题常规文本色
     } else {
         text_color = 0xFFFFFFFF;  // White text for colored buttons
     }
@@ -509,7 +547,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             BeginPaint(hwnd, &ps);
 
             state->render_target->BeginDraw();
-            state->render_target->Clear(D2D1::ColorF(0xF5F5FA, 1.0f));
+            // 使用主题背景色（浅色背景）
+            UINT32 win_bg = ThemeColor_BackgroundLight();
+            state->render_target->Clear(D2D1::ColorF(
+                ((win_bg >> 16) & 0xFF) / 255.0f,
+                ((win_bg >> 8) & 0xFF) / 255.0f,
+                (win_bg & 0xFF) / 255.0f,
+                1.0f));
 
             for (const auto& button : state->buttons) {
                 DrawButton(state->render_target, state->dwrite_factory, button);
@@ -628,16 +672,28 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         if (label_it != g_labels.end()) {
             LabelState* label_state = label_it->second;
             HDC hdc = (HDC)wparam;
+            // 解析主题颜色索引
+            UINT32 resolved_fg = ResolveThemeColor(label_state->fg_color);
+            UINT32 resolved_bg = ResolveThemeColor(label_state->bg_color);
             SetTextColor(hdc, RGB(
-                (label_state->fg_color >> 16) & 0xFF,
-                (label_state->fg_color >> 8) & 0xFF,
-                label_state->fg_color & 0xFF
+                (resolved_fg >> 16) & 0xFF,
+                (resolved_fg >> 8) & 0xFF,
+                resolved_fg & 0xFF
             ));
             SetBkColor(hdc, RGB(
-                (label_state->bg_color >> 16) & 0xFF,
-                (label_state->bg_color >> 8) & 0xFF,
-                label_state->bg_color & 0xFF
+                (resolved_bg >> 16) & 0xFF,
+                (resolved_bg >> 8) & 0xFF,
+                resolved_bg & 0xFF
             ));
+            // 如果使用主题颜色索引，需要动态重建画刷
+            if (IsThemeColorIndex(label_state->bg_color)) {
+                if (label_state->bg_brush) DeleteObject(label_state->bg_brush);
+                label_state->bg_brush = CreateSolidBrush(RGB(
+                    (resolved_bg >> 16) & 0xFF,
+                    (resolved_bg >> 8) & 0xFF,
+                    resolved_bg & 0xFF
+                ));
+            }
             return (LRESULT)label_state->bg_brush;
         }
         
@@ -2194,8 +2250,8 @@ LRESULT CALLBACK LabelSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             if (rt && g_dwrite_factory) {
                 rt->BeginDraw();
                 
-                // 绘制背景
-                D2D1_COLOR_F bg_color = ColorFromUInt32(state->bg_color);
+                // 绘制背景（解析主题颜色索引）
+                D2D1_COLOR_F bg_color = ColorFromUInt32(ResolveThemeColor(state->bg_color));
                 rt->Clear(bg_color);
                 
                 // 创建文本格式（使用用户指定的字体，DirectWrite会自动fallback到emoji字体）
@@ -2248,7 +2304,7 @@ LRESULT CALLBACK LabelSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                     if (SUCCEEDED(hr) && text_layout) {
                         // 创建画刷
                         ID2D1SolidColorBrush* brush = nullptr;
-                        D2D1_COLOR_F fg_color = ColorFromUInt32(state->fg_color);
+                        D2D1_COLOR_F fg_color = ColorFromUInt32(ResolveThemeColor(state->fg_color));
                         rt->CreateSolidColorBrush(fg_color, &brush);
                         
                         if (brush) {
@@ -2273,12 +2329,21 @@ LRESULT CALLBACK LabelSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                 rt->Release();
             } else {
                 // 降级到GDI渲染（如果Direct2D不可用）
-                FillRect(hdc, &rect, state->bg_brush);
-                
+                // 解析主题颜色索引
+                UINT32 resolved_bg_gdi = ResolveThemeColor(state->bg_color);
+                UINT32 resolved_fg_gdi = ResolveThemeColor(state->fg_color);
+                HBRUSH hBrGdi = CreateSolidBrush(RGB(
+                    (resolved_bg_gdi >> 16) & 0xFF,
+                    (resolved_bg_gdi >> 8) & 0xFF,
+                    resolved_bg_gdi & 0xFF
+                ));
+                FillRect(hdc, &rect, hBrGdi);
+                DeleteObject(hBrGdi);
+
                 SetTextColor(hdc, RGB(
-                    (state->fg_color >> 16) & 0xFF,
-                    (state->fg_color >> 8) & 0xFF,
-                    state->fg_color & 0xFF
+                    (resolved_fg_gdi >> 16) & 0xFF,
+                    (resolved_fg_gdi >> 8) & 0xFF,
+                    resolved_fg_gdi & 0xFF
                 ));
                 SetBkMode(hdc, TRANSPARENT);
                 
@@ -2943,8 +3008,8 @@ void DrawCheckBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, CheckBoxSt
     int box_x = state->x;
     int box_y = state->y + (state->height - box_size) / 2;
 
-    // 确定复选框颜色
-    UINT32 current_bg = state->bg_color;
+    // 确定复选框颜色（解析主题颜色索引）
+    UINT32 current_bg = ResolveThemeColor(state->bg_color);
     UINT32 current_border = border_color;
 
     if (!state->enabled) {
@@ -3025,7 +3090,7 @@ void DrawCheckBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, CheckBoxSt
         text_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
         text_format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
-        UINT32 text_color = state->enabled ? state->fg_color : disabled_color;
+        UINT32 text_color = state->enabled ? ResolveThemeColor(state->fg_color) : disabled_color;
         ID2D1SolidColorBrush* text_brush = nullptr;
         rt->CreateSolidColorBrush(ColorFromUInt32(text_color), &text_brush);
 
@@ -3308,10 +3373,10 @@ void DrawProgressBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, Progres
     float width = (float)state->width;
     float height = (float)state->height;
     
-    // Element UI 风格配色
-    UINT32 bg_color = state->bg_color;
-    UINT32 fg_color = state->fg_color;
-    UINT32 border_color = state->border_color;
+    // Element UI 风格配色（解析主题颜色索引）
+    UINT32 bg_color = ResolveThemeColor(state->bg_color);
+    UINT32 fg_color = ResolveThemeColor(state->fg_color);
+    UINT32 border_color = ResolveThemeColor(state->border_color);
     
     // 如果禁用，使用灰色
     if (!state->enabled) {
@@ -4303,8 +4368,8 @@ void DrawRadioButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, RadioBu
     int circle_x = state->x + circle_size / 2;
     int circle_y = state->y + state->height / 2;
 
-    // 确定单选按钮颜色
-    UINT32 current_bg = state->bg_color;
+    // 确定单选按钮颜色（解析主题颜色索引）
+    UINT32 current_bg = ResolveThemeColor(state->bg_color);
     UINT32 current_border = border_color;
 
     if (!state->enabled) {
@@ -4365,7 +4430,7 @@ void DrawRadioButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, RadioBu
         text_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
         text_format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
-        UINT32 text_color = state->enabled ? state->fg_color : disabled_color;
+        UINT32 text_color = state->enabled ? ResolveThemeColor(state->fg_color) : disabled_color;
         ID2D1SolidColorBrush* text_brush = nullptr;
         rt->CreateSolidColorBrush(ColorFromUInt32(text_color), &text_brush);
 
@@ -4699,18 +4764,18 @@ void DrawListBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ListBoxStat
     if (!rt || !factory || !state) return;
 
     D2D1_SIZE_F size = rt->GetSize();
+
+    // Element UI颜色（解析主题颜色索引）
+    D2D1_COLOR_F bg_color = ColorFromUInt32(ResolveThemeColor(state->bg_color));
+    D2D1_COLOR_F fg_color = ColorFromUInt32(ResolveThemeColor(state->fg_color));
+    D2D1_COLOR_F select_color = ColorFromUInt32(ResolveThemeColor(state->select_color));
+    D2D1_COLOR_F hover_color = ColorFromUInt32(ResolveThemeColor(state->hover_color));
+    D2D1_COLOR_F border_color = ColorFromUInt32(ThemeColor_BorderBase());
     
-    // Element UI颜色
-    D2D1_COLOR_F bg_color = ColorFromUInt32(state->bg_color);
-    D2D1_COLOR_F fg_color = ColorFromUInt32(state->fg_color);
-    D2D1_COLOR_F select_color = ColorFromUInt32(state->select_color);
-    D2D1_COLOR_F hover_color = ColorFromUInt32(state->hover_color);
-    D2D1_COLOR_F border_color = D2D1::ColorF(0xDCDFE6, 1.0f);  // Element UI边框色
-    
-    // 如果禁用，使用灰色
+    // 如果禁用，使用主题颜色
     if (!state->enabled) {
-        bg_color = D2D1::ColorF(0xF5F7FA, 1.0f);
-        fg_color = D2D1::ColorF(0xC0C4CC, 1.0f);
+        bg_color = ColorFromUInt32(ThemeColor_BackgroundLight());
+        fg_color = ColorFromUInt32(ThemeColor_TextPlaceholder());
     }
     
     // 创建画刷
@@ -11176,6 +11241,10 @@ static bool ParseThemeJSON(const std::string& json, Theme& theme) {
 void ApplyThemeToAllControls() {
     // 刷新所有窗口
     for (auto& pair : g_windows) {
+        InvalidateRect(pair.first, NULL, TRUE);
+    }
+    // 刷新所有标签
+    for (auto& pair : g_labels) {
         InvalidateRect(pair.first, NULL, TRUE);
     }
     // 刷新所有复选框
