@@ -65,6 +65,52 @@ typedef void (__stdcall *ComboBoxCallback)(HWND hComboBox, int index);
 // 热键控件回调函数类型 (stdcall 调用约定)
 typedef void (__stdcall *HotKeyCallback)(HWND hHotKey, int vk_code, int modifiers);
 
+// ========== 通用事件回调类型 (需求 8.1-8.10) ==========
+
+// 鼠标进入/离开回调 (hwnd)
+typedef void (__stdcall *MouseEnterCallback)(HWND hwnd);
+typedef void (__stdcall *MouseLeaveCallback)(HWND hwnd);
+
+// 双击回调 (hwnd, x, y)
+typedef void (__stdcall *DoubleClickCallback)(HWND hwnd, int x, int y);
+
+// 右键点击回调 (hwnd, x, y)
+typedef void (__stdcall *RightClickCallback)(HWND hwnd, int x, int y);
+
+// 焦点回调 (hwnd)
+typedef void (__stdcall *FocusCallback)(HWND hwnd);
+typedef void (__stdcall *BlurCallback)(HWND hwnd);
+
+// 键盘回调 (hwnd, vk_code, shift, ctrl, alt)
+typedef void (__stdcall *KeyDownCallback)(HWND hwnd, int vk_code, int shift, int ctrl, int alt);
+typedef void (__stdcall *KeyUpCallback)(HWND hwnd, int vk_code, int shift, int ctrl, int alt);
+
+// 字符输入回调 (hwnd, char_code) - Unicode字符
+typedef void (__stdcall *CharCallback)(HWND hwnd, int char_code);
+
+// 值改变回调 (hwnd)
+typedef void (__stdcall *ValueChangedCallback)(HWND hwnd);
+
+// 通用事件回调集合
+struct EventCallbacks {
+    MouseEnterCallback on_mouse_enter;
+    MouseLeaveCallback on_mouse_leave;
+    DoubleClickCallback on_double_click;
+    RightClickCallback on_right_click;
+    FocusCallback on_focus;
+    BlurCallback on_blur;
+    KeyDownCallback on_key_down;
+    KeyUpCallback on_key_up;
+    CharCallback on_char;
+    ValueChangedCallback on_value_changed;
+
+    EventCallbacks() : on_mouse_enter(nullptr), on_mouse_leave(nullptr),
+        on_double_click(nullptr), on_right_click(nullptr),
+        on_focus(nullptr), on_blur(nullptr),
+        on_key_down(nullptr), on_key_up(nullptr),
+        on_char(nullptr), on_value_changed(nullptr) {}
+};
+
 // 文本对齐方式
 enum TextAlignment {
     ALIGN_LEFT = 0,
@@ -97,6 +143,7 @@ struct EditBoxState {
     bool vertical_center;       // 文本垂直居中（仅单行有效）
     HBRUSH bg_brush;            // 背景画刷（避免每次创建）
     EditBoxKeyCallback key_callback;  // 按键按下/松开回调，可为 NULL
+    EventCallbacks events;      // 通用事件回调
 };
 
 // D2D自定义绘制编辑框状态（支持彩色emoji）
@@ -131,6 +178,7 @@ struct D2DEditBoxState {
     ID2D1HwndRenderTarget* render_target; // D2D渲染目标
     IDWriteFactory* dwrite_factory;       // DirectWrite工厂
     EditBoxKeyCallback key_callback;      // 按键回调
+    EventCallbacks events;                // 通用事件回调
 };
 
 // 标签状态
@@ -145,6 +193,7 @@ struct LabelState {
     TextAlignment alignment;    // 文字对齐
     HBRUSH bg_brush;            // 背景画刷（避免每次创建）
     bool word_wrap;             // 是否换行显示
+    EventCallbacks events;      // 通用事件回调
 };
 
 // 复选框状态
@@ -163,6 +212,7 @@ struct CheckBoxState {
     UINT32 check_color;         // 勾选标记颜色
     FontStyle font;             // 字体样式
     CheckBoxCallback callback;  // 回调函数
+    EventCallbacks events;      // 通用事件回调
 };
 
 // 进度条状态
@@ -185,6 +235,7 @@ struct ProgressBarState {
     FontStyle font;             // 字体样式
     ProgressBarCallback callback; // 回调函数
     UINT_PTR timer_id;          // 动画定时器ID
+    EventCallbacks events;      // 通用事件回调
 };
 
 // 图片框状态
@@ -200,6 +251,7 @@ struct PictureBoxState {
     UINT32 bg_color;            // 背景色
     bool enabled;               // 启用状态
     PictureBoxCallback callback; // 回调函数
+    EventCallbacks events;      // 通用事件回调
 };
 
 // 单选按钮状态
@@ -219,6 +271,7 @@ struct RadioButtonState {
     UINT32 dot_color;           // 圆点颜色
     FontStyle font;             // 字体样式
     RadioButtonCallback callback; // 回调函数
+    EventCallbacks events;      // 通用事件回调
 };
 
 // 列表框项目
@@ -248,6 +301,7 @@ struct ListBoxState {
     UINT32 hover_color;         // 悬停背景色
     FontStyle font;             // 字体样式
     ListBoxCallback callback;   // 回调函数
+    EventCallbacks events;      // 通用事件回调
 };
 
 // 组合框状态
@@ -274,6 +328,7 @@ struct ComboBoxState {
     UINT32 hover_color;         // 悬停背景色
     FontStyle font;             // 字体样式
     ComboBoxCallback callback;  // 回调函数
+    EventCallbacks events;      // 通用事件回调
 };
 
 
@@ -310,7 +365,8 @@ struct D2DComboBoxState {
     
     FontStyle font;                 // 字体样式
     ComboBoxCallback callback;      // 回调函数
-    
+    EventCallbacks events;          // 通用事件回调
+
     ID2D1HwndRenderTarget* render_target; // D2D渲染目标（用于下拉列表）
     IDWriteFactory* dwrite_factory;       // DirectWrite工厂
 };
@@ -332,6 +388,7 @@ struct HotKeyState {
     UINT32 border_color;        // 边框颜色
     FontStyle font;             // 字体样式
     HotKeyCallback callback;    // 回调函数
+    EventCallbacks events;      // 通用事件回调
 };
 
 // 分组框回调函数类型 (stdcall 调用约定)
@@ -484,6 +541,7 @@ struct DataGridViewState {
     DataGridColumnHeaderClickCallback col_header_click_cb;
     DataGridSelectionChangedCallback selection_changed_cb;
     DataGridVirtualDataCallback virtual_data_cb;
+    EventCallbacks events;      // 通用事件回调
 };
 
 // 分组框状态
@@ -501,6 +559,7 @@ struct GroupBoxState {
     UINT32 bg_color;            // 背景色
     FontStyle font;             // 字体样式
     GroupBoxCallback callback;  // 回调函数
+    EventCallbacks events;      // 通用事件回调
 };
 
 // Button structure
@@ -1787,6 +1846,38 @@ extern "C" {
         const unsigned char* file_path_bytes,
         int path_len
     );
+
+    // ========== 通用事件回调设置 (需求 8.1-8.10) ==========
+
+    // 设置鼠标进入回调
+    __declspec(dllexport) void __stdcall SetMouseEnterCallback(HWND hControl, MouseEnterCallback callback);
+
+    // 设置鼠标离开回调
+    __declspec(dllexport) void __stdcall SetMouseLeaveCallback(HWND hControl, MouseLeaveCallback callback);
+
+    // 设置双击回调
+    __declspec(dllexport) void __stdcall SetDoubleClickCallback(HWND hControl, DoubleClickCallback callback);
+
+    // 设置右键点击回调
+    __declspec(dllexport) void __stdcall SetRightClickCallback(HWND hControl, RightClickCallback callback);
+
+    // 设置获得焦点回调
+    __declspec(dllexport) void __stdcall SetFocusCallback(HWND hControl, FocusCallback callback);
+
+    // 设置失去焦点回调
+    __declspec(dllexport) void __stdcall SetBlurCallback(HWND hControl, BlurCallback callback);
+
+    // 设置键盘按下回调
+    __declspec(dllexport) void __stdcall SetKeyDownCallback(HWND hControl, KeyDownCallback callback);
+
+    // 设置键盘松开回调
+    __declspec(dllexport) void __stdcall SetKeyUpCallback(HWND hControl, KeyUpCallback callback);
+
+    // 设置字符输入回调
+    __declspec(dllexport) void __stdcall SetCharCallback(HWND hControl, CharCallback callback);
+
+    // 设置值改变回调
+    __declspec(dllexport) void __stdcall SetValueChangedCallback(HWND hControl, ValueChangedCallback callback);
 }
 
 // Internal functions
@@ -1818,6 +1909,7 @@ std::wstring Utf8ToWide(const unsigned char* bytes, int len);
 D2D1_COLOR_F ColorFromUInt32(UINT32 color);
 UINT32 LightenColor(UINT32 color, float factor);
 UINT32 DarkenColor(UINT32 color, float factor);
+EventCallbacks* FindEventCallbacks(HWND hwnd);
 HWND CreateMessageBoxWindow(HWND parent, const std::wstring& title, const std::wstring& message,
                             const std::wstring& icon, MsgBoxButtonType type, MessageBoxCallback callback);
 void CloseMessageBox(HWND hwnd, bool result);

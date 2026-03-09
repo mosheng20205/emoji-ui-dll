@@ -181,3 +181,13 @@ EXPORTS
     DataGrid_SetBounds
     DataGrid_Refresh
     DataGrid_ExportCSV
+    SetMouseEnterCallback
+    SetMouseLeaveCallback
+    SetDoubleClickCallback
+    SetRightClickCallback
+    SetFocusCallback
+    SetBlurCallback
+    SetKeyDownCallback
+    SetKeyUpCallback
+    SetCharCallback
+    SetValueChangedCallback

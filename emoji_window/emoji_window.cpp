@@ -1,6 +1,7 @@
 #include "emoji_window.h"
 #include <algorithm>
 #include <windowsx.h>  // For GET_X_LPARAM and GET_Y_LPARAM
+#include <set>
 
 // Global variables
 std::map<HWND, WindowState*> g_windows;
@@ -34,6 +35,97 @@ static bool g_own_message_loop_running = false;
 
 // Forward declarations
 LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+
+// 鼠标进入跟踪集合
+static std::set<HWND> g_mouse_tracking_set;
+
+// 通用事件消息处理辅助函数（前向声明+定义）
+static bool HandleCommonEvents(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, EventCallbacks* ec) {
+    if (!ec) return false;
+
+    switch (msg) {
+    case WM_MOUSEMOVE:
+        if (g_mouse_tracking_set.find(hwnd) == g_mouse_tracking_set.end()) {
+            g_mouse_tracking_set.insert(hwnd);
+            TRACKMOUSEEVENT tme = {};
+            tme.cbSize = sizeof(tme);
+            tme.dwFlags = TME_LEAVE;
+            tme.hwndTrack = hwnd;
+            TrackMouseEvent(&tme);
+            if (ec->on_mouse_enter) {
+                ec->on_mouse_enter(hwnd);
+            }
+        }
+        break;
+
+    case WM_MOUSELEAVE:
+        g_mouse_tracking_set.erase(hwnd);
+        if (ec->on_mouse_leave) {
+            ec->on_mouse_leave(hwnd);
+        }
+        break;
+
+    case WM_LBUTTONDBLCLK:
+        if (ec->on_double_click) {
+            int x = GET_X_LPARAM(lparam);
+            int y = GET_Y_LPARAM(lparam);
+            ec->on_double_click(hwnd, x, y);
+            return true;
+        }
+        break;
+
+    case WM_RBUTTONUP:
+        if (ec->on_right_click) {
+            int x = GET_X_LPARAM(lparam);
+            int y = GET_Y_LPARAM(lparam);
+            ec->on_right_click(hwnd, x, y);
+            return true;
+        }
+        break;
+
+    case WM_SETFOCUS:
+        if (ec->on_focus) {
+            ec->on_focus(hwnd);
+        }
+        break;
+
+    case WM_KILLFOCUS:
+        if (ec->on_blur) {
+            ec->on_blur(hwnd);
+        }
+        break;
+
+    case WM_KEYDOWN:
+        if (ec->on_key_down) {
+            int shift = (GetKeyState(VK_SHIFT) & 0x8000) ? 1 : 0;
+            int ctrl = (GetKeyState(VK_CONTROL) & 0x8000) ? 1 : 0;
+            int alt = (GetKeyState(VK_MENU) & 0x8000) ? 1 : 0;
+            ec->on_key_down(hwnd, (int)wparam, shift, ctrl, alt);
+        }
+        break;
+
+    case WM_KEYUP:
+        if (ec->on_key_up) {
+            int shift = (GetKeyState(VK_SHIFT) & 0x8000) ? 1 : 0;
+            int ctrl = (GetKeyState(VK_CONTROL) & 0x8000) ? 1 : 0;
+            int alt = (GetKeyState(VK_MENU) & 0x8000) ? 1 : 0;
+            ec->on_key_up(hwnd, (int)wparam, shift, ctrl, alt);
+        }
+        break;
+
+    case WM_CHAR:
+        if (ec->on_char) {
+            ec->on_char(hwnd, (int)wparam);
+        }
+        break;
+
+    case WM_NCDESTROY:
+        g_mouse_tracking_set.erase(hwnd);
+        break;
+    }
+
+    return false;
+}
 
 // UTF-8 to Wide String
 std::wstring Utf8ToWide(const unsigned char* bytes, int len) {
@@ -2850,6 +2942,9 @@ void DrawCheckBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, CheckBoxSt
 LRESULT CALLBACK CheckBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     CheckBoxState* state = (CheckBoxState*)dwRefData;
 
+    // 通用事件处理
+    HandleCommonEvents(hwnd, msg, wparam, lparam, state ? &state->events : nullptr);
+
     switch (msg) {
         case WM_NCHITTEST: {
             // 确保STATIC控件返回HTCLIENT，允许接收鼠标消息
@@ -2910,6 +3005,9 @@ LRESULT CALLBACK CheckBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
                     // 触发回调
                     if (state->callback) {
                         state->callback(hwnd, state->checked);
+                    }
+                    if (state->events.on_value_changed) {
+                        state->events.on_value_changed(hwnd);
                     }
                 }
             } else if (state->pressed) {
@@ -3249,7 +3347,10 @@ void DrawProgressBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, Progres
 // 进度条窗口过程
 LRESULT CALLBACK ProgressBarProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     ProgressBarState* state = (ProgressBarState*)dwRefData;
-    
+
+    // 通用事件处理
+    HandleCommonEvents(hwnd, msg, wparam, lparam, state ? &state->events : nullptr);
+
     switch (msg) {
         case WM_PAINT: {
             PAINTSTRUCT ps;
@@ -3433,6 +3534,9 @@ __declspec(dllexport) void __stdcall SetProgressValue(
     // 触发回调
     if (state->callback && old_value != value) {
         state->callback(hProgressBar, value);
+    }
+    if (state->events.on_value_changed && old_value != value) {
+        state->events.on_value_changed(hProgressBar);
     }
     
     InvalidateRect(hProgressBar, NULL, FALSE);
@@ -3634,7 +3738,10 @@ void DrawPictureBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, PictureB
 // 图片框窗口过程
 LRESULT CALLBACK PictureBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     PictureBoxState* state = (PictureBoxState*)dwRefData;
-    
+
+    // 通用事件处理
+    HandleCommonEvents(hwnd, msg, wparam, lparam, state ? &state->events : nullptr);
+
     switch (msg) {
         case WM_PAINT: {
             PAINTSTRUCT ps;
@@ -4175,6 +4282,9 @@ void DrawRadioButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, RadioBu
 LRESULT CALLBACK RadioButtonProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     RadioButtonState* state = (RadioButtonState*)dwRefData;
 
+    // 通用事件处理
+    HandleCommonEvents(hwnd, msg, wparam, lparam, state ? &state->events : nullptr);
+
     switch (msg) {
         case WM_NCHITTEST: {
             // 确保STATIC控件返回HTCLIENT，允许接收鼠标消息
@@ -4251,6 +4361,9 @@ LRESULT CALLBACK RadioButtonProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                         // 触发回调
                         if (state->callback) {
                             state->callback(hwnd, state->group_id, TRUE);
+                        }
+                        if (state->events.on_value_changed) {
+                            state->events.on_value_changed(hwnd);
                         }
                     }
                 }
@@ -4622,7 +4735,10 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
     }
     
     ListBoxState* state = it->second;
-    
+
+    // 通用事件处理
+    HandleCommonEvents(hwnd, msg, wparam, lparam, &state->events);
+
     switch (msg) {
         case WM_PAINT: {
             PAINTSTRUCT ps;
@@ -4679,6 +4795,9 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
                 // 触发回调
                 if (state->callback) {
                     state->callback(hwnd, clicked_index);
+                }
+                if (state->events.on_value_changed) {
+                    state->events.on_value_changed(hwnd);
                 }
                 
                 InvalidateRect(hwnd, nullptr, TRUE);
@@ -5272,7 +5391,10 @@ LRESULT CALLBACK ComboDropDownProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                 if (state->callback) {
                     state->callback(state->hwnd, index);
                 }
-                
+                if (state->events.on_value_changed) {
+                    state->events.on_value_changed(state->hwnd);
+                }
+
                 // 隐藏下拉列表
                 ShowWindow(hwnd, SW_HIDE);
                 state->dropdown_visible = false;
@@ -5377,7 +5499,10 @@ LRESULT CALLBACK ComboDropDownProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
 LRESULT CALLBACK ComboBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     ComboBoxState* state = (ComboBoxState*)dwRefData;
     if (!state) return DefSubclassProc(hwnd, msg, wparam, lparam);
-    
+
+    // 通用事件处理
+    HandleCommonEvents(hwnd, msg, wparam, lparam, &state->events);
+
     switch (msg) {
         case WM_PAINT: {
             PAINTSTRUCT ps;
@@ -5848,6 +5973,9 @@ void __stdcall SetComboSelectedIndex(HWND hComboBox, int index) {
         if (state->callback && index >= 0) {
             state->callback(hComboBox, index);
         }
+        if (state->events.on_value_changed && index >= 0) {
+            state->events.on_value_changed(hComboBox);
+        }
     }
 }
 
@@ -6187,7 +6315,10 @@ LRESULT CALLBACK HotKeyProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, U
     }
     
     HotKeyState* state = it->second;
-    
+
+    // 通用事件处理
+    HandleCommonEvents(hwnd, msg, wparam, lparam, &state->events);
+
     switch (msg) {
         case WM_PAINT: {
             PAINTSTRUCT ps;
@@ -6252,6 +6383,9 @@ LRESULT CALLBACK HotKeyProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, U
             // 触发回调
             if (state->callback) {
                 state->callback(hwnd, vk, modifiers);
+            }
+            if (state->events.on_value_changed) {
+                state->events.on_value_changed(hwnd);
             }
             
             return 0;
@@ -6667,7 +6801,10 @@ LRESULT CALLBACK GroupBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
     }
     
     GroupBoxState* state = it->second;
-    
+
+    // 通用事件处理
+    HandleCommonEvents(hwnd, msg, wparam, lparam, &state->events);
+
     switch (msg) {
         case WM_NCHITTEST: {
             // 分组框应该对鼠标透明，让子控件接收点击
@@ -7266,7 +7403,10 @@ LRESULT CALLBACK D2DEditBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
     if (!state) {
         return DefWindowProc(hwnd, msg, wparam, lparam);
     }
-    
+
+    // 通用事件处理
+    HandleCommonEvents(hwnd, msg, wparam, lparam, &state->events);
+
     switch (msg) {
     case WM_PAINT: {
         PAINTSTRUCT ps;
@@ -8010,6 +8150,9 @@ LRESULT CALLBACK D2DComboBoxWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 
     D2DComboBoxState* state = (it != g_d2d_comboboxes.end()) ? it->second : NULL;
 
+    // 通用事件处理
+    if (state) HandleCommonEvents(hwnd, msg, wParam, lParam, &state->events);
+
     switch (msg) {
     case WM_PAINT: {
         PAINTSTRUCT ps;
@@ -8341,6 +8484,9 @@ void SelectItem(D2DComboBoxState* state, int index) {
     // 触发回调
     if (state->callback) {
         state->callback(state->hwnd, index);
+    }
+    if (state->events.on_value_changed) {
+        state->events.on_value_changed(state->hwnd);
     }
 
     HideDropDown(state);
@@ -9275,6 +9421,9 @@ LRESULT CALLBACK DataGridViewProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
     if (it == g_datagrids.end()) return DefSubclassProc(hwnd, msg, wparam, lparam);
     DataGridViewState* state = it->second;
 
+    // 通用事件处理
+    HandleCommonEvents(hwnd, msg, wparam, lparam, &state->events);
+
     switch (msg) {
         case WM_PAINT: {
             PAINTSTRUCT ps;
@@ -9982,6 +10131,86 @@ __declspec(dllexport) BOOL __stdcall DataGrid_ExportCSV(HWND hGrid, const unsign
 
     fclose(fp);
     return TRUE;
+}
+
+} // extern "C" (DataGridView block end)
+
+// ========== 通用事件回调系统 (需求 8.1-8.10) ==========
+
+// 查找任意控件的EventCallbacks指针 (C++ linkage, not exported)
+EventCallbacks* FindEventCallbacks(HWND hwnd) {
+    if (!hwnd) return nullptr;
+
+    // 按使用频率排序查找
+    { auto it = g_checkboxes.find(hwnd); if (it != g_checkboxes.end()) return &it->second->events; }
+    { auto it = g_radiobuttons.find(hwnd); if (it != g_radiobuttons.end()) return &it->second->events; }
+    { auto it = g_listboxes.find(hwnd); if (it != g_listboxes.end()) return &it->second->events; }
+    { auto it = g_comboboxes.find(hwnd); if (it != g_comboboxes.end()) return &it->second->events; }
+    { auto it = g_d2d_comboboxes.find(hwnd); if (it != g_d2d_comboboxes.end()) return &it->second->events; }
+    { auto it = g_editboxes.find(hwnd); if (it != g_editboxes.end()) return &it->second->events; }
+    { auto it = g_labels.find(hwnd); if (it != g_labels.end()) return &it->second->events; }
+    { auto it = g_progressbars.find(hwnd); if (it != g_progressbars.end()) return &it->second->events; }
+    { auto it = g_pictureboxes.find(hwnd); if (it != g_pictureboxes.end()) return &it->second->events; }
+    { auto it = g_hotkeys.find(hwnd); if (it != g_hotkeys.end()) return &it->second->events; }
+    { auto it = g_groupboxes.find(hwnd); if (it != g_groupboxes.end()) return &it->second->events; }
+    { auto it = g_datagrids.find(hwnd); if (it != g_datagrids.end()) return &it->second->events; }
+
+    // 也检查D2DEditBox
+    { auto it = g_d2d_editboxes.find(hwnd); if (it != g_d2d_editboxes.end()) return &it->second->events; }
+
+    return nullptr;
+}
+
+extern "C" {
+
+__declspec(dllexport) void __stdcall SetMouseEnterCallback(HWND hControl, MouseEnterCallback callback) {
+    EventCallbacks* ec = FindEventCallbacks(hControl);
+    if (ec) ec->on_mouse_enter = callback;
+}
+
+__declspec(dllexport) void __stdcall SetMouseLeaveCallback(HWND hControl, MouseLeaveCallback callback) {
+    EventCallbacks* ec = FindEventCallbacks(hControl);
+    if (ec) ec->on_mouse_leave = callback;
+}
+
+__declspec(dllexport) void __stdcall SetDoubleClickCallback(HWND hControl, DoubleClickCallback callback) {
+    EventCallbacks* ec = FindEventCallbacks(hControl);
+    if (ec) ec->on_double_click = callback;
+}
+
+__declspec(dllexport) void __stdcall SetRightClickCallback(HWND hControl, RightClickCallback callback) {
+    EventCallbacks* ec = FindEventCallbacks(hControl);
+    if (ec) ec->on_right_click = callback;
+}
+
+__declspec(dllexport) void __stdcall SetFocusCallback(HWND hControl, FocusCallback callback) {
+    EventCallbacks* ec = FindEventCallbacks(hControl);
+    if (ec) ec->on_focus = callback;
+}
+
+__declspec(dllexport) void __stdcall SetBlurCallback(HWND hControl, BlurCallback callback) {
+    EventCallbacks* ec = FindEventCallbacks(hControl);
+    if (ec) ec->on_blur = callback;
+}
+
+__declspec(dllexport) void __stdcall SetKeyDownCallback(HWND hControl, KeyDownCallback callback) {
+    EventCallbacks* ec = FindEventCallbacks(hControl);
+    if (ec) ec->on_key_down = callback;
+}
+
+__declspec(dllexport) void __stdcall SetKeyUpCallback(HWND hControl, KeyUpCallback callback) {
+    EventCallbacks* ec = FindEventCallbacks(hControl);
+    if (ec) ec->on_key_up = callback;
+}
+
+__declspec(dllexport) void __stdcall SetCharCallback(HWND hControl, CharCallback callback) {
+    EventCallbacks* ec = FindEventCallbacks(hControl);
+    if (ec) ec->on_char = callback;
+}
+
+__declspec(dllexport) void __stdcall SetValueChangedCallback(HWND hControl, ValueChangedCallback callback) {
+    EventCallbacks* ec = FindEventCallbacks(hControl);
+    if (ec) ec->on_value_changed = callback;
 }
 
 } // extern "C"
