@@ -35,6 +35,7 @@ Desktop.ini
 
 # Claude Code
 .claude/
+.worktrees/
 
 # Kiro specs
 .kiro/
