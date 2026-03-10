@@ -2599,10 +2599,12 @@ int __stdcall AddTabItem(HWND hTabControl, const unsigned char* title_bytes, int
 
         if (SUCCEEDED(hr) && render_target) {
             // 创建 WindowState 并添加到全局映射表
+            // 注意：Tab 内容窗口只是一个“容器子窗口”，不应启用自绘标题栏（否则会在右上角绘制最小化/最大化/关闭按钮，且导致布局偏移）
             WindowState* content_state = new WindowState();
             content_state->hwnd = hContentWindow;
             content_state->render_target = render_target;
             content_state->dwrite_factory = g_dwrite_factory;
+            content_state->custom_titlebar = false;
             g_windows[hContentWindow] = content_state;
         }
     }
@@ -7451,6 +7453,13 @@ void __stdcall SetHotKey(
     InvalidateRect(hHotKey, nullptr, FALSE);
 }
 
+// 清除热键
+void __stdcall ClearHotKey(
+    HWND hHotKey
+) {
+    SetHotKey(hHotKey, 0, 0);
+}
+
 // 设置热键回调
 void __stdcall SetHotKeyCallback(
     HWND hHotKey,
@@ -9833,6 +9842,31 @@ extern "C" __declspec(dllexport) int __stdcall GetD2DComboText(
     if (!state->edit_hwnd) return 0;
 
     return GetD2DEditBoxText(state->edit_hwnd, buffer, buffer_size);
+}
+
+// 获取选中项文本
+extern "C" __declspec(dllexport) int __stdcall GetD2DComboSelectedText(
+    HWND hComboBox,
+    unsigned char* buffer,
+    int buffer_size
+) {
+    auto it = g_d2d_comboboxes.find(hComboBox);
+    if (it == g_d2d_comboboxes.end()) return 0;
+
+    D2DComboBoxState* state = it->second;
+    if (state->selected_index < 0 || state->selected_index >= (int)state->items.size()) return 0;
+
+    std::wstring wstr = state->items[state->selected_index];
+    int len = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, NULL, 0, NULL, NULL);
+    if (len <= 0) return 0;
+
+    if (buffer && buffer_size > 0) {
+        int actual_len = min(len - 1, buffer_size - 1);
+        WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, (char*)buffer, actual_len + 1, NULL, NULL);
+        return actual_len;
+    }
+
+    return len - 1;
 }
 
 // 设置编辑框文本

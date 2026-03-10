@@ -1568,6 +1568,13 @@ extern "C" {
         int buffer_size
     );
 
+    // 获取D2D组合框选中项文本
+    __declspec(dllexport) int __stdcall GetD2DComboSelectedText(
+        HWND hComboBox,
+        unsigned char* buffer,
+        int buffer_size
+    );
+
     // 设置D2D组合框编辑框文本
     __declspec(dllexport) void __stdcall SetD2DComboText(
         HWND hComboBox,
@@ -1622,6 +1629,11 @@ extern "C" {
         HWND hHotKey,
         int vk_code,
         int modifiers
+    );
+
+    // 清除热键
+    __declspec(dllexport) void __stdcall ClearHotKey(
+        HWND hHotKey
     );
 
     // 设置热键回调

@@ -106,6 +106,7 @@ EXPORTS
     CreateHotKeyControl
     GetHotKey
     SetHotKey
+    ClearHotKey
     SetHotKeyCallback
     EnableHotKeyControl
     ShowHotKeyControl
@@ -137,6 +138,7 @@ EXPORTS
     GetD2DComboItemText
     GetD2DComboText
     SetD2DComboText
+    GetD2DComboSelectedText
     SetD2DComboBoxCallback
     EnableD2DComboBox
     ShowD2DComboBox

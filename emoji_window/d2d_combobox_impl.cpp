@@ -934,6 +934,31 @@ extern "C" __declspec(dllexport) void __stdcall SetD2DComboBoxCallback(
     it->second->callback = callback;
 }
 
+// 获取选中项文本（根据selected_index返回对应项的UTF-8文本）
+extern "C" __declspec(dllexport) int __stdcall GetD2DComboSelectedText(
+    HWND hComboBox,
+    unsigned char* buffer,
+    int buffer_size
+) {
+    auto it = g_d2d_comboboxes.find(hComboBox);
+    if (it == g_d2d_comboboxes.end()) return 0;
+
+    D2DComboBoxState* state = it->second;
+    if (state->selected_index < 0 || state->selected_index >= (int)state->items.size()) return 0;
+
+    std::wstring wstr = state->items[state->selected_index];
+    int len = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, NULL, 0, NULL, NULL);
+    if (len <= 0) return 0;
+
+    if (buffer && buffer_size > 0) {
+        int actual_len = min(len - 1, buffer_size - 1);
+        WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, (char*)buffer, actual_len + 1, NULL, NULL);
+        return actual_len;
+    }
+
+    return len - 1;
+}
+
 // 启用/禁用
 extern "C" __declspec(dllexport) void __stdcall EnableD2DComboBox(
     HWND hComboBox,
