@@ -7934,7 +7934,8 @@ void DrawHotKey(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, HotKeyState*
                     (float)state->height
                 );
                 
-                rt->DrawTextW(
+                // 使用DrawText而不是DrawTextW
+                rt->DrawText(
                     state->display_text.c_str(),
                     (UINT32)state->display_text.length(),
                     text_format,
@@ -8670,7 +8671,8 @@ void DrawGroupBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, GroupBoxSt
         title_height
     );
     
-    rt->DrawTextW(
+    // 使用DrawText而不是DrawTextW
+    rt->DrawText(
         state->title.c_str(),
         (UINT32)state->title.length(),
         text_format,
@@ -10963,6 +10965,11 @@ void DrawDataGridView(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, DataGr
                     std::wstring text = DataGrid_GetCellDisplayText(state, r, c);
                     if (!text.empty()) {
                         D2D1_RECT_F tr = D2D1::RectF(col_x + 8, row_y, col_x + cw - 8, row_y + row_h);
+                        
+                        // 设置裁剪区域，防止文本溢出到相邻单元格
+                        D2D1_RECT_F clip_rect = D2D1::RectF(col_x, row_y, col_x + cw, row_y + row_h);
+                        rt->PushAxisAlignedClip(clip_rect, D2D1_ANTIALIAS_MODE_ALIASED);
+                        
                         UINT32 cell_fg = cell_style.fg_color ? cell_style.fg_color : state->fg_color;
                         brush->SetColor(ColorFromUInt32(cell_fg));
                         IDWriteTextFormat* cf = text_format;
@@ -10988,6 +10995,9 @@ void DrawDataGridView(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, DataGr
                             layout->Release();
                         }
                         if (custom_f) cf->Release();
+                        
+                        // 恢复裁剪区域
+                        rt->PopAxisAlignedClip();
                     }
                     break;
                 }
@@ -11033,6 +11043,11 @@ void DrawDataGridView(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, DataGr
                     std::wstring text = DataGrid_GetCellDisplayText(state, r, c);
                     if (!text.empty()) {
                         D2D1_RECT_F tr = D2D1::RectF(col_x + 8, row_y, col_x + cw - 8, row_y + row_h);
+                        
+                        // 设置裁剪区域，防止链接文本溢出
+                        D2D1_RECT_F clip_rect = D2D1::RectF(col_x, row_y, col_x + cw, row_y + row_h);
+                        rt->PushAxisAlignedClip(clip_rect, D2D1_ANTIALIAS_MODE_ALIASED);
+                        
                         brush->SetColor(D2D1::ColorF(0x409EFF, 1.0f));
                         IDWriteTextLayout* layout = nullptr;
                         factory->CreateTextLayout(text.c_str(), (UINT32)text.length(), text_format,
@@ -11044,6 +11059,9 @@ void DrawDataGridView(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, DataGr
                                 D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
                             layout->Release();
                         }
+                        
+                        // 恢复裁剪区域
+                        rt->PopAxisAlignedClip();
                     }
                     break;
                 }
