@@ -468,6 +468,15 @@ struct DataGridColumn {
     bool resizable;             // 是否可调整宽度
     bool sortable;              // 是否可排序
     DataGridSortOrder sort_order; // 当前排序方向
+    DWRITE_TEXT_ALIGNMENT header_alignment;  // 列头对齐方式
+    DWRITE_TEXT_ALIGNMENT cell_alignment;    // 单元格对齐方式
+    
+    // 构造函数，设置默认值
+    DataGridColumn() : 
+        width(100), min_width(30), type(DGCOL_TEXT), 
+        resizable(true), sortable(true), sort_order(DGSORT_NONE),
+        header_alignment(DWRITE_TEXT_ALIGNMENT_LEADING),
+        cell_alignment(DWRITE_TEXT_ALIGNMENT_LEADING) {}
 };
 
 // 单元格数据
@@ -2148,6 +2157,20 @@ extern "C" {
     // 刷新DataGridView
     __declspec(dllexport) void __stdcall DataGrid_Refresh(
         HWND hGrid
+    );
+
+    // 设置列头对齐方式 (0=左对齐, 1=居中, 2=右对齐)
+    __declspec(dllexport) void __stdcall DataGrid_SetColumnHeaderAlignment(
+        HWND hGrid,
+        int col_index,
+        int alignment
+    );
+
+    // 设置列单元格对齐方式 (0=左对齐, 1=居中, 2=右对齐)
+    __declspec(dllexport) void __stdcall DataGrid_SetColumnCellAlignment(
+        HWND hGrid,
+        int col_index,
+        int alignment
     );
 
     // 导出CSV

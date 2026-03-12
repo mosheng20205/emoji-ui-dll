@@ -200,6 +200,8 @@ EXPORTS
     DataGrid_Show
     DataGrid_SetBounds
     DataGrid_Refresh
+    DataGrid_SetColumnHeaderAlignment
+    DataGrid_SetColumnCellAlignment
     DataGrid_ExportCSV
     SetMouseEnterCallback
     SetMouseLeaveCallback

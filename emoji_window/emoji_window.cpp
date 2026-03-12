@@ -10894,15 +10894,32 @@ void DrawDataGridView(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, DataGr
                 if (state->sort_order == DGSORT_ASC) hdr_text += L" \u25B2";
                 else if (state->sort_order == DGSORT_DESC) hdr_text += L" \u25BC";
             }
+            
+            // 创建临时格式以应用列头对齐方式
+            IDWriteTextFormat* hdr_fmt = header_format ? header_format : text_format;
+            IDWriteTextFormat* custom_hdr_fmt = nullptr;
+            if (state->columns[c].header_alignment != DWRITE_TEXT_ALIGNMENT_LEADING) {
+                factory->CreateTextFormat(L"Segoe UI Emoji", nullptr,
+                    DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+                    (float)state->font.font_size, L"zh-CN", &custom_hdr_fmt);
+                if (custom_hdr_fmt) {
+                    custom_hdr_fmt->SetTextAlignment(state->columns[c].header_alignment);
+                    custom_hdr_fmt->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+                    custom_hdr_fmt->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+                    hdr_fmt = custom_hdr_fmt;
+                }
+            }
+            
             IDWriteTextLayout* layout = nullptr;
             factory->CreateTextLayout(hdr_text.c_str(), (UINT32)hdr_text.length(),
-                header_format ? header_format : text_format,
+                hdr_fmt,
                 hdr_rect.right - hdr_rect.left, hdr_rect.bottom - hdr_rect.top, &layout);
             if (layout) {
                 rt->DrawTextLayout(D2D1::Point2F(hdr_rect.left, hdr_rect.top), layout, brush,
                     D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
                 layout->Release();
             }
+            if (custom_hdr_fmt) custom_hdr_fmt->Release();
             if (state->show_grid_lines) {
                 brush->SetColor(grid_color);
                 rt->DrawLine(D2D1::Point2F(col_x + col_w, 0), D2D1::Point2F(col_x + col_w, hdr_h), brush, 1.0f);
@@ -10974,14 +10991,14 @@ void DrawDataGridView(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, DataGr
                         brush->SetColor(ColorFromUInt32(cell_fg));
                         IDWriteTextFormat* cf = text_format;
                         bool custom_f = false;
-                        if (cell_style.bold || cell_style.italic) {
+                        if (cell_style.bold || cell_style.italic || state->columns[c].cell_alignment != DWRITE_TEXT_ALIGNMENT_LEADING) {
                             IDWriteTextFormat* tmp = nullptr;
                             factory->CreateTextFormat(L"Segoe UI Emoji", nullptr,
                                 cell_style.bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
                                 cell_style.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
                                 DWRITE_FONT_STRETCH_NORMAL, (float)state->font.font_size, L"zh-CN", &tmp);
                             if (tmp) { cf = tmp; custom_f = true;
-                                cf->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+                                cf->SetTextAlignment(state->columns[c].cell_alignment);
                                 cf->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
                                 cf->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
                             }
@@ -11884,6 +11901,36 @@ __declspec(dllexport) void __stdcall DataGrid_SetBounds(HWND hGrid, int x, int y
 }
 
 __declspec(dllexport) void __stdcall DataGrid_Refresh(HWND hGrid) {
+    InvalidateRect(hGrid, nullptr, TRUE);
+}
+
+// 设置列头对齐方式 (0=左对齐, 1=居中, 2=右对齐)
+__declspec(dllexport) void __stdcall DataGrid_SetColumnHeaderAlignment(HWND hGrid, int col_index, int alignment) {
+    auto it = g_datagrids.find(hGrid);
+    if (it == g_datagrids.end()) return;
+    DataGridViewState* state = it->second;
+    if (col_index < 0 || col_index >= (int)state->columns.size()) return;
+    
+    DWRITE_TEXT_ALIGNMENT align = DWRITE_TEXT_ALIGNMENT_LEADING;
+    if (alignment == 1) align = DWRITE_TEXT_ALIGNMENT_CENTER;
+    else if (alignment == 2) align = DWRITE_TEXT_ALIGNMENT_TRAILING;
+    
+    state->columns[col_index].header_alignment = align;
+    InvalidateRect(hGrid, nullptr, TRUE);
+}
+
+// 设置列单元格对齐方式 (0=左对齐, 1=居中, 2=右对齐)
+__declspec(dllexport) void __stdcall DataGrid_SetColumnCellAlignment(HWND hGrid, int col_index, int alignment) {
+    auto it = g_datagrids.find(hGrid);
+    if (it == g_datagrids.end()) return;
+    DataGridViewState* state = it->second;
+    if (col_index < 0 || col_index >= (int)state->columns.size()) return;
+    
+    DWRITE_TEXT_ALIGNMENT align = DWRITE_TEXT_ALIGNMENT_LEADING;
+    if (alignment == 1) align = DWRITE_TEXT_ALIGNMENT_CENTER;
+    else if (alignment == 2) align = DWRITE_TEXT_ALIGNMENT_TRAILING;
+    
+    state->columns[col_index].cell_alignment = align;
     InvalidateRect(hGrid, nullptr, TRUE);
 }
 
