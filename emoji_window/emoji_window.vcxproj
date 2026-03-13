@@ -177,11 +177,14 @@
   <ItemGroup>
     <ClInclude Include="emoji_window.h" />
     <ClInclude Include="submenu_window.h" />
+    <ClInclude Include="treeview_window.h" />
+    <ClInclude Include="treeview_state.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="emoji_window.cpp" />
     <ClCompile Include="submenu_window.cpp" />
+    <ClCompile Include="treeview_window.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="emoji_window.def" />

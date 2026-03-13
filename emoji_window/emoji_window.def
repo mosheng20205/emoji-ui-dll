@@ -232,3 +232,37 @@ EXPORTS
     IsDarkMode
     EW_GetCurrentThemeName
     SetThemeChangedCallback
+    CreateTreeView
+    DestroyTreeView
+    AddRootNode
+    AddChildNode
+    RemoveNode
+    ClearTree
+    ExpandNode
+    CollapseNode
+    ExpandAll
+    CollapseAll
+    IsNodeExpanded
+    SetSelectedNode
+    GetSelectedNode
+    SetNodeText
+    GetNodeText
+    SetNodeIcon
+    GetNodeIcon
+    SetNodeForeColor
+    SetNodeBackColor
+    SetNodeEnabled
+    IsNodeEnabled
+    SetNodeCheckBox
+    SetNodeChecked
+    GetNodeChecked
+    FindNodeByText
+    GetNodeParent
+    GetNodeChildCount
+    GetNodeChildren
+    GetNodeLevel
+    ScrollToNode
+    SetScrollPos
+    GetScrollPos
+    SetTreeViewCallback
+    EnableTreeViewDragDrop
