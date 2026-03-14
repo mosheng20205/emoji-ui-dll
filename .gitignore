@@ -9,6 +9,17 @@ Debug/
 *.exp
 *.lib
 
+# C# build outputs
+bin/
+obj/
+*.dll
+*.exe
+*.cache
+*.user
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
 # Visual Studio
 .vs/
 *.vcxproj.user
