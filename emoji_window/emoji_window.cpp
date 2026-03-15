@@ -873,6 +873,75 @@ void DrawPopupMenu(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, PopupMenu
 
 // Draw button (Element UI style - supports both main window buttons and message box buttons)
 void DrawButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, const EmojiButton& button) {
+    // ========== 处理禁用状态 ==========
+    if (!button.enabled) {
+        // 禁用状态：使用灰色绘制
+        ID2D1SolidColorBrush* brush = nullptr;
+        UINT32 disabled_bg = 0xFFF5F7FA;  // 浅灰色背景
+        rt->CreateSolidColorBrush(ColorFromUInt32(disabled_bg), &brush);
+
+        D2D1_ROUNDED_RECT rect = D2D1::RoundedRect(
+            D2D1::RectF(
+                (FLOAT)button.x,
+                (FLOAT)button.y,
+                (FLOAT)(button.x + button.width),
+                (FLOAT)(button.y + button.height)
+            ),
+            4.0f, 4.0f
+        );
+        rt->FillRoundedRectangle(rect, brush);
+        brush->Release();
+
+        // 绘制边框
+        ID2D1SolidColorBrush* border_brush = nullptr;
+        UINT32 disabled_border = 0xFFE4E7ED;  // 浅灰色边框
+        rt->CreateSolidColorBrush(ColorFromUInt32(disabled_border), &border_brush);
+        rt->DrawRoundedRectangle(rect, border_brush, 1.0f);
+        border_brush->Release();
+
+        // 绘制禁用文本
+        ID2D1SolidColorBrush* text_brush = nullptr;
+        UINT32 disabled_text = 0xFFC0C4CC;  // 占位文本色
+        rt->CreateSolidColorBrush(ColorFromUInt32(disabled_text), &text_brush);
+
+        // 创建文本格式
+        IDWriteTextFormat* fmt = nullptr;
+        factory->CreateTextFormat(
+            L"Segoe UI Emoji",
+            nullptr,
+            DWRITE_FONT_WEIGHT_NORMAL,
+            DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL,
+            14.0f,
+            L"zh-CN",
+            &fmt
+        );
+        if (fmt) {
+            fmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            fmt->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
+            // 绘制文本（emoji + text）
+            std::wstring full_text = button.emoji + button.text;
+            D2D1_RECT_F text_rect = D2D1::RectF(
+                (FLOAT)button.x,
+                (FLOAT)button.y,
+                (FLOAT)(button.x + button.width),
+                (FLOAT)(button.y + button.height)
+            );
+            rt->DrawText(
+                full_text.c_str(),
+                (UINT32)full_text.length(),
+                fmt,
+                text_rect,
+                text_brush,
+                D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT
+            );
+            fmt->Release();
+        }
+        text_brush->Release();
+        return;  // 禁用状态绘制完成，直接返回
+    }
+
     // ========== Calculate button color based on state (Element UI style) ==========
     // 解析主题颜色索引（如果传入的是0-14的索引值）
     UINT32 bg_color = ResolveThemeColor(button.bg_color);
@@ -1352,7 +1421,21 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             }
 
             for (const auto& button : state->buttons) {
-                DrawButton(state->render_target, state->dwrite_factory, button);
+                // 检查按钮是否属于某个分组框
+                bool should_draw = true;
+                for (const auto& gb_pair : g_groupboxes) {
+                    GroupBoxState* gb = gb_pair.second;
+                    // 如果按钮在这个分组框的按钮列表中
+                    if (std::find(gb->button_ids.begin(), gb->button_ids.end(), button.id) != gb->button_ids.end()) {
+                        // 只有分组框可见时才绘制按钮
+                        should_draw = gb->visible;
+                        break;
+                    }
+                }
+                
+                if (should_draw) {
+                    DrawButton(state->render_target, state->dwrite_factory, button);
+                }
             }
 
             for (const auto& pair : g_labels) {
@@ -1455,7 +1538,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             }
 
             for (auto& button : state->buttons) {
-                if (button.ContainsPoint(x, y)) {
+                if (button.enabled && button.ContainsPoint(x, y)) {
                     button.is_pressed = true;
                     InvalidateRect(hwnd, nullptr, FALSE);
                     break;
@@ -1471,7 +1554,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             int y = HIWORD(lparam);
 
             for (auto& button : state->buttons) {
-                if (button.is_pressed && button.ContainsPoint(x, y)) {
+                if (button.is_pressed && button.enabled && button.ContainsPoint(x, y)) {
                     button.is_pressed = false;
 
                     if (g_button_callback) {
@@ -1522,7 +1605,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             }
 
             for (auto& button : state->buttons) {
-                bool hovered = button.ContainsPoint(x, y);
+                bool hovered = button.enabled && button.ContainsPoint(x, y);
                 if (hovered != button.is_hovered) {
                     button.is_hovered = hovered;
                     needs_redraw = true;
@@ -1981,7 +2064,25 @@ int __stdcall create_emoji_button_bytes(
     int x, int y, int width, int height,
     UINT32 bg_color
 ) {
-    auto it = g_windows.find(parent);
+    // 检查父窗口是否为分组框
+    HWND actual_parent = parent;
+    int actual_x = x;
+    int actual_y = y;
+    GroupBoxState* parent_groupbox = nullptr;
+    
+    auto groupbox_it = g_groupboxes.find(parent);
+    if (groupbox_it != g_groupboxes.end()) {
+        // 父窗口是分组框，需要转换坐标
+        GroupBoxState* gb_state = groupbox_it->second;
+        parent_groupbox = gb_state;  // 记录父分组框
+        actual_parent = gb_state->parent;  // 使用分组框的父窗口
+        
+        // 转换坐标：分组框相对坐标 -> 窗口绝对坐标
+        actual_x = gb_state->x + x + 10;  // 左边距10px
+        actual_y = gb_state->y + y + 25;  // 标题高度约25px
+    }
+    
+    auto it = g_windows.find(actual_parent);
     if (it == g_windows.end()) return 0;
 
     WindowState* state = it->second;
@@ -1990,8 +2091,8 @@ int __stdcall create_emoji_button_bytes(
     button.id = (int)state->buttons.size() + 1000;
     button.emoji = Utf8ToWide(emoji_bytes, emoji_len);
     button.text = Utf8ToWide(text_bytes, text_len);
-    button.x = x;
-    button.y = y + GetTitleBarOffset(parent);
+    button.x = actual_x;
+    button.y = actual_y + GetTitleBarOffset(actual_parent);
     button.width = width;
     button.height = height;
     button.bg_color = bg_color;
@@ -1999,8 +2100,15 @@ int __stdcall create_emoji_button_bytes(
     button.is_pressed = false;
 
     state->buttons.push_back(button);
+    
+    // 如果按钮属于分组框，记录按钮ID
+    if (parent_groupbox) {
+        parent_groupbox->button_ids.push_back(button.id);
+    }
 
-    InvalidateRect(parent, nullptr, FALSE);
+    // 立即触发重绘并更新，确保按钮立即显示
+    InvalidateRect(actual_parent, nullptr, FALSE);
+    UpdateWindow(actual_parent);
 
     return button.id;
 }
@@ -2008,6 +2116,27 @@ int __stdcall create_emoji_button_bytes(
 // Set button click callback
 void __stdcall set_button_click_callback(ButtonClickCallback callback) {
     g_button_callback = callback;
+}
+
+// 启用按钮
+void __stdcall EnableButton(HWND parent_hwnd, int button_id, BOOL enable) {
+    auto it = g_windows.find(parent_hwnd);
+    if (it == g_windows.end()) return;
+
+    WindowState* state = it->second;
+    for (auto& button : state->buttons) {
+        if (button.id == button_id) {
+            button.enabled = (enable != 0);
+            // 触发重绘
+            InvalidateRect(parent_hwnd, nullptr, FALSE);
+            break;
+        }
+    }
+}
+
+// 禁用按钮
+void __stdcall DisableButton(HWND parent_hwnd, int button_id) {
+    EnableButton(parent_hwnd, button_id, FALSE);
 }
 
 void __stdcall set_message_loop_main_window(HWND hwnd) {
@@ -4706,15 +4835,33 @@ HWND __stdcall CreateCheckBox(
                            reinterpret_cast<IUnknown**>(&g_dwrite_factory));
     }
     
+    // 检查父窗口是否为分组框
+    HWND actual_parent = hParent;
+    int actual_x = x;
+    int actual_y = y;
+    bool is_groupbox_child = false;
+    
+    auto groupbox_it = g_groupboxes.find(hParent);
+    if (groupbox_it != g_groupboxes.end()) {
+        // 父窗口是分组框，需要转换坐标
+        is_groupbox_child = true;
+        GroupBoxState* gb_state = groupbox_it->second;
+        actual_parent = gb_state->parent;  // 使用分组框的父窗口
+        
+        // 转换坐标：分组框相对坐标 -> 窗口绝对坐标
+        actual_x = gb_state->x + x + 10;  // 左边距10px
+        actual_y = gb_state->y + y + 25;  // 标题高度约25px
+    }
+    
     // 创建静态控件作为复选框容器
-    int tb_offset = GetTitleBarOffset(hParent);
+    int tb_offset = GetTitleBarOffset(actual_parent);
     HWND hwnd = CreateWindowExW(
         0,
         L"STATIC",
         L"",
         WS_CHILD | WS_VISIBLE | SS_NOTIFY,
-        x, y + tb_offset, width, height,
-        hParent,
+        actual_x, actual_y + tb_offset, width, height,
+        actual_parent,
         (HMENU)(INT_PTR)g_next_control_id++,
         GetModuleHandle(nullptr),
         nullptr
@@ -4725,7 +4872,7 @@ HWND __stdcall CreateCheckBox(
     // 创建状态对象
     CheckBoxState* state = new CheckBoxState();
     state->hwnd = hwnd;
-    state->parent = hParent;
+    state->parent = actual_parent;
     state->id = (int)(INT_PTR)GetMenu(hwnd);
     state->x = 0;  // 相对于控件自身
     state->y = 0;
@@ -4748,6 +4895,11 @@ HWND __stdcall CreateCheckBox(
     
     // 保存到全局map
     g_checkboxes[hwnd] = state;
+    
+    // 如果父窗口是分组框，自动添加到分组框的子控件列表
+    if (is_groupbox_child) {
+        AddChildToGroup(hParent, hwnd);
+    }
     
     // 子类化窗口
     SetWindowSubclass(hwnd, CheckBoxProc, 0, (DWORD_PTR)state);
@@ -6083,15 +6235,34 @@ HWND __stdcall CreateRadioButton(
                            reinterpret_cast<IUnknown**>(&g_dwrite_factory));
     }
     
+    // 检查父窗口是否为分组框
+    HWND actual_parent = hParent;
+    int actual_x = x;
+    int actual_y = y;
+    bool is_groupbox_child = false;
+    
+    auto groupbox_it = g_groupboxes.find(hParent);
+    if (groupbox_it != g_groupboxes.end()) {
+        // 父窗口是分组框，需要转换坐标
+        is_groupbox_child = true;
+        GroupBoxState* gb_state = groupbox_it->second;
+        actual_parent = gb_state->parent;  // 使用分组框的父窗口
+        
+        // 转换坐标：分组框相对坐标 -> 窗口绝对坐标
+        // 分组框标题高度约为20px，内容区域从标题下方开始
+        actual_x = gb_state->x + x + 10;  // 左边距10px
+        actual_y = gb_state->y + y + 25;  // 标题高度约25px
+    }
+    
     // 创建静态控件作为单选按钮容器
-    int tb_offset = GetTitleBarOffset(hParent);
+    int tb_offset = GetTitleBarOffset(actual_parent);
     HWND hwnd = CreateWindowExW(
         0,
         L"STATIC",
         L"",
         WS_CHILD | WS_VISIBLE | SS_NOTIFY,
-        x, y + tb_offset, width, height,
-        hParent,
+        actual_x, actual_y + tb_offset, width, height,
+        actual_parent,
         (HMENU)(INT_PTR)g_next_control_id++,
         GetModuleHandle(nullptr),
         nullptr
@@ -6102,7 +6273,7 @@ HWND __stdcall CreateRadioButton(
     // 创建状态对象
     RadioButtonState* state = new RadioButtonState();
     state->hwnd = hwnd;
-    state->parent = hParent;
+    state->parent = actual_parent;
     state->id = (int)(INT_PTR)GetMenu(hwnd);
     state->group_id = group_id;
     state->x = 0;  // 相对于控件自身
@@ -6129,6 +6300,11 @@ HWND __stdcall CreateRadioButton(
     
     // 添加到分组
     g_radio_groups[group_id].push_back(hwnd);
+    
+    // 如果父窗口是分组框，自动添加到分组框的子控件列表
+    if (is_groupbox_child) {
+        AddChildToGroup(hParent, hwnd);
+    }
     
     // 如果设置为选中，取消同组其他按钮
     if (state->checked) {
@@ -8271,6 +8447,28 @@ HWND __stdcall CreateGroupBox(
     // 子类化窗口
     SetWindowSubclass(hwnd, GroupBoxProc, 0, 0);
     
+    // 创建窗口区域：只包含边框和标题，内容区域留空（不遮挡按钮）
+    // 这样分组框只绘制边框和标题，不会遮挡主窗口上的按钮
+    HRGN hRgnOuter = CreateRoundRectRgn(0, 12, width, height, 8, 8);  // 外边框（从标题中间开始）
+    HRGN hRgnInner = CreateRoundRectRgn(10, 25, width - 10, height - 10, 4, 4);  // 内容区域
+    HRGN hRgnFinal = CreateRectRgn(0, 0, 0, 0);
+    CombineRgn(hRgnFinal, hRgnOuter, hRgnInner, RGN_DIFF);  // 外边框减去内容区域
+    
+    // 添加标题区域
+    HRGN hRgnTitle = CreateRectRgn(0, 0, width, 25);
+    CombineRgn(hRgnFinal, hRgnFinal, hRgnTitle, RGN_OR);
+    
+    SetWindowRgn(hwnd, hRgnFinal, TRUE);
+    
+    // 清理临时区域（SetWindowRgn 会接管 hRgnFinal 的所有权）
+    DeleteObject(hRgnOuter);
+    DeleteObject(hRgnInner);
+    DeleteObject(hRgnTitle);
+    
+    // 立即触发重绘，确保分组框显示
+    InvalidateRect(hwnd, nullptr, TRUE);
+    UpdateWindow(hwnd);
+    
     return hwnd;
 }
 
@@ -8379,6 +8577,25 @@ void __stdcall EnableGroupBox(
     }
 
     InvalidateRect(hGroupBox, nullptr, FALSE);
+    
+    // 同步启用/禁用分组框内的按钮（主窗口上绘制的按钮）
+    auto win_it = g_windows.find(state->parent);
+    if (win_it != g_windows.end()) {
+        WindowState* win_state = win_it->second;
+        for (int button_id : state->button_ids) {
+            // 查找按钮并设置启用状态
+            for (auto& button : win_state->buttons) {
+                if (button.id == button_id) {
+                    button.enabled = (enable != 0);
+                    break;
+                }
+            }
+        }
+    }
+    
+    // 触发主窗口重绘，更新分组框内的按钮显示
+    // 使用 RedrawWindow 强制立即同步重绘
+    RedrawWindow(state->parent, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
 }
 
 // 显示/隐藏分组框
@@ -8398,6 +8615,10 @@ void __stdcall ShowGroupBox(
     }
     
     ShowWindow(hGroupBox, show ? SW_SHOW : SW_HIDE);
+    
+    // 触发主窗口重绘，更新分组框内的按钮显示
+    // 使用 RedrawWindow 强制立即同步重绘
+    RedrawWindow(state->parent, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
 }
 
 // 设置分组框位置和大小
@@ -8462,19 +8683,31 @@ LRESULT CALLBACK GroupBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
 
     switch (msg) {
         case WM_NCHITTEST: {
-            // 分组框应该对鼠标透明，让子控件接收点击
-            // 检查点击位置是否有子控件
+            // 将屏幕坐标转换为客户区坐标
             POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
-            for (HWND hChild : state->children) {
-                if (IsWindowVisible(hChild)) {
-                    RECT rc;
-                    GetWindowRect(hChild, &rc);
-                    if (PtInRect(&rc, pt)) {
-                        return HTTRANSPARENT;
-                    }
-                }
+            ScreenToClient(hwnd, &pt);
+            
+            // 计算边框和标题区域
+            // 标题高度约 25px，边框宽度约 10px
+            int title_height = 25;
+            int border_width = 10;
+            
+            RECT client_rect;
+            GetClientRect(hwnd, &client_rect);
+            
+            // 如果点击在边框或标题区域，返回 HTCLIENT（可以接收消息）
+            bool in_border_or_title = 
+                pt.y < title_height ||  // 标题区域
+                pt.x < border_width ||  // 左边框
+                pt.x > client_rect.right - border_width ||  // 右边框
+                pt.y > client_rect.bottom - border_width;  // 下边框
+            
+            if (in_border_or_title) {
+                return HTCLIENT;
             }
-            return HTCLIENT;
+            
+            // 内容区域：对所有点击返回 HTTRANSPARENT，让主窗口上的按钮能被点击
+            return HTTRANSPARENT;
         }
 
         case WM_PAINT: {
@@ -8535,16 +8768,14 @@ void DrawGroupBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, GroupBoxSt
     // 创建画刷
     ID2D1SolidColorBrush* border_brush = nullptr;
     ID2D1SolidColorBrush* title_brush = nullptr;
-    ID2D1SolidColorBrush* bg_brush = nullptr;
+    // 不再需要背景画刷，分组框应该完全透明
     
     rt->CreateSolidColorBrush(ColorFromUInt32(state->border_color), &border_brush);
     rt->CreateSolidColorBrush(ColorFromUInt32(state->title_color), &title_brush);
-    rt->CreateSolidColorBrush(ColorFromUInt32(state->bg_color), &bg_brush);
     
-    if (!border_brush || !title_brush || !bg_brush) {
+    if (!border_brush || !title_brush) {
         if (border_brush) border_brush->Release();
         if (title_brush) title_brush->Release();
-        if (bg_brush) bg_brush->Release();
         return;
     }
     
@@ -8564,7 +8795,6 @@ void DrawGroupBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, GroupBoxSt
     if (!text_format) {
         border_brush->Release();
         title_brush->Release();
-        bg_brush->Release();
         return;
     }
     
@@ -8592,14 +8822,7 @@ void DrawGroupBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, GroupBoxSt
         text_layout->Release();
     }
     
-    // 绘制背景
-    if ((state->bg_color & 0xFF000000) != 0) {
-        D2D1_ROUNDED_RECT bg_rect = D2D1::RoundedRect(
-            D2D1::RectF(1, title_height / 2, (float)state->width - 1, (float)state->height - 1),
-            4.0f, 4.0f
-        );
-        rt->FillRoundedRectangle(bg_rect, bg_brush);
-    }
+    // 不绘制背景，保持完全透明，这样主窗口上的按钮就能显示出来
     
     // 绘制边框（带缺口以容纳标题）
     float gap_start = 10.0f;
@@ -8684,7 +8907,6 @@ void DrawGroupBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, GroupBoxSt
     text_format->Release();
     border_brush->Release();
     title_brush->Release();
-    bg_brush->Release();
 }
 
 

@@ -33,6 +33,15 @@
 .DLL命令 设置按钮点击回调, , "emoji_window.dll", "set_button_click_callback", , , , 公开
     .参数 回调函数, 子程序指针, , 按钮点击回调函数
 
+.DLL命令 启用按钮, , "emoji_window.dll", "EnableButton", , , 启用按钮
+    .参数 父窗口句柄, 整数型, , 按钮所在的父窗口句柄
+    .参数 按钮ID, 整数型, , 按钮ID
+    .参数 启用, 逻辑型, , 真=启用，假=禁用
+
+.DLL命令 禁用按钮, , "emoji_window.dll", "DisableButton", , , 禁用按钮（快捷方式）
+    .参数 父窗口句柄, 整数型, , 按钮所在的父窗口句柄
+    .参数 按钮ID, 整数型, , 按钮ID
+
 .DLL命令 设置消息循环主窗口, , "emoji_window.dll", "set_message_loop_main_window", , , , 公开
     .参数 窗口句柄, 整数型
 

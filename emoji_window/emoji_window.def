@@ -6,6 +6,8 @@ EXPORTS
     set_window_titlebar_color
     create_emoji_button_bytes
     set_button_click_callback
+    EnableButton
+    DisableButton
     set_message_loop_main_window
     run_message_loop
     destroy_window

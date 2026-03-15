@@ -579,7 +579,8 @@ struct GroupBoxState {
     int id;                     // 控件ID
     int x, y, width, height;    // 位置和尺寸
     std::wstring title;         // 标题文本
-    std::vector<HWND> children; // 子控件列表
+    std::vector<HWND> children; // 子控件列表（单选按钮、复选框等HWND控件）
+    std::vector<int> button_ids; // 按钮ID列表（主窗口上绘制的按钮）
     bool enabled;               // 启用状态
     bool visible;               // 可见状态
     UINT32 border_color;        // 边框颜色
@@ -599,6 +600,7 @@ struct EmojiButton {
     UINT32 bg_color;
     bool is_hovered;
     bool is_pressed;
+    bool enabled = true;  // 按钮启用状态
 
     bool ContainsPoint(int px, int py) const {
         return px >= x && px <= x + width && py >= y && py <= y + height;
