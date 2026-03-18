@@ -71,3 +71,17 @@ examples/Csharp/Demo截图.png
 
 # Python cache
 examples/Python/__pycache__/
+
+# Local PHP backend and static frontend prototype
+php/
+
+# Designer (Tauri + Vite) build artifacts
+designer/node_modules/
+designer/dist/
+designer/src-tauri/target/
+designer/src-tauri/gen/
+designer/.env
+designer/package-lock.json
+
+# Designer docs (build-time generated)
+designer/docs/

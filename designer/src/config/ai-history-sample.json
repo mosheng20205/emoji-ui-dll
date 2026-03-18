@@ -1,0 +1,19 @@
+{
+  "sessionId": "ai-session-1742256000000",
+  "title": "登录窗体",
+  "createdAt": "2026-03-18T00:00:00.000Z",
+  "updatedAt": "2026-03-18T00:05:00.000Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": "生成一个登录窗体"
+    },
+    {
+      "role": "assistant",
+      "content": "{\"mode\":\"draft\",\"summary\":\"生成登录窗体\"}"
+    }
+  ],
+  "rawResponse": "{\"mode\":\"draft\",\"summary\":\"生成登录窗体\"}",
+  "draftPreview": null,
+  "opsPreview": null
+}

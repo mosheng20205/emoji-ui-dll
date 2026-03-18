@@ -1,0 +1,20 @@
+{
+  "adApi": {
+    "url": "https://your-domain.example/api/ads",
+    "response": [
+      {
+        "id": "ad-001",
+        "text": "广告位招租",
+        "url": "https://qm.qq.com/q/NIZipXNsUS"
+      }
+    ]
+  },
+  "statsApi": {
+    "url": "https://your-domain.example/api/stats",
+    "response": {
+      "launchCount": 12345,
+      "totalUsers": 6789,
+      "dailyActive": 321
+    }
+  }
+}

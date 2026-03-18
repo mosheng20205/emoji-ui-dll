@@ -14,6 +14,8 @@
 ## 📑 目录
 
 - [快速开始](#-快速开始)
+- [可视化设计器](#-可视化设计器)
+- [AI Skill 技能包](#-ai-skill-技能包)
 - [项目结构](#-项目结构)
 - [编译步骤](#-编译步骤)
 - [控件文档](#-控件文档)
@@ -70,40 +72,83 @@
 
 ---
 
+## 🖥️ 可视化设计器
+
+项目新增了基于 Rust（Tauri v2）打包的桌面可视化设计器，无需手写代码即可搭建界面。
+
+### 核心能力
+
+- **拖拽式搭建**：从工具箱拖入控件到画布，可视化调整位置和大小
+- **一键生成代码**：支持生成易语言、Python、C# 三种语言的完整调用代码
+- **AI 对话式设计**：内置 AI 助手，用自然语言描述需求，自动生成界面布局
+- **多供应商 AI 适配**：支持 OpenAI、Anthropic、Gemini、DeepSeek、阿里通义
+- **设计导入/导出**：布局可导出为 JSON，方便保存、共享和团队协作
+- **Emoji 选择器**：内置分类 Emoji 面板，支持搜索和最近使用记录
+- **广告与统计系统**：内置可配置的广告轮播和使用统计上报
+
+### 下载安装
+
+从 [Releases](../../releases) 页面下载最新安装包（`.exe` 或 `.msi`）。
+
+### 本地开发
+
+```bash
+cd designer
+npm install
+npm run dev          # 启动前端开发服务器
+npx tauri dev        # 启动 Tauri 桌面开发模式
+npx tauri build      # 打包生产安装包
+```
+
+---
+
+## 🤖 AI Skill 技能包
+
+项目在 `skills/` 目录提供了面向 AI 编程助手的知识包，加载后 AI 可以：
+
+- 为**易语言**、**Python**、**C#** 生成正确的 DLL 调用代码
+- 自动处理 UTF-8 编码、两次调用模式、回调防 GC 等常见陷阱
+- 了解全部 16 种控件的创建、属性设置和事件回调 API
+- 正确使用布局管理器、主题系统和扩展事件系统
+
+适用于 Kiro、Cursor 等支持 Skill 加载的 AI 编程工具。详见 [skills/emoji-window-dll/使用说明.md](skills/emoji-window-dll/使用说明.md)。
+
+---
+
 ## 📁 项目结构
 
 ```
 emoji_window_cpp/
 ├── emoji_window.sln              # Visual Studio 解决方案
-├── emoji_window/
-│   ├── emoji_window.vcxproj      # 项目文件
-│   ├── dllmain.cpp               # DLL 入口（初始化 COM、D2D、DWrite）
-│   ├── emoji_window.h            # 头文件（所有控件状态结构和 API 声明）
-│   ├── emoji_window.cpp          # 主实现（所有控件逻辑和渲染）
-│   └── emoji_window.def          # DLL 导出定义（210+ 导出函数）
-├── themes/
-│   ├── light.json                # 亮色主题（Element UI 标准配色）
-│   └── dark.json                 # 暗色主题
-├── docs/                         # 📚 文档目录
+├── emoji_window/                 # C++ DLL 源码
+│   ├── dllmain.cpp               # DLL 入口
+│   ├── emoji_window.h            # API 声明
+│   ├── emoji_window.cpp          # 控件实现
+│   └── emoji_window.def          # 导出定义（210+ 函数）
+├── designer/                     # 🖥️ 可视化设计器（Tauri + React）
+│   ├── src/                      # 前端源码（React + TypeScript）
+│   ├── src-tauri/                # Rust 后端（Tauri v2）
+│   ├── .env.example              # 环境变量模板
+│   └── package.json
+├── skills/                       # 🤖 AI Skill 技能包
+│   └── emoji-window-dll/         # DLL API 知识包
+│       ├── controls/             # 16 个控件 API 文档
+│       ├── rules/                # 易语言/Python/C# 编码规则
+│       └── templates/            # 代码生成模板
+├── themes/                       # 主题配置
+│   ├── light.json
+│   └── dark.json
+├── docs/                         # 文档
 │   ├── controls/                 # 控件文档
-│   │   ├── button.md
-│   │   ├── checkbox.md
-│   │   ├── progressbar.md
-│   │   ├── datagridview.md
-│   │   └── ...
-│   ├── theme.md                  # 主题系统文档
-│   ├── layout.md                 # 布局管理器文档
-│   ├── events.md                 # 事件系统文档
-│   ├── faq.md                    # 常见问题
-│   └── performance.md            # 性能优化建议
-├── 易语言代码/
-│   ├── DLL命令.e                 # DLL API 声明
-│   ├── 常量表.e                  # 颜色、布局、键码等常量
-│   ├── 辅助程序集.e              # UTF-8 转换辅助函数
-│   ├── 编码转换.e                # 编码转换工具
-│   └── 窗口程序集_*.e            # 各控件示例程序（20+个）
+│   ├── theme.md
+│   ├── layout.md
+│   └── ...
+├── 易语言代码/                    # 易语言示例和声明
+│   ├── DLL命令.e
+│   ├── 常量表.e
+│   └── 窗口程序集_*.e
 └── x64/Release/
-    └── emoji_window.dll          # 编译输出
+    └── emoji_window.dll
 ```
 
 ---
