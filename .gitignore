@@ -59,3 +59,6 @@ Desktop.ini
 
 # Documentation and project files (root directory only)
 /CLAUDE.md
+
+# Python cache
+examples/Python/__pycache__/

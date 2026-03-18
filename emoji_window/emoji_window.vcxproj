@@ -77,16 +77,24 @@
   <!-- Win32 Properties -->
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
+    <OutDir>$(SolutionDir)bin\Win32\Debug\</OutDir>
+    <IntDir>$(SolutionDir)obj\Win32\Debug\</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
+    <OutDir>$(SolutionDir)bin\Win32\Release\</OutDir>
+    <IntDir>$(SolutionDir)obj\Win32\Release\</IntDir>
   </PropertyGroup>
   <!-- x64 Properties -->
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
+    <OutDir>$(SolutionDir)bin\x64\Debug\</OutDir>
+    <IntDir>$(SolutionDir)obj\x64\Debug\</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
+    <OutDir>$(SolutionDir)bin\x64\Release\</OutDir>
+    <IntDir>$(SolutionDir)obj\x64\Release\</IntDir>
   </PropertyGroup>
   <!-- Win32 Debug Settings -->
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
