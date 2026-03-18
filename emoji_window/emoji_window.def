@@ -8,6 +8,23 @@ EXPORTS
     set_button_click_callback
     EnableButton
     DisableButton
+    GetButtonText
+    SetButtonText
+    GetButtonEmoji
+    SetButtonEmoji
+    GetButtonBounds
+    SetButtonBounds
+    GetButtonBackgroundColor
+    SetButtonBackgroundColor
+    GetButtonVisible
+    ShowButton
+    GetButtonEnabled
+    GetWindowTitle
+    GetWindowBounds
+    SetWindowBounds
+    GetWindowVisible
+    ShowEmojiWindow
+    GetWindowTitlebarColor
     set_message_loop_main_window
     run_message_loop
     destroy_window
@@ -51,14 +68,27 @@ EXPORTS
     ShowEditBox
     SetEditBoxVerticalCenter
     SetEditBoxKeyCallback
+    GetEditBoxFont
+    GetEditBoxColor
+    GetEditBoxBounds
+    GetEditBoxAlignment
+    GetEditBoxEnabled
+    GetEditBoxVisible
     CreateColorEmojiEditBox
     CreateLabel
+    GetLabelText
     SetLabelText
     SetLabelFont
     SetLabelColor
     SetLabelBounds
     EnableLabel
     ShowLabel
+    GetLabelFont
+    GetLabelColor
+    GetLabelBounds
+    GetLabelAlignment
+    GetLabelEnabled
+    GetLabelVisible
     CreateCheckBox
     GetCheckBoxState
     SetCheckBoxState
@@ -67,6 +97,11 @@ EXPORTS
     ShowCheckBox
     SetCheckBoxText
     SetCheckBoxBounds
+    GetCheckBoxText
+    SetCheckBoxFont
+    GetCheckBoxFont
+    SetCheckBoxColor
+    GetCheckBoxColor
     CreateProgressBar
     SetProgressValue
     GetProgressValue
@@ -77,6 +112,11 @@ EXPORTS
     ShowProgressBar
     SetProgressBarBounds
     SetProgressBarShowText
+    GetProgressBarColor
+    GetProgressBarBounds
+    GetProgressBarEnabled
+    GetProgressBarVisible
+    GetProgressBarShowText
     CreatePictureBox
     LoadImageFromFile
     LoadImageFromMemory
@@ -96,6 +136,11 @@ EXPORTS
     ShowRadioButton
     SetRadioButtonText
     SetRadioButtonBounds
+    GetRadioButtonText
+    SetRadioButtonFont
+    GetRadioButtonFont
+    SetRadioButtonColor
+    GetRadioButtonColor
     CreateListBox
     AddListItem
     RemoveListItem
@@ -138,6 +183,18 @@ EXPORTS
     ShowGroupBox
     SetGroupBoxBounds
     SetGroupBoxCallback
+    GetGroupBoxTitle
+    GetGroupBoxBounds
+    GetGroupBoxVisible
+    GetGroupBoxEnabled
+    GetGroupBoxColor
+    GetTabTitle
+    SetTabTitle
+    GetTabControlBounds
+    SetTabControlBounds
+    GetTabControlVisible
+    ShowTabControl
+    EnableTabControl
     CreateD2DColorEmojiEditBox
     GetD2DEditBoxText
     SetD2DEditBoxText

@@ -601,6 +601,7 @@ struct EmojiButton {
     bool is_hovered;
     bool is_pressed;
     bool enabled = true;  // 按钮启用状态
+    bool visible = true;  // 按钮可见状态
 
     bool ContainsPoint(int px, int py) const {
         return px >= x && px <= x + width && py >= y && py <= y + height;
@@ -873,6 +874,68 @@ extern "C" {
     );
 
     __declspec(dllexport) void __stdcall set_button_click_callback(ButtonClickCallback callback);
+    
+    // ========== 按钮属性命令 ==========
+    
+    // 获取按钮文本 (UTF-8编码，两次调用模式)
+    __declspec(dllexport) int __stdcall GetButtonText(int button_id, unsigned char* buffer, int buffer_size);
+    
+    // 设置按钮文本 (UTF-8编码)
+    __declspec(dllexport) void __stdcall SetButtonText(int button_id, const unsigned char* text, int text_len);
+    
+    // 获取按钮Emoji (UTF-8编码，两次调用模式)
+    __declspec(dllexport) int __stdcall GetButtonEmoji(int button_id, unsigned char* buffer, int buffer_size);
+    
+    // 设置按钮Emoji (UTF-8编码)
+    __declspec(dllexport) void __stdcall SetButtonEmoji(int button_id, const unsigned char* emoji, int emoji_len);
+    
+    // 获取按钮位置和大小
+    __declspec(dllexport) int __stdcall GetButtonBounds(int button_id, int* x, int* y, int* width, int* height);
+    
+    // 设置按钮位置和大小
+    __declspec(dllexport) void __stdcall SetButtonBounds(int button_id, int x, int y, int width, int height);
+    
+    // 获取按钮背景色 (ARGB格式)
+    __declspec(dllexport) UINT32 __stdcall GetButtonBackgroundColor(int button_id);
+    
+    // 设置按钮背景色 (ARGB格式)
+    __declspec(dllexport) void __stdcall SetButtonBackgroundColor(int button_id, UINT32 color);
+    
+    // 获取按钮可视状态
+    __declspec(dllexport) BOOL __stdcall GetButtonVisible(int button_id);
+    
+    // 显示/隐藏按钮
+    __declspec(dllexport) void __stdcall ShowButton(int button_id, BOOL visible);
+    
+    // 获取按钮启用状态
+    __declspec(dllexport) BOOL __stdcall GetButtonEnabled(int button_id);
+    
+    // 启用按钮 (已存在)
+    __declspec(dllexport) void __stdcall EnableButton(HWND parent_hwnd, int button_id, BOOL enable);
+    
+    // 禁用按钮 (已存在)
+    __declspec(dllexport) void __stdcall DisableButton(HWND parent_hwnd, int button_id);
+    
+    // ========== 窗口属性命令 ==========
+    
+    // 获取窗口标题 (UTF-8编码，两次调用模式)
+    __declspec(dllexport) int __stdcall GetWindowTitle(HWND hwnd, unsigned char* buffer, int buffer_size);
+    
+    // 获取窗口位置和大小
+    __declspec(dllexport) int __stdcall GetWindowBounds(HWND hwnd, int* x, int* y, int* width, int* height);
+    
+    // 设置窗口位置和大小
+    __declspec(dllexport) void __stdcall SetWindowBounds(HWND hwnd, int x, int y, int width, int height);
+    
+    // 获取窗口可视状态
+    __declspec(dllexport) int __stdcall GetWindowVisible(HWND hwnd);
+    
+    // 显示或隐藏窗口
+    __declspec(dllexport) void __stdcall ShowEmojiWindow(HWND hwnd, int visible);
+    
+    // 获取窗口标题栏颜色 (RGB格式)
+    __declspec(dllexport) UINT32 __stdcall GetWindowTitlebarColor(HWND hwnd);
+    
     __declspec(dllexport) void __stdcall set_message_loop_main_window(HWND hwnd);
     __declspec(dllexport) int __stdcall run_message_loop();
     __declspec(dllexport) void __stdcall destroy_window(HWND hwnd);
@@ -963,6 +1026,57 @@ extern "C" {
     // 手动更新 TabControl 布局（窗口大小改变后调用）
     __declspec(dllexport) void __stdcall UpdateTabControlLayout(
         HWND hTabControl
+    );
+
+    // 获取指定 Tab 页的标题（UTF-8，两次调用模式）
+    __declspec(dllexport) int __stdcall GetTabTitle(
+        HWND hTabControl,
+        int index,
+        unsigned char* buffer,
+        int bufferSize
+    );
+
+    // 设置指定 Tab 页的标题（UTF-8）
+    __declspec(dllexport) int __stdcall SetTabTitle(
+        HWND hTabControl,
+        int index,
+        const unsigned char* title_bytes,
+        int title_len
+    );
+
+    // 获取 TabControl 的位置和大小
+    __declspec(dllexport) int __stdcall GetTabControlBounds(
+        HWND hTabControl,
+        int* x,
+        int* y,
+        int* width,
+        int* height
+    );
+
+    // 设置 TabControl 的位置和大小
+    __declspec(dllexport) int __stdcall SetTabControlBounds(
+        HWND hTabControl,
+        int x,
+        int y,
+        int width,
+        int height
+    );
+
+    // 获取 TabControl 的可视状态（1=可见, 0=不可见, -1=错误）
+    __declspec(dllexport) int __stdcall GetTabControlVisible(
+        HWND hTabControl
+    );
+
+    // 显示或隐藏 TabControl（visible: 1=显示, 0=隐藏）
+    __declspec(dllexport) int __stdcall ShowTabControl(
+        HWND hTabControl,
+        int visible
+    );
+
+    // 启用或禁用 TabControl（enabled: 1=启用, 0=禁用）
+    __declspec(dllexport) int __stdcall EnableTabControl(
+        HWND hTabControl,
+        int enabled
     );
 
     // ========== 窗口大小改变回调 ==========
@@ -1160,6 +1274,48 @@ extern "C" {
         EditBoxKeyCallback callback
     );
 
+    // 获取编辑框字体信息（返回字体名字节数，-1=错误）
+    __declspec(dllexport) int __stdcall GetEditBoxFont(
+        HWND hEdit,
+        unsigned char* font_name_buffer,
+        int font_name_buffer_size,
+        int* font_size,
+        int* bold,
+        int* italic,
+        int* underline
+    );
+
+    // 获取编辑框颜色（返回0=成功，-1=错误）
+    __declspec(dllexport) int __stdcall GetEditBoxColor(
+        HWND hEdit,
+        UINT32* fg_color,
+        UINT32* bg_color
+    );
+
+    // 获取编辑框位置和大小（返回0=成功，-1=错误）
+    __declspec(dllexport) int __stdcall GetEditBoxBounds(
+        HWND hEdit,
+        int* x,
+        int* y,
+        int* width,
+        int* height
+    );
+
+    // 获取编辑框对齐方式（0=左, 1=中, 2=右, -1=错误）
+    __declspec(dllexport) int __stdcall GetEditBoxAlignment(
+        HWND hEdit
+    );
+
+    // 获取编辑框启用状态（1=启用, 0=禁用, -1=错误）
+    __declspec(dllexport) int __stdcall GetEditBoxEnabled(
+        HWND hEdit
+    );
+
+    // 获取编辑框可视状态（1=可见, 0=不可见, -1=错误）
+    __declspec(dllexport) int __stdcall GetEditBoxVisible(
+        HWND hEdit
+    );
+
     // 创建彩色Emoji编辑框（使用RichEdit控件，支持彩色emoji显示）
     __declspec(dllexport) HWND __stdcall CreateColorEmojiEditBox(
         HWND hParent,
@@ -1200,6 +1356,13 @@ extern "C" {
         BOOL underline,
         int alignment,  // 0=左, 1=中, 2=右
         BOOL word_wrap  // 是否换行显示
+    );
+
+    // 获取标签文本
+    __declspec(dllexport) int __stdcall GetLabelText(
+        HWND hLabel,
+        unsigned char* buffer,
+        int buffer_size
     );
 
     // 设置标签文本
@@ -1245,6 +1408,48 @@ extern "C" {
         BOOL show
     );
 
+    // 获取标签字体信息
+    __declspec(dllexport) int __stdcall GetLabelFont(
+        HWND hLabel,
+        unsigned char* font_name_buffer,
+        int font_name_buffer_size,
+        int* font_size,
+        int* bold,
+        int* italic,
+        int* underline
+    );
+
+    // 获取标签颜色
+    __declspec(dllexport) int __stdcall GetLabelColor(
+        HWND hLabel,
+        UINT32* fg_color,
+        UINT32* bg_color
+    );
+
+    // 获取标签位置和大小
+    __declspec(dllexport) int __stdcall GetLabelBounds(
+        HWND hLabel,
+        int* x,
+        int* y,
+        int* width,
+        int* height
+    );
+
+    // 获取标签对齐方式 (0=左, 1=中, 2=右)
+    __declspec(dllexport) int __stdcall GetLabelAlignment(
+        HWND hLabel
+    );
+
+    // 获取标签启用状态 (1=启用, 0=禁用, -1=错误)
+    __declspec(dllexport) int __stdcall GetLabelEnabled(
+        HWND hLabel
+    );
+
+    // 获取标签可视状态 (1=可见, 0=不可见, -1=错误)
+    __declspec(dllexport) int __stdcall GetLabelVisible(
+        HWND hLabel
+    );
+
     // ========== 复选框功能 ==========
 
     // 创建复选框
@@ -1255,7 +1460,13 @@ extern "C" {
         int text_len,
         BOOL checked,
         UINT32 fg_color,
-        UINT32 bg_color
+        UINT32 bg_color,
+        const unsigned char* font_name_bytes,
+        int font_name_len,
+        int font_size,
+        BOOL bold,
+        BOOL italic,
+        BOOL underline
     );
 
     // 获取复选框选中状态
@@ -1298,6 +1509,49 @@ extern "C" {
     __declspec(dllexport) void __stdcall SetCheckBoxBounds(
         HWND hCheckBox,
         int x, int y, int width, int height
+    );
+
+    // 获取复选框文本（UTF-8，两次调用模式）
+    __declspec(dllexport) int __stdcall GetCheckBoxText(
+        HWND hCheckBox,
+        unsigned char* buffer,
+        int buffer_size
+    );
+
+    // 设置复选框字体
+    __declspec(dllexport) void __stdcall SetCheckBoxFont(
+        HWND hCheckBox,
+        const unsigned char* font_name_bytes,
+        int font_name_len,
+        int font_size,
+        int bold,
+        int italic,
+        int underline
+    );
+
+    // 获取复选框字体信息（两次调用模式，返回字体名UTF-8字节数）
+    __declspec(dllexport) int __stdcall GetCheckBoxFont(
+        HWND hCheckBox,
+        unsigned char* font_name_buffer,
+        int font_name_buffer_size,
+        int* font_size,
+        int* bold,
+        int* italic,
+        int* underline
+    );
+
+    // 设置复选框颜色
+    __declspec(dllexport) void __stdcall SetCheckBoxColor(
+        HWND hCheckBox,
+        UINT32 fg_color,
+        UINT32 bg_color
+    );
+
+    // 获取复选框颜色（返回0成功，-1失败）
+    __declspec(dllexport) int __stdcall GetCheckBoxColor(
+        HWND hCheckBox,
+        UINT32* fg_color,
+        UINT32* bg_color
     );
 
     // ========== 进度条功能 ==========
@@ -1365,6 +1619,37 @@ extern "C" {
     __declspec(dllexport) void __stdcall SetProgressBarShowText(
         HWND hProgressBar,
         BOOL show_text
+    );
+
+    // 获取进度条颜色
+    __declspec(dllexport) int __stdcall GetProgressBarColor(
+        HWND hProgressBar,
+        UINT32* fg_color,
+        UINT32* bg_color
+    );
+
+    // 获取进度条位置和大小
+    __declspec(dllexport) int __stdcall GetProgressBarBounds(
+        HWND hProgressBar,
+        int* x,
+        int* y,
+        int* width,
+        int* height
+    );
+
+    // 获取进度条启用状态
+    __declspec(dllexport) int __stdcall GetProgressBarEnabled(
+        HWND hProgressBar
+    );
+
+    // 获取进度条可视状态
+    __declspec(dllexport) int __stdcall GetProgressBarVisible(
+        HWND hProgressBar
+    );
+
+    // 获取进度条是否显示百分比文本
+    __declspec(dllexport) int __stdcall GetProgressBarShowText(
+        HWND hProgressBar
     );
 
     // ========== 图片框功能 ==========
@@ -1449,7 +1734,13 @@ extern "C" {
         int group_id,
         BOOL checked,
         UINT32 fg_color,
-        UINT32 bg_color
+        UINT32 bg_color,
+        const unsigned char* font_name_bytes,
+        int font_name_len,
+        int font_size,
+        BOOL bold,
+        BOOL italic,
+        BOOL underline
     );
 
     // 获取单选按钮选中状态
@@ -1492,6 +1783,49 @@ extern "C" {
     __declspec(dllexport) void __stdcall SetRadioButtonBounds(
         HWND hRadioButton,
         int x, int y, int width, int height
+    );
+
+    // 获取单选按钮文本（UTF-8，两次调用模式）
+    __declspec(dllexport) int __stdcall GetRadioButtonText(
+        HWND hRadioButton,
+        unsigned char* buffer,
+        int buffer_size
+    );
+
+    // 设置单选按钮字体
+    __declspec(dllexport) void __stdcall SetRadioButtonFont(
+        HWND hRadioButton,
+        const unsigned char* font_name_bytes,
+        int font_name_len,
+        int font_size,
+        int bold,
+        int italic,
+        int underline
+    );
+
+    // 获取单选按钮字体信息（两次调用模式）
+    __declspec(dllexport) int __stdcall GetRadioButtonFont(
+        HWND hRadioButton,
+        unsigned char* font_name_buffer,
+        int font_name_buffer_size,
+        int* font_size,
+        int* bold,
+        int* italic,
+        int* underline
+    );
+
+    // 设置单选按钮颜色
+    __declspec(dllexport) void __stdcall SetRadioButtonColor(
+        HWND hRadioButton,
+        UINT32 fg_color,
+        UINT32 bg_color
+    );
+
+    // 获取单选按钮颜色（返回0成功，-1失败）
+    __declspec(dllexport) int __stdcall GetRadioButtonColor(
+        HWND hRadioButton,
+        UINT32* fg_color,
+        UINT32* bg_color
     );
 
     // ========== 列表框功能 ==========
@@ -1837,7 +2171,13 @@ extern "C" {
         const unsigned char* title_bytes,
         int title_len,
         UINT32 border_color,
-        UINT32 bg_color
+        UINT32 bg_color,
+        const unsigned char* font_name_bytes,
+        int font_name_len,
+        int font_size,
+        BOOL bold,
+        BOOL italic,
+        BOOL underline
     );
 
     // 添加子控件到分组框
@@ -1881,6 +2221,39 @@ extern "C" {
     __declspec(dllexport) void __stdcall SetGroupBoxCallback(
         HWND hGroupBox,
         GroupBoxCallback callback
+    );
+
+    // 获取分组框标题
+    __declspec(dllexport) int __stdcall GetGroupBoxTitle(
+        HWND hGroupBox,
+        unsigned char* buffer,
+        int buffer_size
+    );
+
+    // 获取分组框位置和大小
+    __declspec(dllexport) int __stdcall GetGroupBoxBounds(
+        HWND hGroupBox,
+        int* x,
+        int* y,
+        int* width,
+        int* height
+    );
+
+    // 获取分组框可视状态（1=可见, 0=不可见, -1=错误）
+    __declspec(dllexport) int __stdcall GetGroupBoxVisible(
+        HWND hGroupBox
+    );
+
+    // 获取分组框启用状态（1=启用, 0=禁用, -1=错误）
+    __declspec(dllexport) int __stdcall GetGroupBoxEnabled(
+        HWND hGroupBox
+    );
+
+    // 获取分组框颜色（边框色和背景色，ARGB格式）
+    __declspec(dllexport) int __stdcall GetGroupBoxColor(
+        HWND hGroupBox,
+        UINT32* border_color,
+        UINT32* bg_color
     );
 
     // ========== DataGridView 功能 ==========

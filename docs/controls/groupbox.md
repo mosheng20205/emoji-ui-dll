@@ -22,7 +22,10 @@ HWND __stdcall CreateGroupBox(
     int x, int y, int width, int height,
     const unsigned char* title_bytes, int title_len,
     UINT32 border_color,
-    UINT32 bg_color
+    UINT32 bg_color,
+    const unsigned char* font_name_bytes, int font_name_len,
+    int font_size,
+    BOOL bold, BOOL italic, BOOL underline
 );
 ```
 
@@ -37,6 +40,12 @@ HWND __stdcall CreateGroupBox(
 | `title_len` | 标题文本长度 |
 | `border_color` | 边框颜色(ARGB格式) |
 | `bg_color` | 背景色(ARGB格式) |
+| `font_name_bytes` | UTF-8 编码的字体名指针，NULL 则使用默认字体 Microsoft YaHei UI |
+| `font_name_len` | 字体名字节集长度，0 则使用默认字体 |
+| `font_size` | 字体大小(像素)，0 则使用默认大小 14 |
+| `bold` | 是否粗体 |
+| `italic` | 是否斜体 |
+| `underline` | 是否下划线 |
 
 **返回值:** 分组框控件句柄
 
@@ -80,6 +89,112 @@ void __stdcall ShowGroupBox(HWND hGroupBox, BOOL show);
 ```c++
 void __stdcall SetGroupBoxBounds(HWND hGroupBox, int x, int y, int width, int height);
 void __stdcall SetGroupBoxColor(HWND hGroupBox, UINT32 border_color, UINT32 bg_color);
+```
+
+---
+
+## 属性获取 API（v2.1 新增）
+
+### 获取分组框标题
+
+```c++
+int __stdcall GetGroupBoxTitle(HWND hGroupBox, unsigned char* buffer, int buffer_size);
+```
+
+**两次调用模式：**
+- 第一次：`buffer=NULL, buffer_size=0`，返回所需字节数（含结尾 `\0`）
+- 第二次：传入足够大的缓冲区，返回实际写入字节数
+
+**返回值：** 字节数（>0），或 -1（无效句柄）
+
+**易语言示例：**
+```
+标题长度 ＝ 获取分组框标题 (分组框1, 0, 0)
+.如果真 (标题长度 ＞ 0)
+    标题缓冲区 ＝ 取空白字节集 (标题长度)
+    获取分组框标题 (分组框1, 取变量数据地址 (标题缓冲区), 标题长度)
+    ' 标题缓冲区 即为 UTF-8 字节集，可直接拼接显示
+.如果真结束
+```
+
+---
+
+### 获取分组框位置和大小
+
+```c++
+int __stdcall GetGroupBoxBounds(HWND hGroupBox, int* x, int* y, int* width, int* height);
+```
+
+**参数说明：**
+
+| 参数 | 说明 |
+|------|------|
+| `hGroupBox` | 分组框句柄 |
+| `x` | 输出：X 坐标（相对父窗口） |
+| `y` | 输出：Y 坐标（相对父窗口） |
+| `width` | 输出：宽度 |
+| `height` | 输出：高度 |
+
+**返回值：** 0（成功），-1（失败）
+
+**易语言示例：**
+```
+.局部变量 X, 整数型
+.局部变量 Y, 整数型
+.局部变量 宽度, 整数型
+.局部变量 高度, 整数型
+
+.如果真 (获取分组框位置 (分组框1, X, Y, 宽度, 高度) ＝ 0)
+    ' 使用 X, Y, 宽度, 高度
+.如果真结束
+```
+
+---
+
+### 获取分组框可视状态
+
+```c++
+int __stdcall GetGroupBoxVisible(HWND hGroupBox);
+```
+
+**返回值：** 1（可见），0（不可见），-1（无效句柄）
+
+---
+
+### 获取分组框启用状态
+
+```c++
+int __stdcall GetGroupBoxEnabled(HWND hGroupBox);
+```
+
+**返回值：** 1（已启用），0（已禁用），-1（无效句柄）
+
+---
+
+### 获取分组框颜色
+
+```c++
+int __stdcall GetGroupBoxColor(HWND hGroupBox, UINT32* border_color, UINT32* bg_color);
+```
+
+**参数说明：**
+
+| 参数 | 说明 |
+|------|------|
+| `hGroupBox` | 分组框句柄 |
+| `border_color` | 输出：边框颜色（ARGB 格式） |
+| `bg_color` | 输出：背景色（ARGB 格式） |
+
+**返回值：** 0（成功），-1（失败）
+
+**易语言示例：**
+```
+.局部变量 边框颜色, 整数型
+.局部变量 背景色, 整数型
+
+.如果真 (获取分组框颜色 (分组框1, 边框颜色, 背景色) ＝ 0)
+    ' 使用 边框颜色, 背景色
+.如果真结束
 ```
 
 ## 样式说明

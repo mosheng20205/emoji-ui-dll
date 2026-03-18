@@ -873,6 +873,11 @@ void DrawPopupMenu(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, PopupMenu
 
 // Draw button (Element UI style - supports both main window buttons and message box buttons)
 void DrawButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, const EmojiButton& button) {
+    // ========== 检查可见状态 ==========
+    if (!button.visible) {
+        return;  // 不可见的按钮不绘制
+    }
+    
     // ========== 处理禁用状态 ==========
     if (!button.enabled) {
         // 禁用状态：使用灰色绘制
@@ -1538,7 +1543,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             }
 
             for (auto& button : state->buttons) {
-                if (button.enabled && button.ContainsPoint(x, y)) {
+                if (button.enabled && button.visible && button.ContainsPoint(x, y)) {
                     button.is_pressed = true;
                     InvalidateRect(hwnd, nullptr, FALSE);
                     break;
@@ -1554,7 +1559,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             int y = HIWORD(lparam);
 
             for (auto& button : state->buttons) {
-                if (button.is_pressed && button.enabled && button.ContainsPoint(x, y)) {
+                if (button.is_pressed && button.enabled && button.visible && button.ContainsPoint(x, y)) {
                     button.is_pressed = false;
 
                     if (g_button_callback) {
@@ -1605,7 +1610,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             }
 
             for (auto& button : state->buttons) {
-                bool hovered = button.enabled && button.ContainsPoint(x, y);
+                bool hovered = button.enabled && button.visible && button.ContainsPoint(x, y);
                 if (hovered != button.is_hovered) {
                     button.is_hovered = hovered;
                     needs_redraw = true;
@@ -2283,6 +2288,118 @@ void __stdcall set_window_titlebar_color(HWND hwnd, UINT32 color) {
         it->second->titlebar_color = color;
         InvalidateRect(hwnd, nullptr, FALSE);
     }
+}
+
+// ========== 窗口属性命令 ==========
+
+// Wide String to UTF-8 (辅助函数 - 用于窗口属性)
+static std::string WindowWideToUtf8(const std::wstring& wide) {
+    if (wide.empty()) return "";
+    
+    int utf8_len = WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), (int)wide.length(), nullptr, 0, nullptr, nullptr);
+    if (utf8_len <= 0) return "";
+    
+    std::string result(utf8_len, 0);
+    WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), (int)wide.length(), &result[0], utf8_len, nullptr, nullptr);
+    return result;
+}
+
+// 获取窗口标题 (UTF-8编码，两次调用模式)
+extern "C" __declspec(dllexport) int __stdcall GetWindowTitle(HWND hwnd, unsigned char* buffer, int buffer_size) {
+    if (!hwnd) return -1;
+    
+    // 使用GetWindowTextW获取窗口标题
+    int title_len = GetWindowTextLengthW(hwnd);
+    if (title_len <= 0) {
+        // 窗口标题为空
+        if (buffer == nullptr) {
+            return 0;
+        }
+        return 0;
+    }
+    
+    std::wstring wtitle(title_len + 1, 0);
+    GetWindowTextW(hwnd, &wtitle[0], title_len + 1);
+    wtitle.resize(title_len);  // 移除多余的null字符
+    
+    // 转换为UTF-8
+    std::string utf8_title = WindowWideToUtf8(wtitle);
+    
+    // 第一次调用：返回所需长度
+    if (buffer == nullptr) {
+        return (int)utf8_title.size();
+    }
+    
+    // 第二次调用：复制数据
+    if (buffer_size < (int)utf8_title.size()) return -1;
+    memcpy(buffer, utf8_title.c_str(), utf8_title.size());
+    return (int)utf8_title.size();
+}
+
+// 获取窗口位置和大小
+extern "C" __declspec(dllexport) int __stdcall GetWindowBounds(HWND hwnd, int* x, int* y, int* width, int* height) {
+    if (!hwnd) return -1;
+    
+    // 验证输出参数
+    if (!x || !y || !width || !height) return -1;
+    
+    // 使用GetWindowRect获取窗口位置和大小
+    RECT rect;
+    if (!GetWindowRect(hwnd, &rect)) {
+        return -1;  // 获取失败
+    }
+    
+    // 返回窗口位置和大小
+    *x = rect.left;
+    *y = rect.top;
+    *width = rect.right - rect.left;
+    *height = rect.bottom - rect.top;
+    
+    return 0;  // 成功
+}
+
+// 设置窗口位置和大小
+extern "C" __declspec(dllexport) void __stdcall SetWindowBounds(HWND hwnd, int x, int y, int width, int height) {
+    if (!hwnd) return;
+    
+    // 验证参数
+    if (width <= 0 || height <= 0) return;
+    
+    // 使用MoveWindow设置窗口位置和大小
+    // SWP_NOZORDER: 保持窗口Z顺序
+    // SWP_NOACTIVATE: 不激活窗口
+    SetWindowPos(hwnd, nullptr, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+// 获取窗口可视状态
+extern "C" __declspec(dllexport) int __stdcall GetWindowVisible(HWND hwnd) {
+    if (!hwnd) return -1;
+    
+    // 使用IsWindowVisible检查窗口是否可见
+    return IsWindowVisible(hwnd) ? 1 : 0;
+}
+
+// 显示或隐藏窗口
+extern "C" __declspec(dllexport) void __stdcall ShowEmojiWindow(HWND hwnd, int visible) {
+    if (!hwnd) return;
+    
+    // 使用ShowWindow设置窗口可视状态
+    // visible为1时显示窗口，为0时隐藏窗口
+    ShowWindow(hwnd, visible ? SW_SHOW : SW_HIDE);
+}
+
+// 获取窗口标题栏颜色 (RGB格式)
+extern "C" __declspec(dllexport) UINT32 __stdcall GetWindowTitlebarColor(HWND hwnd) {
+    if (!hwnd) return 0;
+    
+    // 查找窗口状态
+    auto it = g_windows.find(hwnd);
+    if (it == g_windows.end()) {
+        return 0;  // 窗口不存在，返回0
+    }
+    
+    // 返回标题栏颜色 (RGB格式，去掉alpha通道)
+    return it->second->titlebar_color & 0x00FFFFFF;
 }
 
 // Draw message box - Element UI Style
@@ -4210,6 +4327,103 @@ __declspec(dllexport) void __stdcall SetEditBoxKeyCallback(
     it->second->key_callback = callback;
 }
 
+// 获取编辑框字体信息
+__declspec(dllexport) int __stdcall GetEditBoxFont(
+    HWND hEdit,
+    unsigned char* font_name_buffer,
+    int font_name_buffer_size,
+    int* font_size,
+    int* bold,
+    int* italic,
+    int* underline
+) {
+    auto it = g_editboxes.find(hEdit);
+    if (it == g_editboxes.end()) return -1;
+
+    EditBoxState* state = it->second;
+    std::string utf8_name = WindowWideToUtf8(state->font.font_name);
+
+    if (font_size) *font_size = state->font.font_size;
+    if (bold) *bold = state->font.bold ? 1 : 0;
+    if (italic) *italic = state->font.italic ? 1 : 0;
+    if (underline) *underline = state->font.underline ? 1 : 0;
+
+    if (font_name_buffer == nullptr) {
+        return (int)utf8_name.size();
+    }
+    if (font_name_buffer_size < (int)utf8_name.size()) return -1;
+    memcpy(font_name_buffer, utf8_name.c_str(), utf8_name.size());
+    return (int)utf8_name.size();
+}
+
+// 获取编辑框颜色
+__declspec(dllexport) int __stdcall GetEditBoxColor(
+    HWND hEdit,
+    UINT32* fg_color,
+    UINT32* bg_color
+) {
+    auto it = g_editboxes.find(hEdit);
+    if (it == g_editboxes.end()) return -1;
+
+    EditBoxState* state = it->second;
+    if (fg_color) *fg_color = state->fg_color;
+    if (bg_color) *bg_color = state->bg_color;
+    return 0;
+}
+
+// 获取编辑框位置和大小
+__declspec(dllexport) int __stdcall GetEditBoxBounds(
+    HWND hEdit,
+    int* x,
+    int* y,
+    int* width,
+    int* height
+) {
+    if (!hEdit) return -1;
+    RECT rc;
+    if (!GetWindowRect(hEdit, &rc)) return -1;
+
+    // 转换为父窗口客户区坐标
+    HWND hParent = GetParent(hEdit);
+    if (hParent) {
+        POINT pt = { rc.left, rc.top };
+        ScreenToClient(hParent, &pt);
+        if (x) *x = pt.x;
+        if (y) *y = pt.y;
+    } else {
+        if (x) *x = rc.left;
+        if (y) *y = rc.top;
+    }
+    if (width) *width = rc.right - rc.left;
+    if (height) *height = rc.bottom - rc.top;
+    return 0;
+}
+
+// 获取编辑框对齐方式
+__declspec(dllexport) int __stdcall GetEditBoxAlignment(
+    HWND hEdit
+) {
+    auto it = g_editboxes.find(hEdit);
+    if (it == g_editboxes.end()) return -1;
+    return (int)it->second->alignment;
+}
+
+// 获取编辑框启用状态
+__declspec(dllexport) int __stdcall GetEditBoxEnabled(
+    HWND hEdit
+) {
+    if (!hEdit) return -1;
+    return IsWindowEnabled(hEdit) ? 1 : 0;
+}
+
+// 获取编辑框可视状态
+__declspec(dllexport) int __stdcall GetEditBoxVisible(
+    HWND hEdit
+) {
+    if (!hEdit) return -1;
+    return IsWindowVisible(hEdit) ? 1 : 0;
+}
+
 // 创建彩色Emoji编辑框（使用RichEdit控件）
 // ⚠️ 注意：RichEdit 4.1 (MSFTEDIT_CLASS) 不支持彩色emoji！
 // 彩色emoji需要RichEdit 8.0+（Windows 10 1809+）
@@ -4469,6 +4683,28 @@ __declspec(dllexport) HWND __stdcall CreateLabel(
     return hLabel;
 }
 
+__declspec(dllexport) int __stdcall GetLabelText(
+    HWND hLabel,
+    unsigned char* buffer,
+    int buffer_size
+) {
+    auto it = g_labels.find(hLabel);
+    if (it == g_labels.end()) return -1;
+
+    LabelState* state = it->second;
+    std::string utf8_text = WindowWideToUtf8(state->text);
+
+    // 第一次调用：返回所需长度
+    if (buffer == nullptr) {
+        return (int)utf8_text.size();
+    }
+
+    // 第二次调用：复制数据
+    if (buffer_size < (int)utf8_text.size()) return -1;
+    memcpy(buffer, utf8_text.c_str(), utf8_text.size());
+    return (int)utf8_text.size();
+}
+
 __declspec(dllexport) void __stdcall SetLabelText(
     HWND hLabel,
     const unsigned char* text_bytes,
@@ -4572,6 +4808,108 @@ __declspec(dllexport) void __stdcall ShowLabel(
     } else {
         ShowWindow(hLabel, show ? SW_SHOW : SW_HIDE);
     }
+}
+
+// 获取标签字体信息
+__declspec(dllexport) int __stdcall GetLabelFont(
+    HWND hLabel,
+    unsigned char* font_name_buffer,
+    int font_name_buffer_size,
+    int* font_size,
+    int* bold,
+    int* italic,
+    int* underline
+) {
+    auto it = g_labels.find(hLabel);
+    if (it == g_labels.end()) return -1;
+
+    LabelState* state = it->second;
+    std::string utf8_name = WindowWideToUtf8(state->font.font_name);
+
+    // 填充输出参数
+    if (font_size) *font_size = state->font.font_size;
+    if (bold) *bold = state->font.bold ? 1 : 0;
+    if (italic) *italic = state->font.italic ? 1 : 0;
+    if (underline) *underline = state->font.underline ? 1 : 0;
+
+    // 第一次调用：返回字体名所需长度
+    if (font_name_buffer == nullptr) {
+        return (int)utf8_name.size();
+    }
+
+    // 第二次调用：复制字体名
+    if (font_name_buffer_size < (int)utf8_name.size()) return -1;
+    memcpy(font_name_buffer, utf8_name.c_str(), utf8_name.size());
+    return (int)utf8_name.size();
+}
+
+// 获取标签颜色
+__declspec(dllexport) int __stdcall GetLabelColor(
+    HWND hLabel,
+    UINT32* fg_color,
+    UINT32* bg_color
+) {
+    auto it = g_labels.find(hLabel);
+    if (it == g_labels.end()) return -1;
+
+    LabelState* state = it->second;
+    if (fg_color) *fg_color = state->fg_color;
+    if (bg_color) *bg_color = state->bg_color;
+    return 0;
+}
+
+// 获取标签位置和大小
+__declspec(dllexport) int __stdcall GetLabelBounds(
+    HWND hLabel,
+    int* x,
+    int* y,
+    int* width,
+    int* height
+) {
+    auto it = g_labels.find(hLabel);
+    if (it == g_labels.end()) return -1;
+
+    LabelState* state = it->second;
+    if (x) *x = state->x;
+    if (y) *y = state->y;
+    if (width) *width = state->width;
+    if (height) *height = state->height;
+    return 0;
+}
+
+// 获取标签对齐方式
+__declspec(dllexport) int __stdcall GetLabelAlignment(
+    HWND hLabel
+) {
+    auto it = g_labels.find(hLabel);
+    if (it == g_labels.end()) return -1;
+
+    LabelState* state = it->second;
+    return (int)state->alignment;
+}
+
+// 获取标签启用状态
+__declspec(dllexport) int __stdcall GetLabelEnabled(
+    HWND hLabel
+) {
+    if (!hLabel) return -1;
+    // 对于父绘制模式的标签，通过IsWindowEnabled检查
+    return IsWindowEnabled(hLabel) ? 1 : 0;
+}
+
+// 获取标签可视状态
+__declspec(dllexport) int __stdcall GetLabelVisible(
+    HWND hLabel
+) {
+    auto it = g_labels.find(hLabel);
+    if (it == g_labels.end()) return -1;
+
+    LabelState* state = it->second;
+    // 优先使用state中存储的visible状态（父绘制模式下更准确）
+    if (state->parent_drawn) {
+        return state->visible ? 1 : 0;
+    }
+    return IsWindowVisible(hLabel) ? 1 : 0;
 }
 
 } // extern "C"
@@ -4822,7 +5160,13 @@ HWND __stdcall CreateCheckBox(
     int text_len,
     BOOL checked,
     UINT32 fg_color,
-    UINT32 bg_color
+    UINT32 bg_color,
+    const unsigned char* font_name_bytes,
+    int font_name_len,
+    int font_size,
+    BOOL bold,
+    BOOL italic,
+    BOOL underline
 ) {
     if (!hParent) return nullptr;
     
@@ -4886,11 +5230,16 @@ HWND __stdcall CreateCheckBox(
     state->fg_color = fg_color ? fg_color : 0xFF303133;  // Element UI 主要文本色
     state->bg_color = bg_color ? bg_color : 0xFFFFFFFF;  // 白色背景
     state->check_color = ThemeColor_Primary();  // 主题主色
-    state->font.font_name = L"Microsoft YaHei UI";
-    state->font.font_size = 14;
-    state->font.bold = false;
-    state->font.italic = false;
-    state->font.underline = false;
+    // 使用传入的字体参数，如果未提供则使用默认值
+    if (font_name_bytes && font_name_len > 0) {
+        state->font.font_name = Utf8ToWide(font_name_bytes, font_name_len);
+    } else {
+        state->font.font_name = L"Microsoft YaHei UI";
+    }
+    state->font.font_size = (font_size > 0) ? font_size : 14;
+    state->font.bold = (bold != 0);
+    state->font.italic = (italic != 0);
+    state->font.underline = (underline != 0);
     state->callback = nullptr;
     
     // 保存到全局map
@@ -4964,6 +5313,109 @@ void __stdcall SetCheckBoxBounds(HWND hCheckBox, int x, int y, int width, int he
     it->second->height = height;
     SetWindowPos(hCheckBox, nullptr, x, y, width, height, SWP_NOZORDER);
     InvalidateRect(hCheckBox, nullptr, FALSE);
+}
+
+// 获取复选框文本（UTF-8，两次调用模式）
+__declspec(dllexport) int __stdcall GetCheckBoxText(
+    HWND hCheckBox,
+    unsigned char* buffer,
+    int buffer_size
+) {
+    auto it = g_checkboxes.find(hCheckBox);
+    if (it == g_checkboxes.end()) return -1;
+
+    std::string utf8_text = WindowWideToUtf8(it->second->text);
+
+    if (buffer == nullptr) {
+        return (int)utf8_text.size();
+    }
+
+    if (buffer_size < (int)utf8_text.size()) return -1;
+    memcpy(buffer, utf8_text.c_str(), utf8_text.size());
+    return (int)utf8_text.size();
+}
+
+// 设置复选框字体
+__declspec(dllexport) void __stdcall SetCheckBoxFont(
+    HWND hCheckBox,
+    const unsigned char* font_name_bytes,
+    int font_name_len,
+    int font_size,
+    int bold,
+    int italic,
+    int underline
+) {
+    auto it = g_checkboxes.find(hCheckBox);
+    if (it == g_checkboxes.end()) return;
+
+    CheckBoxState* state = it->second;
+    if (font_name_bytes && font_name_len > 0) {
+        state->font.font_name = Utf8ToWide(font_name_bytes, font_name_len);
+    }
+    if (font_size > 0) state->font.font_size = font_size;
+    state->font.bold = (bold != 0);
+    state->font.italic = (italic != 0);
+    state->font.underline = (underline != 0);
+    InvalidateRect(hCheckBox, nullptr, FALSE);
+}
+
+// 获取复选框字体信息（两次调用模式，返回字体名UTF-8字节数）
+__declspec(dllexport) int __stdcall GetCheckBoxFont(
+    HWND hCheckBox,
+    unsigned char* font_name_buffer,
+    int font_name_buffer_size,
+    int* font_size,
+    int* bold,
+    int* italic,
+    int* underline
+) {
+    auto it = g_checkboxes.find(hCheckBox);
+    if (it == g_checkboxes.end()) return -1;
+
+    CheckBoxState* state = it->second;
+    std::string utf8_name = WindowWideToUtf8(state->font.font_name);
+
+    if (font_size) *font_size = state->font.font_size;
+    if (bold) *bold = state->font.bold ? 1 : 0;
+    if (italic) *italic = state->font.italic ? 1 : 0;
+    if (underline) *underline = state->font.underline ? 1 : 0;
+
+    if (font_name_buffer == nullptr) {
+        return (int)utf8_name.size();
+    }
+
+    if (font_name_buffer_size < (int)utf8_name.size()) return -1;
+    memcpy(font_name_buffer, utf8_name.c_str(), utf8_name.size());
+    return (int)utf8_name.size();
+}
+
+// 设置复选框颜色
+__declspec(dllexport) void __stdcall SetCheckBoxColor(
+    HWND hCheckBox,
+    UINT32 fg_color,
+    UINT32 bg_color
+) {
+    auto it = g_checkboxes.find(hCheckBox);
+    if (it == g_checkboxes.end()) return;
+
+    it->second->fg_color = fg_color;
+    it->second->bg_color = bg_color;
+    InvalidateRect(hCheckBox, nullptr, FALSE);
+}
+
+// 获取复选框颜色（返回0成功，-1失败）
+__declspec(dllexport) int __stdcall GetCheckBoxColor(
+    HWND hCheckBox,
+    UINT32* fg_color,
+    UINT32* bg_color
+) {
+    auto it = g_checkboxes.find(hCheckBox);
+    if (it == g_checkboxes.end()) return -1;
+
+    CheckBoxState* state = it->second;
+    if (fg_color) *fg_color = state->fg_color;
+    if (bg_color) *bg_color = state->bg_color;
+    return 0;
 }
 
 
@@ -5455,6 +5907,73 @@ __declspec(dllexport) void __stdcall SetProgressBarShowText(
     state->show_text = show_text != 0;
     
     InvalidateRect(hProgressBar, NULL, FALSE);
+}
+
+// 获取进度条颜色
+__declspec(dllexport) int __stdcall GetProgressBarColor(
+    HWND hProgressBar,
+    UINT32* fg_color,
+    UINT32* bg_color
+) {
+    auto it = g_progressbars.find(hProgressBar);
+    if (it == g_progressbars.end()) return -1;
+
+    ProgressBarState* state = it->second;
+    if (fg_color) *fg_color = state->fg_color;
+    if (bg_color) *bg_color = state->bg_color;
+    return 0;
+}
+
+// 获取进度条位置和大小
+__declspec(dllexport) int __stdcall GetProgressBarBounds(
+    HWND hProgressBar,
+    int* x,
+    int* y,
+    int* width,
+    int* height
+) {
+    if (!hProgressBar) return -1;
+    RECT rc;
+    if (!GetWindowRect(hProgressBar, &rc)) return -1;
+
+    HWND hParent = GetParent(hProgressBar);
+    if (hParent) {
+        POINT pt = { rc.left, rc.top };
+        ScreenToClient(hParent, &pt);
+        if (x) *x = pt.x;
+        if (y) *y = pt.y;
+    } else {
+        if (x) *x = rc.left;
+        if (y) *y = rc.top;
+    }
+    if (width) *width = rc.right - rc.left;
+    if (height) *height = rc.bottom - rc.top;
+    return 0;
+}
+
+// 获取进度条启用状态
+__declspec(dllexport) int __stdcall GetProgressBarEnabled(
+    HWND hProgressBar
+) {
+    if (!hProgressBar) return -1;
+    return IsWindowEnabled(hProgressBar) ? 1 : 0;
+}
+
+// 获取进度条可视状态
+__declspec(dllexport) int __stdcall GetProgressBarVisible(
+    HWND hProgressBar
+) {
+    if (!hProgressBar) return -1;
+    return IsWindowVisible(hProgressBar) ? 1 : 0;
+}
+
+// 获取进度条是否显示百分比文本
+__declspec(dllexport) int __stdcall GetProgressBarShowText(
+    HWND hProgressBar
+) {
+    auto it = g_progressbars.find(hProgressBar);
+    if (it == g_progressbars.end()) return -1;
+    return it->second->show_text ? 1 : 0;
 }
 
 // ========== 图片框功能实现 ==========
@@ -6222,7 +6741,13 @@ HWND __stdcall CreateRadioButton(
     int group_id,
     BOOL checked,
     UINT32 fg_color,
-    UINT32 bg_color
+    UINT32 bg_color,
+    const unsigned char* font_name_bytes,
+    int font_name_len,
+    int font_size,
+    BOOL bold,
+    BOOL italic,
+    BOOL underline
 ) {
     if (!hParent) return nullptr;
     
@@ -6288,11 +6813,16 @@ HWND __stdcall CreateRadioButton(
     state->fg_color = fg_color ? fg_color : 0xFF303133;  // Element UI 主要文本色
     state->bg_color = bg_color ? bg_color : 0xFFFFFFFF;  // 白色背景
     state->dot_color = ThemeColor_Primary();  // 主题主色
-    state->font.font_name = L"Microsoft YaHei UI";
-    state->font.font_size = 14;
-    state->font.bold = false;
-    state->font.italic = false;
-    state->font.underline = false;
+    // 使用传入的字体参数，如果未提供则使用默认值
+    if (font_name_bytes && font_name_len > 0) {
+        state->font.font_name = Utf8ToWide(font_name_bytes, font_name_len);
+    } else {
+        state->font.font_name = L"Microsoft YaHei UI";
+    }
+    state->font.font_size = (font_size > 0) ? font_size : 14;
+    state->font.bold = (bold != 0);
+    state->font.italic = (italic != 0);
+    state->font.underline = (underline != 0);
     state->callback = nullptr;
     
     // 保存到全局map
@@ -6398,6 +6928,109 @@ void __stdcall SetRadioButtonBounds(HWND hRadioButton, int x, int y, int width, 
     it->second->height = height;
     SetWindowPos(hRadioButton, nullptr, x, y, width, height, SWP_NOZORDER);
     InvalidateRect(hRadioButton, nullptr, FALSE);
+}
+
+// 获取单选按钮文本（UTF-8，两次调用模式）
+__declspec(dllexport) int __stdcall GetRadioButtonText(
+    HWND hRadioButton,
+    unsigned char* buffer,
+    int buffer_size
+) {
+    auto it = g_radiobuttons.find(hRadioButton);
+    if (it == g_radiobuttons.end()) return -1;
+
+    std::string utf8_text = WindowWideToUtf8(it->second->text);
+
+    if (buffer == nullptr) {
+        return (int)utf8_text.size();
+    }
+
+    if (buffer_size < (int)utf8_text.size()) return -1;
+    memcpy(buffer, utf8_text.c_str(), utf8_text.size());
+    return (int)utf8_text.size();
+}
+
+// 设置单选按钮字体
+__declspec(dllexport) void __stdcall SetRadioButtonFont(
+    HWND hRadioButton,
+    const unsigned char* font_name_bytes,
+    int font_name_len,
+    int font_size,
+    int bold,
+    int italic,
+    int underline
+) {
+    auto it = g_radiobuttons.find(hRadioButton);
+    if (it == g_radiobuttons.end()) return;
+
+    RadioButtonState* state = it->second;
+    if (font_name_bytes && font_name_len > 0) {
+        state->font.font_name = Utf8ToWide(font_name_bytes, font_name_len);
+    }
+    if (font_size > 0) state->font.font_size = font_size;
+    state->font.bold = (bold != 0);
+    state->font.italic = (italic != 0);
+    state->font.underline = (underline != 0);
+    InvalidateRect(hRadioButton, nullptr, FALSE);
+}
+
+// 获取单选按钮字体信息（两次调用模式，返回字体名UTF-8字节数）
+__declspec(dllexport) int __stdcall GetRadioButtonFont(
+    HWND hRadioButton,
+    unsigned char* font_name_buffer,
+    int font_name_buffer_size,
+    int* font_size,
+    int* bold,
+    int* italic,
+    int* underline
+) {
+    auto it = g_radiobuttons.find(hRadioButton);
+    if (it == g_radiobuttons.end()) return -1;
+
+    RadioButtonState* state = it->second;
+    std::string utf8_name = WindowWideToUtf8(state->font.font_name);
+
+    if (font_size) *font_size = state->font.font_size;
+    if (bold) *bold = state->font.bold ? 1 : 0;
+    if (italic) *italic = state->font.italic ? 1 : 0;
+    if (underline) *underline = state->font.underline ? 1 : 0;
+
+    if (font_name_buffer == nullptr) {
+        return (int)utf8_name.size();
+    }
+
+    if (font_name_buffer_size < (int)utf8_name.size()) return -1;
+    memcpy(font_name_buffer, utf8_name.c_str(), utf8_name.size());
+    return (int)utf8_name.size();
+}
+
+// 设置单选按钮颜色
+__declspec(dllexport) void __stdcall SetRadioButtonColor(
+    HWND hRadioButton,
+    UINT32 fg_color,
+    UINT32 bg_color
+) {
+    auto it = g_radiobuttons.find(hRadioButton);
+    if (it == g_radiobuttons.end()) return;
+
+    it->second->fg_color = fg_color;
+    it->second->bg_color = bg_color;
+    InvalidateRect(hRadioButton, nullptr, FALSE);
+}
+
+// 获取单选按钮颜色（返回0成功，-1失败）
+__declspec(dllexport) int __stdcall GetRadioButtonColor(
+    HWND hRadioButton,
+    UINT32* fg_color,
+    UINT32* bg_color
+) {
+    auto it = g_radiobuttons.find(hRadioButton);
+    if (it == g_radiobuttons.end()) return -1;
+
+    RadioButtonState* state = it->second;
+    if (fg_color) *fg_color = state->fg_color;
+    if (bg_color) *bg_color = state->bg_color;
+    return 0;
 }
 
 // ========== 列表框功能实现 ==========
@@ -8400,7 +9033,13 @@ HWND __stdcall CreateGroupBox(
     const unsigned char* title_bytes,
     int title_len,
     UINT32 border_color,
-    UINT32 bg_color
+    UINT32 bg_color,
+    const unsigned char* font_name_bytes,
+    int font_name_len,
+    int font_size,
+    BOOL bold,
+    BOOL italic,
+    BOOL underline
 ) {
     if (!hParent || !IsWindow(hParent)) return nullptr;
 
@@ -8435,11 +9074,15 @@ HWND __stdcall CreateGroupBox(
     state->border_color = border_color;
     state->title_color = 0xFF303133;  // Element UI 主要文本色
     state->bg_color = bg_color;
-    state->font.font_name = L"Microsoft YaHei UI";
-    state->font.font_size = 14;
-    state->font.bold = false;
-    state->font.italic = false;
-    state->font.underline = false;
+    if (font_name_bytes && font_name_len > 0) {
+        state->font.font_name = Utf8ToWide(font_name_bytes, font_name_len);
+    } else {
+        state->font.font_name = L"Microsoft YaHei UI";
+    }
+    state->font.font_size = (font_size > 0) ? font_size : 14;
+    state->font.bold = bold;
+    state->font.italic = italic;
+    state->font.underline = underline;
     state->callback = nullptr;
     
     g_groupboxes[hwnd] = state;
@@ -8669,7 +9312,235 @@ void __stdcall SetGroupBoxCallback(
     it->second->callback = callback;
 }
 
-// 分组框窗口过程
+// 获取分组框标题
+__declspec(dllexport) int __stdcall GetGroupBoxTitle(
+    HWND hGroupBox,
+    unsigned char* buffer,
+    int buffer_size
+) {
+    auto it = g_groupboxes.find(hGroupBox);
+    if (it == g_groupboxes.end()) return -1;
+
+    GroupBoxState* state = it->second;
+    std::string utf8_title = WindowWideToUtf8(state->title);
+
+    if (buffer == nullptr) {
+        return (int)utf8_title.size();
+    }
+
+    if (buffer_size < (int)utf8_title.size()) return -1;
+    memcpy(buffer, utf8_title.c_str(), utf8_title.size());
+    return (int)utf8_title.size();
+}
+
+// 获取分组框位置和大小
+__declspec(dllexport) int __stdcall GetGroupBoxBounds(
+    HWND hGroupBox,
+    int* x,
+    int* y,
+    int* width,
+    int* height
+) {
+    auto it = g_groupboxes.find(hGroupBox);
+    if (it == g_groupboxes.end()) return -1;
+
+    GroupBoxState* state = it->second;
+    if (x) *x = state->x;
+    if (y) *y = state->y;
+    if (width) *width = state->width;
+    if (height) *height = state->height;
+    return 0;
+}
+
+// 获取分组框可视状态
+__declspec(dllexport) int __stdcall GetGroupBoxVisible(
+    HWND hGroupBox
+) {
+    auto it = g_groupboxes.find(hGroupBox);
+    if (it == g_groupboxes.end()) return -1;
+
+    return it->second->visible ? 1 : 0;
+}
+
+// 获取分组框启用状态
+__declspec(dllexport) int __stdcall GetGroupBoxEnabled(
+    HWND hGroupBox
+) {
+    auto it = g_groupboxes.find(hGroupBox);
+    if (it == g_groupboxes.end()) return -1;
+
+    return it->second->enabled ? 1 : 0;
+}
+
+// 获取分组框颜色（边框色和背景色）
+__declspec(dllexport) int __stdcall GetGroupBoxColor(
+    HWND hGroupBox,
+    UINT32* border_color,
+    UINT32* bg_color
+) {
+    auto it = g_groupboxes.find(hGroupBox);
+    if (it == g_groupboxes.end()) return -1;
+
+    GroupBoxState* state = it->second;
+    if (border_color) *border_color = state->border_color;
+    if (bg_color) *bg_color = state->bg_color;
+    return 0;
+}
+
+// ========================================
+// TabControl 属性命令
+// ========================================
+
+// 获取指定 Tab 页的标题（UTF-8，两次调用模式）
+__declspec(dllexport) int __stdcall GetTabTitle(
+    HWND hTabControl,
+    int index,
+    unsigned char* buffer,
+    int bufferSize
+) {
+    auto it = g_tab_controls.find(hTabControl);
+    if (it == g_tab_controls.end()) return -1;
+
+    TabControlState* state = it->second;
+    if (index < 0 || index >= (int)state->pages.size()) return -1;
+
+    std::string utf8 = WindowWideToUtf8(state->pages[index].title);
+
+    if (buffer == nullptr) {
+        return (int)utf8.size();
+    }
+    if (bufferSize < (int)utf8.size()) return -1;
+    memcpy(buffer, utf8.c_str(), utf8.size());
+    return (int)utf8.size();
+}
+
+// 设置指定 Tab 页的标题（UTF-8）
+__declspec(dllexport) int __stdcall SetTabTitle(
+    HWND hTabControl,
+    int index,
+    const unsigned char* title_bytes,
+    int title_len
+) {
+    auto it = g_tab_controls.find(hTabControl);
+    if (it == g_tab_controls.end()) return -1;
+
+    TabControlState* state = it->second;
+    if (index < 0 || index >= (int)state->pages.size()) return -1;
+    if (!title_bytes || title_len < 0) return -1;
+
+    std::wstring newTitle = Utf8ToWide(title_bytes, title_len);
+    state->pages[index].title = newTitle;
+
+    // 更新 TabControl 控件中的标题
+    TCITEMW tci = {};
+    tci.mask = TCIF_TEXT;
+    tci.pszText = (LPWSTR)newTitle.c_str();
+    TabCtrl_SetItem(hTabControl, index, &tci);
+
+    // 触发重绘
+    InvalidateRect(hTabControl, nullptr, TRUE);
+    return 0;
+}
+
+// 获取 TabControl 的位置和大小
+__declspec(dllexport) int __stdcall GetTabControlBounds(
+    HWND hTabControl,
+    int* x,
+    int* y,
+    int* width,
+    int* height
+) {
+    if (!IsWindow(hTabControl)) return -1;
+    auto it = g_tab_controls.find(hTabControl);
+    if (it == g_tab_controls.end()) return -1;
+
+    RECT rc;
+    if (!GetWindowRect(hTabControl, &rc)) return -1;
+
+    // 转换为父窗口客户区坐标
+    HWND hParent = it->second->hParent;
+    if (hParent && IsWindow(hParent)) {
+        POINT pt = { rc.left, rc.top };
+        ScreenToClient(hParent, &pt);
+        if (x) *x = pt.x;
+        if (y) *y = pt.y;
+    } else {
+        if (x) *x = rc.left;
+        if (y) *y = rc.top;
+    }
+    if (width)  *width  = rc.right - rc.left;
+    if (height) *height = rc.bottom - rc.top;
+    return 0;
+}
+
+// 设置 TabControl 的位置和大小
+__declspec(dllexport) int __stdcall SetTabControlBounds(
+    HWND hTabControl,
+    int x,
+    int y,
+    int width,
+    int height
+) {
+    if (!IsWindow(hTabControl)) return -1;
+    auto it = g_tab_controls.find(hTabControl);
+    if (it == g_tab_controls.end()) return -1;
+
+    // 补偿标题栏偏移
+    int tb_offset = GetTitleBarOffset(it->second->hParent);
+    MoveWindow(hTabControl, x, y + tb_offset, width, height, TRUE);
+
+    // 更新内容窗口布局
+    UpdateTabLayout(it->second);
+    return 0;
+}
+
+// 获取 TabControl 的可视状态（1=可见, 0=不可见, -1=错误）
+__declspec(dllexport) int __stdcall GetTabControlVisible(
+    HWND hTabControl
+) {
+    if (!IsWindow(hTabControl)) return -1;
+    auto it = g_tab_controls.find(hTabControl);
+    if (it == g_tab_controls.end()) return -1;
+
+    return IsWindowVisible(hTabControl) ? 1 : 0;
+}
+
+// 显示或隐藏 TabControl（visible: 1=显示, 0=隐藏）
+__declspec(dllexport) int __stdcall ShowTabControl(
+    HWND hTabControl,
+    int visible
+) {
+    if (!IsWindow(hTabControl)) return -1;
+    auto it = g_tab_controls.find(hTabControl);
+    if (it == g_tab_controls.end()) return -1;
+
+    TabControlState* state = it->second;
+    ShowWindow(hTabControl, visible ? SW_SHOW : SW_HIDE);
+
+    // 同步隐藏/显示当前内容窗口
+    if (state->currentIndex >= 0 && state->currentIndex < (int)state->pages.size()) {
+        HWND hContent = state->pages[state->currentIndex].hContentWindow;
+        if (hContent && IsWindow(hContent)) {
+            ShowWindow(hContent, visible ? SW_SHOW : SW_HIDE);
+        }
+    }
+    return 0;
+}
+
+// 启用或禁用 TabControl（enabled: 1=启用, 0=禁用）
+__declspec(dllexport) int __stdcall EnableTabControl(
+    HWND hTabControl,
+    int enabled
+) {
+    if (!IsWindow(hTabControl)) return -1;
+    auto it = g_tab_controls.find(hTabControl);
+    if (it == g_tab_controls.end()) return -1;
+
+    EnableWindow(hTabControl, enabled ? TRUE : FALSE);
+    return 0;
+}
+
+
 LRESULT CALLBACK GroupBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     auto it = g_groupboxes.find(hwnd);
     if (it == g_groupboxes.end()) {
@@ -13930,3 +14801,23 @@ __declspec(dllexport) void __stdcall SetPopupMenuCallback(
         it->second->callback = callback;
     }
 }
+
+// ========== 按钮属性命令 ==========
+
+// Wide String to UTF-8 (辅助函数)
+static std::string WideToUtf8(const std::wstring& wide) {
+    if (wide.empty()) return "";
+    
+    int utf8_len = WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), (int)wide.length(), nullptr, 0, nullptr, nullptr);
+    if (utf8_len <= 0) return "";
+    
+    std::string result(utf8_len, 0);
+    WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), (int)wide.length(), &result[0], utf8_len, nullptr, nullptr);
+    return result;
+}
+
+
+
+
+
+

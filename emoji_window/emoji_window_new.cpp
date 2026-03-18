@@ -2940,7 +2940,13 @@ HWND __stdcall CreateCheckBox(
     int text_len,
     BOOL checked,
     UINT32 fg_color,
-    UINT32 bg_color
+    UINT32 bg_color,
+    const unsigned char* font_name_bytes,
+    int font_name_len,
+    int font_size,
+    BOOL bold,
+    BOOL italic,
+    BOOL underline
 ) {
     if (!hParent) return nullptr;
     
@@ -2985,11 +2991,16 @@ HWND __stdcall CreateCheckBox(
     state->fg_color = fg_color ? fg_color : 0xFF303133;  // Element UI 主要文本色
     state->bg_color = bg_color ? bg_color : 0xFFFFFFFF;  // 白色背景
     state->check_color = 0xFF409EFF;  // Element UI 主色
-    state->font.font_name = L"Microsoft YaHei UI";
-    state->font.font_size = 14;
-    state->font.bold = false;
-    state->font.italic = false;
-    state->font.underline = false;
+    // 使用传入的字体参数，如果未提供则使用默认值
+    if (font_name_bytes && font_name_len > 0) {
+        state->font.font_name = Utf8ToWide(font_name_bytes, font_name_len);
+    } else {
+        state->font.font_name = L"Microsoft YaHei UI";
+    }
+    state->font.font_size = (font_size > 0) ? font_size : 14;
+    state->font.bold = (bold != 0);
+    state->font.italic = (italic != 0);
+    state->font.underline = (underline != 0);
     state->callback = nullptr;
     
     // 保存到全局map
@@ -4275,7 +4286,13 @@ HWND __stdcall CreateRadioButton(
     int group_id,
     BOOL checked,
     UINT32 fg_color,
-    UINT32 bg_color
+    UINT32 bg_color,
+    const unsigned char* font_name_bytes,
+    int font_name_len,
+    int font_size,
+    BOOL bold,
+    BOOL italic,
+    BOOL underline
 ) {
     if (!hParent) return nullptr;
     
@@ -4321,11 +4338,16 @@ HWND __stdcall CreateRadioButton(
     state->fg_color = fg_color ? fg_color : 0xFF303133;  // Element UI 主要文本色
     state->bg_color = bg_color ? bg_color : 0xFFFFFFFF;  // 白色背景
     state->dot_color = 0xFF409EFF;  // Element UI 主色
-    state->font.font_name = L"Microsoft YaHei UI";
-    state->font.font_size = 14;
-    state->font.bold = false;
-    state->font.italic = false;
-    state->font.underline = false;
+    // 使用传入的字体参数，如果未提供则使用默认值
+    if (font_name_bytes && font_name_len > 0) {
+        state->font.font_name = Utf8ToWide(font_name_bytes, font_name_len);
+    } else {
+        state->font.font_name = L"Microsoft YaHei UI";
+    }
+    state->font.font_size = (font_size > 0) ? font_size : 14;
+    state->font.bold = (bold != 0);
+    state->font.italic = (italic != 0);
+    state->font.underline = (underline != 0);
     state->callback = nullptr;
     
     // 保存到全局map
@@ -6396,7 +6418,13 @@ HWND __stdcall CreateGroupBox(
     const unsigned char* title_bytes,
     int title_len,
     UINT32 border_color,
-    UINT32 bg_color
+    UINT32 bg_color,
+    const unsigned char* font_name_bytes,
+    int font_name_len,
+    int font_size,
+    BOOL bold,
+    BOOL italic,
+    BOOL underline
 ) {
     if (!hParent || !IsWindow(hParent)) return nullptr;
     
@@ -6430,11 +6458,15 @@ HWND __stdcall CreateGroupBox(
     state->border_color = border_color;
     state->title_color = 0xFF303133;  // Element UI 主要文本色
     state->bg_color = bg_color;
-    state->font.font_name = L"Microsoft YaHei UI";
-    state->font.font_size = 14;
-    state->font.bold = false;
-    state->font.italic = false;
-    state->font.underline = false;
+    if (font_name_bytes && font_name_len > 0) {
+        state->font.font_name = Utf8ToWide(font_name_bytes, font_name_len);
+    } else {
+        state->font.font_name = L"Microsoft YaHei UI";
+    }
+    state->font.font_size = (font_size > 0) ? font_size : 14;
+    state->font.bold = bold;
+    state->font.italic = italic;
+    state->font.underline = underline;
     state->callback = nullptr;
     
     g_groupboxes[hwnd] = state;
