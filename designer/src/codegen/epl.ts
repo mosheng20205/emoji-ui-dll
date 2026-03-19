@@ -113,7 +113,9 @@ export function generateEpl(win: DesignWindow, controls: DesignControl[]): strin
     const fontName = (p.fontName as string) || 'Microsoft YaHei UI';
     const fontSize = (p.fontSize as number) || 13;
     const fgColor = eplColor((p.fgColor as string) || '#303133');
-    const bgColor = eplColor((p.bgColor as string) || '#FFFFFF');
+    const winBg = win.bgColor || '#F5F7FA';
+    const controlBg = (p.bgColor as string) || winBg;
+    const bgColor = eplColor(controlBg);
 
     const emitTextBytes = (text: string) => {
       emitUtf8Text(`文本_${c.name}`, text, lines);
