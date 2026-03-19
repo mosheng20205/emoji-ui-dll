@@ -12,6 +12,25 @@ function eplBool(v: unknown): string {
   return v ? '真' : '假';
 }
 
+function hasNonGbkChars(text: string): boolean {
+  for (const ch of text) {
+    const code = ch.codePointAt(0)!;
+    if (code > 0xFFFF || (code > 0x7F && code > 0x9FFF)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function emitUtf8Text(varName: string, text: string, lines: string[]): void {
+  if (hasNonGbkChars(text)) {
+    const bytes = textToUtf8Bytes(text);
+    lines.push(`${varName} ＝ ${utf8BytesToEplFormat(bytes)}`);
+  } else {
+    lines.push(`${varName} ＝ 编码_Ansi到Utf8 ("${text}")`);
+  }
+}
+
 interface EventHandlerMeta {
   handler: string;
   controlName: string;
@@ -97,10 +116,10 @@ export function generateEpl(win: DesignWindow, controls: DesignControl[]): strin
     const bgColor = eplColor((p.bgColor as string) || '#FFFFFF');
 
     const emitTextBytes = (text: string) => {
-      lines.push(`文本_${c.name} ＝ 编码_Ansi到Utf8 ("${text}")`);
+      emitUtf8Text(`文本_${c.name}`, text, lines);
     };
     const emitFontBytes = () => {
-      lines.push(`字体_${c.name} ＝ 编码_Ansi到Utf8 ("${fontName}")`);
+      emitUtf8Text(`字体_${c.name}`, fontName, lines);
     };
     const textPtr = `取变量数据地址 (文本_${c.name})`;
     const textLen = `取字节集长度 (文本_${c.name})`;
