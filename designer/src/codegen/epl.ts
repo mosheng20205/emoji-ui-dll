@@ -93,6 +93,9 @@ export function generateEpl(win: DesignWindow, controls: DesignControl[]): strin
     if (CONTROLS_NEEDING_FONT_BYTES.has(c.type)) {
       lines.push(`.局部变量 字体_${c.name}, 字节集`);
     }
+    if (c.type === 'tabcontrol') {
+      lines.push(`.局部变量 tab_${c.name}_tmp, 字节集`);
+    }
   }
 
   lines.push(``);
@@ -113,9 +116,7 @@ export function generateEpl(win: DesignWindow, controls: DesignControl[]): strin
     const fontName = (p.fontName as string) || 'Microsoft YaHei UI';
     const fontSize = (p.fontSize as number) || 13;
     const fgColor = eplColor((p.fgColor as string) || '#303133');
-    const winBg = win.bgColor || '#F5F7FA';
-    const controlBg = (p.bgColor as string) || winBg;
-    const bgColor = eplColor(controlBg);
+    const bgColor = eplColor((p.bgColor as string) || '#FFFFFF');
 
     const emitTextBytes = (text: string) => {
       emitUtf8Text(`文本_${c.name}`, text, lines);
@@ -193,9 +194,19 @@ export function generateEpl(win: DesignWindow, controls: DesignControl[]): strin
       case 'listbox':
         lines.push(`${c.name} ＝ 创建列表框 (主窗口句柄, ${c.x}, ${c.y}, ${c.width}, ${c.height}, ${eplBool(p.multiSelect)}, ${fgColor}, ${bgColor})`);
         break;
-      case 'tabcontrol':
+      case 'tabcontrol': {
         lines.push(`${c.name} ＝ 创建TabControl (主窗口句柄, ${c.x}, ${c.y}, ${c.width}, ${c.height})`);
+        const tabNames = ((p.tabs as string) || '页面1\n页面2\n页面3')
+          .split('\n')
+          .map((t) => t.trim())
+          .filter(Boolean);
+        for (const tabName of tabNames) {
+          const varName = `tab_${c.name}_tmp`;
+          emitUtf8Text(varName, tabName, lines);
+          lines.push(`添加Tab页 (${c.name}, 取变量数据地址 (${varName}), 取字节集长度 (${varName}), 0)`);
+        }
         break;
+      }
       case 'datagridview':
         lines.push(`${c.name} ＝ 创建DataGridView (主窗口句柄, ${c.x}, ${c.y}, ${c.width}, ${c.height}, ${eplBool(p.virtualMode)}, ${eplBool(p.zebraStripe)}, ${fgColor}, ${bgColor}, ${eplColor((p.headerColor as string) || '#409EFF')}, ${fontPtr || '0'}, ${0}, ${fontSize})`);
         break;
