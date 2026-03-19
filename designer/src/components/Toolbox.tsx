@@ -49,6 +49,7 @@ export default function Toolbox() {
         >
           😀 Emoji 选择器
         </button>
+        <EmojiPicker open={emojiPickerOpen} onClose={() => setEmojiPickerOpen(false)} />
       </div>
       <div className="toolbox-grid">
         {controlDefinitions.map((def) => (
@@ -90,7 +91,6 @@ export default function Toolbox() {
           系统设置
         </button>
       </div>
-      <EmojiPicker open={emojiPickerOpen} onClose={() => setEmojiPickerOpen(false)} />
     </div>
   );
 }

@@ -136,7 +136,7 @@ export function generateEpl(win: DesignWindow, controls: DesignControl[]): strin
         lines.push(`${c.name} ＝ 创建列表框_辅助 (主窗口句柄, ${c.x}, ${c.y}, ${c.width}, ${c.height}, ${eplColor((p.fgColor as string) || '#303133')}, ${eplColor((p.bgColor as string) || '#FFFFFF')}, "${(p.fontName as string) || 'Microsoft YaHei UI'}", ${(p.fontSize as number) || 13}, ${eplBool(p.bold)}, ${eplBool(p.italic)}, ${eplBool(p.underline)}, ${eplBool(p.multiSelect)})`);
         break;
       case 'tabcontrol':
-        lines.push(`${c.name} ＝ 创建选项卡_辅助 (主窗口句柄, ${c.x}, ${c.y}, ${c.width}, ${c.height}, ${eplColor((p.fgColor as string) || '#303133')}, ${eplColor((p.bgColor as string) || '#FFFFFF')}, "${(p.fontName as string) || 'Microsoft YaHei UI'}", ${(p.fontSize as number) || 13}, ${eplBool(p.bold)}, ${eplBool(p.italic)}, ${eplBool(p.underline)})`);
+        lines.push(`${c.name} ＝ 创建选项卡 (主窗口句柄, ${c.x}, ${c.y}, ${c.width}, ${c.height})`);
         break;
       case 'datagridview':
         lines.push(`${c.name} ＝ 创建表格 (主窗口句柄, ${c.x}, ${c.y}, ${c.width}, ${c.height}, ${eplColor((p.fgColor as string) || '#303133')}, ${eplColor((p.bgColor as string) || '#FFFFFF')}, ${eplColor((p.headerColor as string) || '#409EFF')}, "${(p.fontName as string) || 'Microsoft YaHei UI'}", ${(p.fontSize as number) || 13})`);
