@@ -5,6 +5,7 @@
 ## ✨ 特性
 
 - 🎨 **16 种控件**：按钮、编辑框、复选框、单选按钮、进度条、列表框、组合框、表格等
+- 📋 **菜单系统**：顶部菜单栏、右键弹出菜单，支持 Emoji 和子菜单
 - 🌈 **主题系统**：支持亮色/暗色主题切换，可自定义 JSON 主题
 - 📐 **布局管理器**：流式布局、网格布局、停靠布局，自动响应窗口大小
 - 🚀 **高性能**：表格虚拟模式支持 100000+ 行数据
@@ -196,6 +197,13 @@ emoji_window_cpp/
 | 树形框 | [treeview.md](docs/controls/treeview.md) | 层次结构数据，支持 Emoji 图标和拖放 |
 | 表格 | [datagridview.md](docs/controls/datagridview.md) | 高性能数据表格，支持虚拟模式 |
 | 选项卡 | [tabcontrol.md](docs/controls/tabcontrol.md) | 多标签页容器 |
+
+### 菜单与右键
+
+| 功能 | 说明 |
+|------|------|
+| 菜单栏 | `CreateMenuBar` / `MenuBarAddItem` / `MenuBarAddSubItem` - 窗口顶部菜单 |
+| 右键弹出菜单 | `CreateEmojiPopupMenu` / `PopupMenuAddItem` / `BindControlMenu` - 控件右键弹出 |
 
 
 

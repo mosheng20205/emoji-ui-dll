@@ -257,6 +257,38 @@
 .DLL命令 更新TabControl布局, , "emoji_window.dll", "UpdateTabControlLayout", , , 手动更新TabControl布局
     .参数 TabControl句柄, 整数型
 
+.DLL命令 创建弹出菜单, 整数型, "emoji_window.dll", "CreateEmojiPopupMenu", , , 创建右键弹出菜单（支持Emoji）
+    .参数 所属窗口句柄, 整数型
+
+.DLL命令 销毁弹出菜单, , "emoji_window.dll", "DestroyEmojiPopupMenu", , , 销毁弹出菜单
+    .参数 弹出菜单句柄, 整数型
+
+.DLL命令 弹出菜单添加项, 整数型, "emoji_window.dll", "PopupMenuAddItem", , , 添加弹出菜单顶级项
+    .参数 弹出菜单句柄, 整数型
+    .参数 文本字节集指针, 整数型, , 取变量数据地址(文本字节集)
+    .参数 文本长度, 整数型, , 取字节集长度(文本字节集)
+    .参数 菜单项ID, 整数型, , 自定义ID，回调时用于识别
+
+.DLL命令 弹出菜单添加子项, 整数型, "emoji_window.dll", "PopupMenuAddSubItem", , , 添加弹出菜单子项
+    .参数 弹出菜单句柄, 整数型
+    .参数 父项ID, 整数型, , 父菜单项的ID
+    .参数 文本字节集指针, 整数型, , 取变量数据地址(文本字节集)
+    .参数 文本长度, 整数型, , 取字节集长度(文本字节集)
+    .参数 菜单项ID, 整数型, , 自定义ID，回调时用于识别
+
+.DLL命令 绑定控件菜单, , "emoji_window.dll", "BindControlMenu", , , 绑定控件与弹出菜单（控件右键时自动弹出）
+    .参数 控件句柄, 整数型
+    .参数 弹出菜单句柄, 整数型
+
+.DLL命令 显示上下文菜单, , "emoji_window.dll", "ShowContextMenu", , , 在指定坐标显示右键菜单
+    .参数 弹出菜单句柄, 整数型
+    .参数 X坐标, 整数型, , 屏幕X（-1=使用当前鼠标X）
+    .参数 Y坐标, 整数型, , 屏幕Y（-1=使用当前鼠标Y）
+
+.DLL命令 设置弹出菜单回调, , "emoji_window.dll", "SetPopupMenuCallback", , , 设置弹出菜单项点击回调
+    .参数 弹出菜单句柄, 整数型
+    .参数 回调函数, 子程序指针, , 回调签名：.子程序 回调, , , stdcall  .参数 menu_id, 整数型  .参数 item_id, 整数型
+
 .DLL命令 设置窗口大小改变回调, , "emoji_window.dll", "SetWindowResizeCallback", , , 设置窗口大小改变回调
     .参数 回调函数指针, 子程序指针
 
