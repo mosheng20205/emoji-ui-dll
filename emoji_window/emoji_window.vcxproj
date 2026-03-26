@@ -190,6 +190,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="button_properties.cpp" />
+    <ClCompile Include="d2d_datetime_picker.cpp" />
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="emoji_window.cpp" />
     <ClCompile Include="submenu_window.cpp" />

@@ -397,6 +397,15 @@ struct D2DComboBoxState {
     IDWriteFactory* dwrite_factory;       // DirectWrite工厂
 };
 
+// D2D 日期时间选择器：显示精度（与 Element DateTimePicker 粒度对应）
+enum DateTimePickerPrecision {
+    DTP_PRECISION_YEAR = 0,      // 仅年
+    DTP_PRECISION_YMD = 1,       // 年月日
+    DTP_PRECISION_YMDH = 2,        // 年月日时
+    DTP_PRECISION_YMDHM = 3,     // 年月日时分
+    DTP_PRECISION_YMDHMS = 4     // 年月日时分秒
+};
+
 // 热键控件状态
 struct HotKeyState {
     HWND hwnd;                  // 控件句柄
@@ -2348,6 +2357,58 @@ extern "C" {
     // 设置D2D组合框位置和大小
     __declspec(dllexport) void __stdcall SetD2DComboBoxBounds(
         HWND hComboBox,
+        int x, int y, int width, int height
+    );
+
+    // ========== D2D 日期时间选择器（Element 风格弹出层，支持彩色 emoji 显示文本） ==========
+
+    __declspec(dllexport) HWND __stdcall CreateD2DDateTimePicker(
+        HWND hParent,
+        int x, int y, int width, int height,
+        int initial_precision,
+        UINT32 fg_color,
+        UINT32 bg_color,
+        UINT32 border_color,
+        const unsigned char* font_name_bytes,
+        int font_name_len,
+        int font_size,
+        BOOL bold,
+        BOOL italic,
+        BOOL underline
+    );
+
+    __declspec(dllexport) int __stdcall GetD2DDateTimePickerPrecision(HWND hPicker);
+    __declspec(dllexport) void __stdcall SetD2DDateTimePickerPrecision(HWND hPicker, int precision);
+
+    __declspec(dllexport) void __stdcall GetD2DDateTimePickerDateTime(
+        HWND hPicker,
+        int* year,
+        int* month,
+        int* day,
+        int* hour,
+        int* minute,
+        int* second
+    );
+
+    __declspec(dllexport) void __stdcall SetD2DDateTimePickerDateTime(
+        HWND hPicker,
+        int year,
+        int month,
+        int day,
+        int hour,
+        int minute,
+        int second
+    );
+
+    __declspec(dllexport) void __stdcall SetD2DDateTimePickerCallback(
+        HWND hPicker,
+        ValueChangedCallback callback
+    );
+
+    __declspec(dllexport) void __stdcall EnableD2DDateTimePicker(HWND hPicker, BOOL enable);
+    __declspec(dllexport) void __stdcall ShowD2DDateTimePicker(HWND hPicker, BOOL show);
+    __declspec(dllexport) void __stdcall SetD2DDateTimePickerBounds(
+        HWND hPicker,
         int x, int y, int width, int height
     );
 
