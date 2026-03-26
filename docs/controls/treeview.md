@@ -6,6 +6,10 @@
 
 树形框控件用于显示层次结构数据，支持 Emoji 图标、复选框、拖放排序、键盘导航等功能。采用 Element UI 设计风格。
 
+### 侧栏折叠菜单模式
+
+若需要 **左侧缩进 + 右侧 ∨/∧ 箭头**、**Element 式选中条与主色字**、以及 **父级折叠/展开与选中回调** 的细粒度约定，请见 **[侧栏折叠菜单（TreeView 侧栏模式）](./sidebar_menu_treeview.md)**。启用方式：对同一 `CreateTreeView` 句柄调用 **`SetTreeViewSidebarMode(hwnd, true)`**，并配合文档中的颜色/行高/字体/间距与 `MoveTreeViewNode` 等 API。
+
 ## 创建树形框
 
 ```c++
@@ -139,6 +143,46 @@ int __stdcall GetNodeLevel(HWND hTreeView, int node_id);
 BOOL __stdcall ScrollToNode(HWND hTreeView, int node_id);
 BOOL __stdcall SetTreeViewScrollPos(HWND hTreeView, int position);
 int  __stdcall GetTreeViewScrollPos(HWND hTreeView);
+```
+
+## 侧栏模式与全局样式（折叠菜单）
+
+以下 API 与 `CreateTreeView` 返回的 **树形框句柄** 相同，用于侧栏菜单与主题调节（详见 [sidebar_menu_treeview.md](./sidebar_menu_treeview.md)）。
+
+```c++
+BOOL __stdcall SetTreeViewSidebarMode(HWND hwnd, bool enable);
+BOOL __stdcall GetTreeViewSidebarMode(HWND hwnd);
+
+BOOL __stdcall SetTreeViewRowHeight(HWND hwnd, float height);
+float __stdcall GetTreeViewRowHeight(HWND hwnd);
+
+BOOL __stdcall SetTreeViewItemSpacing(HWND hwnd, float spacing);
+float __stdcall GetTreeViewItemSpacing(HWND hwnd);
+
+BOOL __stdcall SetTreeViewTextColor(HWND hwnd, unsigned int argb);
+unsigned int __stdcall GetTreeViewTextColor(HWND hwnd);
+
+BOOL __stdcall SetTreeViewSelectedBgColor(HWND hwnd, unsigned int argb);
+unsigned int __stdcall GetTreeViewSelectedBgColor(HWND hwnd);
+
+BOOL __stdcall SetTreeViewSelectedForeColor(HWND hwnd, unsigned int argb);
+unsigned int __stdcall GetTreeViewSelectedForeColor(HWND hwnd);
+
+BOOL __stdcall SetTreeViewHoverBgColor(HWND hwnd, unsigned int argb);
+unsigned int __stdcall GetTreeViewHoverBgColor(HWND hwnd);
+
+BOOL __stdcall SetTreeViewFont(
+    HWND hwnd,
+    const unsigned char* family_utf8, int family_len,
+    float font_size, int font_weight, bool italic
+);
+BOOL __stdcall GetTreeViewFont(
+    HWND hwnd,
+    unsigned char* family_buf, int family_buf_size,
+    float* out_font_size, int* out_font_weight, bool* out_italic
+);
+
+BOOL __stdcall MoveTreeViewNode(HWND hwnd, int node_id, int new_parent_id, int insert_index);
 ```
 
 ## 拖放功能
