@@ -1,8 +1,8 @@
 export type ControlType =
   | 'window' | 'button' | 'label' | 'editbox' | 'checkbox'
   | 'progressbar' | 'picturebox' | 'radiobutton' | 'listbox'
-  | 'combobox' | 'hotkey' | 'groupbox' | 'tabcontrol' | 'datagridview'
-  | 'treeview';
+  | 'combobox' | 'hotkey' | 'groupbox'   | 'tabcontrol' | 'datagridview'
+  | 'treeview' | 'treeview_sidebar';
 
 export interface FontStyle {
   name: string;

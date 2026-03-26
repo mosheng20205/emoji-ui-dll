@@ -70,6 +70,8 @@ struct DtpState {
     int year_base = 2020;
     int hover_cell = -1;
     int hover_time = -1;
+    int time_typing = 0;       // 0=无 1=已输入第一位数字，待第二位
+    int time_typing_digit = 0;
     bool hover_ok = false;
     bool hover_prev = false;
     bool hover_next = false;
@@ -224,11 +226,13 @@ static int PopupHeight(DtpState* s) {
     const int hdr = 36, row = 26, timeh = 34, okh = 30, pad = 8;
     if (s->precision == DTP_PRECISION_YEAR)
         return hdr + 3 * row + pad * 2;
-    int grid = 7 * row + hdr;
+    // 与 DrawPopup 一致：星期行 Mo..Su 占用约 [hdr-2, hdr+14]，日期网格从 cal_top 开始
+    const int cal_top = hdr + 16;
+    const int date_grid_bottom = cal_top + 6 * row;
     bool need_time = s->precision >= DTP_PRECISION_YMDH;
-    int h = grid + pad + (need_time ? timeh + pad : 0) + (need_time ? okh + pad : 0);
+    int h = date_grid_bottom + pad + (need_time ? timeh + pad : 0) + (need_time ? okh + pad : 0);
     if (s->precision == DTP_PRECISION_YMD)
-        h = grid + pad;
+        h = date_grid_bottom + pad;
     return h;
 }
 
@@ -266,6 +270,9 @@ static void ShowPopup(DtpState* s) {
         SetWindowPos(s->popup_hwnd, HWND_TOPMOST, r.left, py, pw, ph, SWP_SHOWWINDOW);
     }
     s->dropdown_visible = true;
+    s->time_typing = 0;
+    if (s->precision >= DTP_PRECISION_YMDH)
+        s->hover_time = 0;
     ShowWindow(s->popup_hwnd, SW_SHOW);
     InvalidateRect(s->popup_hwnd, nullptr, FALSE);
 }
@@ -277,6 +284,7 @@ static void HidePopup(DtpState* s) {
     s->dropdown_visible = false;
     s->hover_cell = -1;
     s->hover_time = -1;
+    s->time_typing = 0;
 }
 
 static LRESULT CALLBACK EditSubclassProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_PTR dw) {
@@ -347,6 +355,139 @@ static void DrawHostChrome(DtpState* s) {
     s->render_target->EndDraw();
 }
 
+// 时间行：ty 为时间文本顶边；确定按钮与绘制、命中共用同一宽度
+static void GetTimeAndOkLayout(int W, int pad, int date_grid_bottom, int* ty, int* oky, int* ok_btn_w) {
+    *ty = date_grid_bottom + pad;
+    *oky = *ty + 30 + pad;
+    *ok_btn_w = 56;
+}
+
+// 时分秒分段几何（与绘制一致）：时/分/秒各占 segW，中间为冒号区
+static void GetTimeSegmentLayout(int W, int pad, DateTimePickerPrecision p,
+    int* nseg, int seg_left[3], int seg_right[3], int* colon1_left, int* colon2_left) {
+    const int segW = 28;
+    const int colonW = 12;
+    *colon1_left = *colon2_left = -1;
+    if (p == DTP_PRECISION_YMDH) {
+        *nseg = 1;
+        seg_left[0] = pad;
+        seg_right[0] = W - pad;
+        return;
+    }
+    int x = pad;
+    seg_left[0] = x;
+    seg_right[0] = x + segW;
+    x = seg_right[0];
+    *colon1_left = x;
+    x += colonW;
+    seg_left[1] = x;
+    seg_right[1] = x + segW;
+    if (p == DTP_PRECISION_YMDHM) {
+        *nseg = 2;
+        return;
+    }
+    x = seg_right[1];
+    *colon2_left = x;
+    x += colonW;
+    seg_left[2] = x;
+    seg_right[2] = x + segW;
+    *nseg = 3;
+}
+
+static int HitTestTimeSegment(DtpState* s, int W, int pad, int x, int y, int ty) {
+    if (s->precision < DTP_PRECISION_YMDH) return -1;
+    if (y < ty || y >= ty + 28) return -1;
+    int nseg = 0, seg_left[3], seg_right[3], c1 = -1, c2 = -1;
+    GetTimeSegmentLayout(W, pad, s->precision, &nseg, seg_left, seg_right, &c1, &c2);
+    for (int i = 0; i < nseg; i++) {
+        if (x >= seg_left[i] && x < seg_right[i])
+            return i;
+    }
+    if (nseg <= 1)
+        return (x >= pad && x < W - pad) ? 0 : -1;
+    int best = 0, bestd = 0x7fffffff;
+    for (int i = 0; i < nseg; i++) {
+        int cx = (seg_left[i] + seg_right[i]) / 2;
+        int d = (x > cx) ? (x - cx) : (cx - x);
+        if (d < bestd) {
+            bestd = d;
+            best = i;
+        }
+    }
+    return best;
+}
+
+static void ApplyTimeDigit(DtpState* s, int d) {
+    if (s->precision < DTP_PRECISION_YMDH) return;
+    int ht = s->hover_time;
+    if (ht < 0)
+        ht = 0;
+    if (s->precision == DTP_PRECISION_YMDH)
+        ht = 0;
+    if (s->time_typing == 0) {
+        s->time_typing = 1;
+        s->time_typing_digit = d;
+        return;
+    }
+    int val = s->time_typing_digit * 10 + d;
+    s->time_typing = 0;
+    if (ht == 0) {
+        if (val > 23) val = 23;
+        s->temp.wHour = (WORD)val;
+    } else if (ht == 1 && s->precision >= DTP_PRECISION_YMDHM) {
+        if (val > 59) val = 59;
+        s->temp.wMinute = (WORD)val;
+    } else if (ht == 2 && s->precision >= DTP_PRECISION_YMDHMS) {
+        if (val > 59) val = 59;
+        s->temp.wSecond = (WORD)val;
+    }
+    ClampDate(s->temp);
+}
+
+static void CommitPendingTimeDigit(DtpState* s) {
+    if (s->time_typing != 1) return;
+    int d = s->time_typing_digit;
+    s->time_typing = 0;
+    int ht = s->hover_time;
+    if (ht < 0) ht = 0;
+    if (s->precision == DTP_PRECISION_YMDH) ht = 0;
+    if (ht == 0) {
+        if (d > 23) d = 23;
+        s->temp.wHour = (WORD)d;
+    } else if (ht == 1 && s->precision >= DTP_PRECISION_YMDHM) {
+        if (d > 59) d = 59;
+        s->temp.wMinute = (WORD)d;
+    } else if (ht == 2 && s->precision >= DTP_PRECISION_YMDHMS) {
+        if (d > 59) d = 59;
+        s->temp.wSecond = (WORD)d;
+    }
+    ClampDate(s->temp);
+}
+
+static void AdjustTimeByDelta(DtpState* s, int inc) {
+    s->time_typing = 0;
+    if (s->precision == DTP_PRECISION_YMDH) s->hover_time = 0;
+    if (s->precision == DTP_PRECISION_YMDHM && s->hover_time > 1) s->hover_time = 1;
+    int ht = s->hover_time;
+    if (ht < 0) ht = 0;
+    if (ht == 0) {
+        int h = (int)s->temp.wHour + inc;
+        if (h < 0) h = 23;
+        if (h > 23) h = 0;
+        s->temp.wHour = (WORD)h;
+    } else if (ht == 1 && s->precision >= DTP_PRECISION_YMDHM) {
+        int m = (int)s->temp.wMinute + inc;
+        if (m < 0) m = 59;
+        if (m > 59) m = 0;
+        s->temp.wMinute = (WORD)m;
+    } else if (ht == 2 && s->precision >= DTP_PRECISION_YMDHMS) {
+        int sec = (int)s->temp.wSecond + inc;
+        if (sec < 0) sec = 59;
+        if (sec > 59) sec = 0;
+        s->temp.wSecond = (WORD)sec;
+    }
+}
+
 static void CellDay(int vy, int vm, int cell, bool& in_month, int& display_day) {
     SYSTEMTIME fs{};
     fs.wYear = (WORD)vy; fs.wMonth = (WORD)vm; fs.wDay = 1;
@@ -408,6 +549,8 @@ static void DrawPopup(DtpState* s) {
     rt->CreateSolidColorBrush(ColorFromUInt32(s->fg_color), &fg);
 
     const int hdr = 36, row = 26, pad = 8;
+    const int cal_top = hdr + 16;
+    const int date_grid_bottom = cal_top + 6 * row;
 
     if (s->precision == DTP_PRECISION_YEAR) {
         if (tf && fg) {
@@ -459,52 +602,132 @@ static void DrawPopup(DtpState* s) {
                     fg, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
         }
 
+        if (tf) {
+            tf->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            tf->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        }
         for (int i = 0; i < 42; i++) {
             bool in = false;
             int disp = 0;
             CellDay(s->view_y, s->view_m, i, in, disp);
             int r = i / 7, c = i % 7;
             float x0 = (float)(pad + c * row);
-            float y0 = (float)(hdr + 4 + r * row);
+            float y0 = (float)(cal_top + r * row);
             D2D1_RECT_F cell = D2D1::RectF(x0, y0, x0 + row - 2, y0 + row - 4);
+            bool sel = in && (int)s->temp.wYear == s->view_y && (int)s->temp.wMonth == s->view_m &&
+                disp == (int)s->temp.wDay;
             wchar_t ds[8];
             swprintf_s(ds, L"%d", disp);
             UINT32 col = s->fg_color;
             if (!in)
                 col = (s->border_color & 0x00FFFFFF) | 0x88000000;
-            if (s->hover_cell == i) {
+            if (sel) {
+                float cx = (cell.left + cell.right) * 0.5f;
+                float cy = (cell.top + cell.bottom) * 0.5f;
+                float rx = (cell.right - cell.left) * 0.5f - 1.0f;
+                float ry = (cell.bottom - cell.top) * 0.5f - 1.0f;
+                float rad = (std::min)(rx, ry);
+                if (rad > 2.0f) {
+                    ID2D1SolidColorBrush* sb = nullptr;
+                    rt->CreateSolidColorBrush(D2D1::ColorF(0.25f, 0.59f, 0.96f, 1.0f), &sb);
+                    if (sb) {
+                        rt->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), rad, rad), sb);
+                        sb->Release();
+                    }
+                }
+                col = 0xFFFFFFFF;
+            } else if (s->hover_cell == i) {
                 ID2D1SolidColorBrush* hb = nullptr;
                 rt->CreateSolidColorBrush(D2D1::ColorF(0.86f, 0.93f, 1.0f, 1.0f), &hb);
                 if (hb) { rt->FillRectangle(cell, hb); hb->Release(); }
             }
             ID2D1SolidColorBrush* tc = nullptr;
             rt->CreateSolidColorBrush(ColorFromUInt32(col), &tc);
-            if (tf && tc)
-                rt->DrawTextW(ds, (UINT32)wcslen(ds), tf, cell, tc, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+            if (tf && tc) {
+                D2D1_DRAW_TEXT_OPTIONS dopts = (D2D1_DRAW_TEXT_OPTIONS)(
+                    (int)D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT | (int)D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                rt->DrawTextW(ds, (UINT32)wcslen(ds), tf, cell, tc, dopts);
+            }
             if (tc) tc->Release();
+        }
+        if (tf) {
+            tf->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+            tf->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
         }
 
         if (s->precision >= DTP_PRECISION_YMDH) {
-            int ty = hdr + 7 * row + pad;
-            wchar_t tm[64];
-            if (s->precision == DTP_PRECISION_YMDH)
-                swprintf_s(tm, L"%02d", (int)s->temp.wHour);
-            else if (s->precision == DTP_PRECISION_YMDHM)
-                swprintf_s(tm, L"%02d : %02d", (int)s->temp.wHour, (int)s->temp.wMinute);
-            else
-                swprintf_s(tm, L"%02d : %02d : %02d", (int)s->temp.wHour, (int)s->temp.wMinute, (int)s->temp.wSecond);
-            if (tf && fg)
-                rt->DrawTextW(tm, (UINT32)wcslen(tm), tf, D2D1::RectF((float)pad, (float)ty, (float)W - pad, (float)ty + 28),
-                    fg, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
-            int oky = ty + 30 + pad;
-            D2D1_RECT_F okr = D2D1::RectF((float)(W - 80), (float)oky, (float)(W - 8), (float)(oky + 26));
+            int ty = 0, oky = 0, ok_btn_w = 56;
+            GetTimeAndOkLayout(W, pad, date_grid_bottom, &ty, &oky, &ok_btn_w);
+            int nseg = 0, sl[3], sr[3], c1 = -1, c2 = -1;
+            GetTimeSegmentLayout(W, pad, s->precision, &nseg, sl, sr, &c1, &c2);
+            if (s->hover_time >= 0 && s->hover_time < nseg) {
+                ID2D1SolidColorBrush* tbg = nullptr;
+                rt->CreateSolidColorBrush(D2D1::ColorF(0.92f, 0.95f, 1.0f, 1.0f), &tbg);
+                if (tbg) {
+                    rt->FillRectangle(
+                        D2D1::RectF((float)sl[s->hover_time], (float)ty, (float)sr[s->hover_time], (float)(ty + 28)),
+                        tbg);
+                    tbg->Release();
+                }
+            }
+            if (tf) {
+                tf->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                tf->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+            }
+            wchar_t buf[8];
+            auto drawSeg = [&](int idx, int value) {
+                swprintf_s(buf, L"%02d", value);
+                if (tf && fg) {
+                    D2D1_DRAW_TEXT_OPTIONS dopts = (D2D1_DRAW_TEXT_OPTIONS)(
+                        (int)D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT | (int)D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                    rt->DrawTextW(buf, 2, tf, D2D1::RectF((float)sl[idx], (float)ty, (float)sr[idx], (float)(ty + 28)),
+                        fg, dopts);
+                }
+            };
+            if (s->precision == DTP_PRECISION_YMDH) {
+                drawSeg(0, (int)s->temp.wHour);
+            } else if (s->precision == DTP_PRECISION_YMDHM) {
+                drawSeg(0, (int)s->temp.wHour);
+                if (tf && fg && c1 >= 0) {
+                    D2D1_DRAW_TEXT_OPTIONS dopts = (D2D1_DRAW_TEXT_OPTIONS)(
+                        (int)D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT | (int)D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                    rt->DrawTextW(L":", 1, tf,
+                        D2D1::RectF((float)c1, (float)ty, (float)(c1 + 12), (float)(ty + 28)), fg, dopts);
+                }
+                drawSeg(1, (int)s->temp.wMinute);
+            } else {
+                drawSeg(0, (int)s->temp.wHour);
+                if (tf && fg && c1 >= 0) {
+                    D2D1_DRAW_TEXT_OPTIONS dopts = (D2D1_DRAW_TEXT_OPTIONS)(
+                        (int)D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT | (int)D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                    rt->DrawTextW(L":", 1, tf,
+                        D2D1::RectF((float)c1, (float)ty, (float)(c1 + 12), (float)(ty + 28)), fg, dopts);
+                }
+                drawSeg(1, (int)s->temp.wMinute);
+                if (tf && fg && c2 >= 0) {
+                    D2D1_DRAW_TEXT_OPTIONS dopts = (D2D1_DRAW_TEXT_OPTIONS)(
+                        (int)D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT | (int)D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                    rt->DrawTextW(L":", 1, tf,
+                        D2D1::RectF((float)c2, (float)ty, (float)(c2 + 12), (float)(ty + 28)), fg, dopts);
+                }
+                drawSeg(2, (int)s->temp.wSecond);
+            }
+            float ok_left = (float)(W - pad - ok_btn_w);
+            D2D1_RECT_F okr = D2D1::RectF(ok_left, (float)oky, (float)(W - pad), (float)(oky + 26));
             if (s->hover_ok) {
                 ID2D1SolidColorBrush* hb = nullptr;
                 rt->CreateSolidColorBrush(D2D1::ColorF(0.86f, 0.93f, 1.0f, 1.0f), &hb);
                 if (hb) { rt->FillRectangle(okr, hb); hb->Release(); }
             }
-            if (tf && fg)
-                rt->DrawTextW(L"\u786e\u5b9a", 2, tf, okr, fg, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+            if (tf && fg) {
+                D2D1_DRAW_TEXT_OPTIONS okopts = (D2D1_DRAW_TEXT_OPTIONS)(
+                    (int)D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT | (int)D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                rt->DrawTextW(L"\u786e\u5b9a", 2, tf, okr, fg, okopts);
+            }
+            if (tf) {
+                tf->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+                tf->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+            }
         }
     }
 
@@ -533,6 +756,8 @@ static LRESULT CALLBACK PopupProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         s->hover_prev = (x >= 4 && x <= 28 && y >= 4 && y <= 32);
         s->hover_next = false;
         const int hdr = 36, row = 26, pad = 8;
+        const int cal_top = hdr + 16;
+        const int date_grid_bottom = cal_top + 6 * row;
         RECT rc{};
         GetClientRect(hwnd, &rc);
         int W = rc.right - rc.left;
@@ -550,30 +775,23 @@ static LRESULT CALLBACK PopupProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
                 }
             }
         } else {
-            int grid = hdr + 7 * row;
-            if (y > hdr + 4 && y < grid) {
+            if (y > cal_top && y < date_grid_bottom) {
                 int col = (x - pad) / row;
-                int rowidx = (y - hdr - 4) / row;
+                int rowidx = (y - cal_top) / row;
                 if (col >= 0 && col < 7 && rowidx >= 0 && rowidx < 6)
                     s->hover_cell = rowidx * 7 + col;
             }
             if (s->precision >= DTP_PRECISION_YMDH) {
-                int ty = hdr + 7 * row + pad;
-                int oky = ty + 30 + pad;
-                s->hover_ok = (x > W - 80 && x < W - 8 && y > oky && y < oky + 26);
+                int ty = 0, oky = 0, ok_btn_w = 56;
+                GetTimeAndOkLayout(W, pad, date_grid_bottom, &ty, &oky, &ok_btn_w);
+                int ok_left = W - pad - ok_btn_w;
+                s->hover_ok = (x >= ok_left && x < W - pad && y > oky && y < oky + 26);
                 if (y >= ty && y < ty + 28 && x >= pad && x < W - pad) {
-                    int rel = x - pad;
-                    int tw = W - pad * 2;
-                    if (s->precision == DTP_PRECISION_YMDH)
-                        s->hover_time = 0;
-                    else if (s->precision == DTP_PRECISION_YMDHM) {
-                        if (rel < tw / 2) s->hover_time = 0;
-                        else s->hover_time = 1;
-                    } else {
-                        if (rel < tw / 3) s->hover_time = 0;
-                        else if (rel < tw * 2 / 3) s->hover_time = 1;
-                        else s->hover_time = 2;
-                    }
+                    int ht = HitTestTimeSegment(s, W, pad, x, y, ty);
+                    if (ht >= 0 && ht != s->hover_time)
+                        s->time_typing = 0;
+                    if (ht >= 0)
+                        s->hover_time = ht;
                 }
             }
         }
@@ -587,6 +805,8 @@ static LRESULT CALLBACK PopupProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         GetClientRect(hwnd, &rc);
         int W = rc.right - rc.left;
         const int hdr = 36, row = 26, pad = 8;
+        const int cal_top = hdr + 16;
+        const int date_grid_bottom = cal_top + 6 * row;
 
         if (x >= 4 && x <= 28 && y >= 4 && y <= 32) {
             if (s->precision == DTP_PRECISION_YEAR) {
@@ -633,8 +853,8 @@ static LRESULT CALLBACK PopupProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             }
         } else {
             int col = (x - pad) / row;
-            int rowidx = (y - hdr - 4) / row;
-            if (col >= 0 && col < 7 && rowidx >= 0 && rowidx < 6 && y > hdr + 4 && y < hdr + 4 + 6 * row) {
+            int rowidx = (y - cal_top) / row;
+            if (col >= 0 && col < 7 && rowidx >= 0 && rowidx < 6 && y > cal_top && y < date_grid_bottom) {
                 int cell = rowidx * 7 + col;
                 bool in_m = false;
                 int disp = 0;
@@ -657,9 +877,21 @@ static LRESULT CALLBACK PopupProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
                 }
             }
             if (s->precision >= DTP_PRECISION_YMDH) {
-                int ty = hdr + 7 * row + pad;
-                int oky = ty + 30 + pad;
-                if (x > W - 80 && x < W - 8 && y > oky && y < oky + 26) {
+                int ty = 0, oky = 0, ok_btn_w = 56;
+                GetTimeAndOkLayout(W, pad, date_grid_bottom, &ty, &oky, &ok_btn_w);
+                int ok_left = W - pad - ok_btn_w;
+                if (y >= ty && y < ty + 28 && x >= pad && x < W - pad) {
+                    int ht = HitTestTimeSegment(s, W, pad, x, y, ty);
+                    if (ht >= 0) {
+                        if (ht != s->hover_time)
+                            s->time_typing = 0;
+                        s->hover_time = ht;
+                    }
+                    SetFocus(hwnd);
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                    return 0;
+                }
+                if (x >= ok_left && x < W - pad && y > oky && y < oky + 26) {
                     s->st = s->temp;
                     NormalizeToPrecision(s->st, s->precision);
                     PushEditText(s);
@@ -672,29 +904,72 @@ static LRESULT CALLBACK PopupProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         }
         return 0;
     }
+    case WM_CHAR: {
+        if (!s || s->precision < DTP_PRECISION_YMDH) break;
+        if (GetFocus() != hwnd) break;
+        wchar_t ch = (wchar_t)wParam;
+        if (ch >= L'0' && ch <= L'9') {
+            if (s->hover_time < 0)
+                s->hover_time = 0;
+            ApplyTimeDigit(s, (int)(ch - L'0'));
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        }
+        break;
+    }
+    case WM_KEYDOWN: {
+        if (!s || s->precision < DTP_PRECISION_YMDH) break;
+        if (GetFocus() != hwnd) break;
+        int vk = (int)wParam;
+        if (vk == VK_BACK) {
+            s->time_typing = 0;
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        }
+        if (vk == VK_RETURN) {
+            CommitPendingTimeDigit(s);
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        }
+        if (vk == VK_UP) {
+            if (s->hover_time < 0) s->hover_time = 0;
+            AdjustTimeByDelta(s, 1);
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        }
+        if (vk == VK_DOWN) {
+            if (s->hover_time < 0) s->hover_time = 0;
+            AdjustTimeByDelta(s, -1);
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        }
+        int maxt = 0;
+        if (s->precision == DTP_PRECISION_YMDHM) maxt = 1;
+        else if (s->precision == DTP_PRECISION_YMDHMS) maxt = 2;
+        if (vk == VK_LEFT) {
+            if (s->hover_time < 0) s->hover_time = 0;
+            s->time_typing = 0;
+            if (s->hover_time <= 0) s->hover_time = maxt;
+            else s->hover_time--;
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        }
+        if (vk == VK_RIGHT) {
+            if (s->hover_time < 0) s->hover_time = 0;
+            s->time_typing = 0;
+            if (s->hover_time >= maxt) s->hover_time = 0;
+            else s->hover_time++;
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        }
+        break;
+    }
     case WM_MOUSEWHEEL: {
         if (!s || s->precision < DTP_PRECISION_YMDH) break;
         short d = GET_WHEEL_DELTA_WPARAM(wParam);
         int inc = (d > 0) ? 1 : -1;
-        int ht = s->hover_time;
-        if (s->precision == DTP_PRECISION_YMDH) ht = 0;
-        if (s->precision == DTP_PRECISION_YMDHM && ht > 1) ht = 1;
-        if (ht == 0) {
-            int h = s->temp.wHour + inc;
-            if (h < 0) h = 23;
-            if (h > 23) h = 0;
-            s->temp.wHour = (WORD)h;
-        } else if (ht == 1 && s->precision >= DTP_PRECISION_YMDHM) {
-            int m = (int)s->temp.wMinute + inc;
-            if (m < 0) m = 59;
-            if (m > 59) m = 0;
-            s->temp.wMinute = (WORD)m;
-        } else if (ht == 2 && s->precision >= DTP_PRECISION_YMDHMS) {
-            int sec = (int)s->temp.wSecond + inc;
-            if (sec < 0) sec = 59;
-            if (sec > 59) sec = 0;
-            s->temp.wSecond = (WORD)sec;
-        }
+        if (s->hover_time < 0) s->hover_time = 0;
+        AdjustTimeByDelta(s, inc);
         InvalidateRect(hwnd, nullptr, FALSE);
         return 0;
     }
@@ -702,6 +977,8 @@ static LRESULT CALLBACK PopupProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         if (LOWORD(wParam) == WA_INACTIVE && s)
             PostMessageW(s->hwnd, WM_DTP_CLOSE_POPUP, 0, 0);
         break;
+    case WM_MOUSEACTIVATE:
+        return MA_ACTIVATE;
     }
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }

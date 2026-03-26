@@ -23,6 +23,13 @@ import os
 # 添加当前目录到路径
 sys.path.insert(0, os.path.dirname(__file__))
 
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # 加载DLL
 try:
     dll = ctypes.CDLL('./emoji_window.dll')
@@ -53,7 +60,9 @@ dll.GetCurrentTabIndex.restype = ctypes.c_int
 dll.DestroyTabControl.argtypes = [wintypes.HWND]
 dll.DestroyTabControl.restype = None
 
-dll.GetTabTitle.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.POINTER(ctypes.c_ubyte), ctypes.POINTER(ctypes.c_int)]
+# DLL: int GetTabTitle(HWND, int index, unsigned char* buffer, int bufferSize)
+# buffer==NULL 时返回 UTF-8 字节长度；否则写入 buffer（bufferSize 须足够）
+dll.GetTabTitle.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
 dll.GetTabTitle.restype = ctypes.c_int
 
 dll.SelectTab.argtypes = [wintypes.HWND, ctypes.c_int]
@@ -84,14 +93,15 @@ def make_utf8_bytes(text):
 
 
 def get_tab_title(hTab, index):
-    """获取标签页标题（两次调用模式）"""
-    title_len = ctypes.c_int(0)
-    dll.GetTabTitle(hTab, index, None, ctypes.byref(title_len))
-    if title_len.value <= 0:
+    """获取标签页标题（先取长度再取内容，与 DLL 导出一致）"""
+    n = dll.GetTabTitle(hTab, index, None, 0)
+    if n <= 0:
         return ""
-    buf = (ctypes.c_ubyte * title_len.value)()
-    dll.GetTabTitle(hTab, index, buf, ctypes.byref(title_len))
-    return bytes(buf).decode('utf-8')
+    buf = (ctypes.c_ubyte * n)()
+    r = dll.GetTabTitle(hTab, index, buf, n)
+    if r < 0:
+        return ""
+    return bytes(buf[:r]).decode("utf-8")
 
 
 def add_tabs(hTab, titles):

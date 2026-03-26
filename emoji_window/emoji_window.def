@@ -338,8 +338,10 @@ EXPORTS
     GetNodeChildren
     GetNodeLevel
     ScrollToNode
-    SetScrollPos
-    GetScrollPos
+    SetTreeViewScrollPos
+    GetTreeViewScrollPos
+    SetScrollPos = SetTreeViewScrollPos
+    GetScrollPos = GetTreeViewScrollPos
     SetTreeViewCallback
     EnableTreeViewDragDrop
     SetTreeViewSidebarMode

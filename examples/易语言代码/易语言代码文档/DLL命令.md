@@ -645,14 +645,14 @@
     .参数 文本色, 整数型, , ARGB颜色
     .参数 回调上下文, 整数型, , 可选，传 0
 
-.DLL命令 AddRootNode, 整数型, "emoji_window.dll", "AddRootNode", , , 添加根节点，返回节点ID
+.DLL命令 添加根节点, 整数型, "emoji_window.dll", "AddRootNode", , , 添加根节点，返回节点ID
     .参数 树形框句柄, 整数型
     .参数 文本字节集指针, 整数型, , UTF-8字节集指针
     .参数 文本长度, 整数型, , 字节集长度
     .参数 图标字节集指针, 整数型, , UTF-8图标字节集指针，无图标传0
     .参数 图标长度, 整数型, , 图标字节集长度，无图标传0
 
-.DLL命令 AddChildNode, 整数型, "emoji_window.dll", "AddChildNode", , , 添加子节点，返回节点ID
+.DLL命令 添加子节点, 整数型, "emoji_window.dll", "AddChildNode", , , 添加子节点，返回节点ID
     .参数 树形框句柄, 整数型
     .参数 父节点ID, 整数型
     .参数 文本字节集指针, 整数型, , UTF-8字节集指针
@@ -660,191 +660,191 @@
     .参数 图标字节集指针, 整数型, , UTF-8图标字节集指针，无图标传0
     .参数 图标长度, 整数型, , 图标字节集长度，无图标传0
 
-.DLL命令 ClearTree, 逻辑型, "emoji_window.dll", "ClearTree", , , 清空树形框所有节点
+.DLL命令 清空树形框, 逻辑型, "emoji_window.dll", "ClearTree", , , 清空树形框所有节点
     .参数 树形框句柄, 整数型
 
-.DLL命令 DestroyTreeView, 逻辑型, "emoji_window.dll", "DestroyTreeView", , , 销毁树形框
+.DLL命令 销毁树形框, 逻辑型, "emoji_window.dll", "DestroyTreeView", , , 销毁树形框
     .参数 树形框句柄, 整数型
 
-.DLL命令 RemoveNode, 逻辑型, "emoji_window.dll", "RemoveNode", , , 删除节点（含子树）
-    .参数 树形框句柄, 整数型
-    .参数 节点ID, 整数型
-
-.DLL命令 ExpandNode, 逻辑型, "emoji_window.dll", "ExpandNode", , , 展开节点
+.DLL命令 删除树节点, 逻辑型, "emoji_window.dll", "RemoveNode", , , 删除节点（含子树）
     .参数 树形框句柄, 整数型
     .参数 节点ID, 整数型
 
-.DLL命令 CollapseNode, 逻辑型, "emoji_window.dll", "CollapseNode", , , 折叠节点
+.DLL命令 展开树节点, 逻辑型, "emoji_window.dll", "ExpandNode", , , 展开节点
     .参数 树形框句柄, 整数型
     .参数 节点ID, 整数型
 
-.DLL命令 ExpandAll, 逻辑型, "emoji_window.dll", "ExpandAll", , , 展开全部
-    .参数 树形框句柄, 整数型
-
-.DLL命令 CollapseAll, 逻辑型, "emoji_window.dll", "CollapseAll", , , 折叠全部
-    .参数 树形框句柄, 整数型
-
-.DLL命令 IsNodeExpanded, 逻辑型, "emoji_window.dll", "IsNodeExpanded", , , 节点是否展开
+.DLL命令 折叠树节点, 逻辑型, "emoji_window.dll", "CollapseNode", , , 折叠节点
     .参数 树形框句柄, 整数型
     .参数 节点ID, 整数型
 
-.DLL命令 SetSelectedNode, 逻辑型, "emoji_window.dll", "SetSelectedNode", , , 设置选中节点
+.DLL命令 展开全部树节点, 逻辑型, "emoji_window.dll", "ExpandAll", , , 展开全部
+    .参数 树形框句柄, 整数型
+
+.DLL命令 折叠全部树节点, 逻辑型, "emoji_window.dll", "CollapseAll", , , 折叠全部
+    .参数 树形框句柄, 整数型
+
+.DLL命令 取节点是否展开, 逻辑型, "emoji_window.dll", "IsNodeExpanded", , , 节点是否展开
     .参数 树形框句柄, 整数型
     .参数 节点ID, 整数型
 
-.DLL命令 GetSelectedNode, 整数型, "emoji_window.dll", "GetSelectedNode", , , 获取选中节点ID，无选中返回-1
+.DLL命令 设置选中树节点, 逻辑型, "emoji_window.dll", "SetSelectedNode", , , 设置选中节点
+    .参数 树形框句柄, 整数型
+    .参数 节点ID, 整数型
+
+.DLL命令 取选中树节点, 整数型, "emoji_window.dll", "GetSelectedNode", , , 获取选中节点ID，无选中返回-1
     .参数 树形框句柄, 整数型
 
-.DLL命令 SetNodeText, 逻辑型, "emoji_window.dll", "SetNodeText", , , 设置节点文本UTF-8
+.DLL命令 设置树节点文本, 逻辑型, "emoji_window.dll", "SetNodeText", , , 设置节点文本UTF-8
     .参数 树形框句柄, 整数型
     .参数 节点ID, 整数型
     .参数 文本字节集指针, 整数型
     .参数 文本长度, 整数型
 
-.DLL命令 GetNodeText, 整数型, "emoji_window.dll", "GetNodeText", , , 获取节点文本，返回UTF-8字节数
+.DLL命令 取树节点文本, 整数型, "emoji_window.dll", "GetNodeText", , , 获取节点文本，返回UTF-8字节数
     .参数 树形框句柄, 整数型
     .参数 节点ID, 整数型
     .参数 缓冲区指针, 整数型
     .参数 缓冲区大小, 整数型
 
-.DLL命令 SetNodeIcon, 逻辑型, "emoji_window.dll", "SetNodeIcon", , , 设置节点图标UTF-8（emoji）
+.DLL命令 设置树节点图标, 逻辑型, "emoji_window.dll", "SetNodeIcon", , , 设置节点图标UTF-8（emoji）
     .参数 树形框句柄, 整数型
     .参数 节点ID, 整数型
     .参数 图标字节集指针, 整数型
     .参数 图标长度, 整数型
 
-.DLL命令 GetNodeIcon, 整数型, "emoji_window.dll", "GetNodeIcon", , , 获取节点图标
+.DLL命令 取树节点图标, 整数型, "emoji_window.dll", "GetNodeIcon", , , 获取节点图标
     .参数 树形框句柄, 整数型
     .参数 节点ID, 整数型
     .参数 缓冲区指针, 整数型
     .参数 缓冲区大小, 整数型
 
-.DLL命令 SetNodeForeColor, 逻辑型, "emoji_window.dll", "SetNodeForeColor", , , 设置节点前景色ARGB
+.DLL命令 设置树节点前景色, 逻辑型, "emoji_window.dll", "SetNodeForeColor", , , 设置节点前景色ARGB
     .参数 树形框句柄, 整数型
     .参数 节点ID, 整数型
     .参数 颜色, 整数型
 
-.DLL命令 SetNodeBackColor, 逻辑型, "emoji_window.dll", "SetNodeBackColor", , , 设置节点背景色ARGB
+.DLL命令 设置树节点背景色, 逻辑型, "emoji_window.dll", "SetNodeBackColor", , , 设置节点背景色ARGB
     .参数 树形框句柄, 整数型
     .参数 节点ID, 整数型
     .参数 颜色, 整数型
 
-.DLL命令 SetNodeEnabled, 逻辑型, "emoji_window.dll", "SetNodeEnabled", , , 启用/禁用节点
+.DLL命令 设置树节点启用, 逻辑型, "emoji_window.dll", "SetNodeEnabled", , , 启用/禁用节点
     .参数 树形框句柄, 整数型
     .参数 节点ID, 整数型
     .参数 启用, 逻辑型
 
-.DLL命令 IsNodeEnabled, 逻辑型, "emoji_window.dll", "IsNodeEnabled", , , 节点是否启用
+.DLL命令 取树节点是否启用, 逻辑型, "emoji_window.dll", "IsNodeEnabled", , , 节点是否启用
     .参数 树形框句柄, 整数型
     .参数 节点ID, 整数型
 
-.DLL命令 SetNodeCheckBox, 逻辑型, "emoji_window.dll", "SetNodeCheckBox", , , 是否显示复选框
+.DLL命令 设置树节点复选框, 逻辑型, "emoji_window.dll", "SetNodeCheckBox", , , 是否显示复选框
     .参数 树形框句柄, 整数型
     .参数 节点ID, 整数型
     .参数 显示, 逻辑型
 
-.DLL命令 SetNodeChecked, 逻辑型, "emoji_window.dll", "SetNodeChecked", , , 设置复选框状态
+.DLL命令 设置树节点勾选, 逻辑型, "emoji_window.dll", "SetNodeChecked", , , 设置复选框状态
     .参数 树形框句柄, 整数型
     .参数 节点ID, 整数型
     .参数 选中, 逻辑型
 
-.DLL命令 GetNodeChecked, 整数型, "emoji_window.dll", "GetNodeChecked", , , 获取复选框状态
+.DLL命令 取树节点勾选状态, 整数型, "emoji_window.dll", "GetNodeChecked", , , 获取复选框状态
     .参数 树形框句柄, 整数型
     .参数 节点ID, 整数型
 
-.DLL命令 FindNodeByText, 整数型, "emoji_window.dll", "FindNodeByText", , , 按UTF-8文本查找节点ID
+.DLL命令 按文本查找树节点, 整数型, "emoji_window.dll", "FindNodeByText", , , 按UTF-8文本查找节点ID
     .参数 树形框句柄, 整数型
     .参数 文本字节集指针, 整数型
     .参数 文本长度, 整数型
 
-.DLL命令 GetNodeParent, 整数型, "emoji_window.dll", "GetNodeParent", , , 父节点ID，根返回-1
+.DLL命令 取树节点父节点, 整数型, "emoji_window.dll", "GetNodeParent", , , 父节点ID，根返回-1
     .参数 树形框句柄, 整数型
     .参数 节点ID, 整数型
 
-.DLL命令 GetNodeChildCount, 整数型, "emoji_window.dll", "GetNodeChildCount", , , 子节点数量
+.DLL命令 取树子节点数量, 整数型, "emoji_window.dll", "GetNodeChildCount", , , 子节点数量
     .参数 树形框句柄, 整数型
     .参数 节点ID, 整数型
 
-.DLL命令 GetNodeChildren, 整数型, "emoji_window.dll", "GetNodeChildren", , , 子节点ID写入整数数组，返回数量
+.DLL命令 取树子节点列表, 整数型, "emoji_window.dll", "GetNodeChildren", , , 子节点ID写入整数数组，返回数量
     .参数 树形框句柄, 整数型
     .参数 节点ID, 整数型
     .参数 缓冲区指针, 整数型, , 整数型数组首地址
     .参数 缓冲区元素数, 整数型
 
-.DLL命令 GetNodeLevel, 整数型, "emoji_window.dll", "GetNodeLevel", , , 层级深度根为0
+.DLL命令 取树节点层级, 整数型, "emoji_window.dll", "GetNodeLevel", , , 层级深度根为0
     .参数 树形框句柄, 整数型
     .参数 节点ID, 整数型
 
-.DLL命令 ScrollToNode, 逻辑型, "emoji_window.dll", "ScrollToNode", , , 滚动到节点可见
+.DLL命令 滚动到树节点, 逻辑型, "emoji_window.dll", "ScrollToNode", , , 滚动到节点可见
     .参数 树形框句柄, 整数型
     .参数 节点ID, 整数型
 
-.DLL命令 SetTreeViewScrollPos, 逻辑型, "emoji_window.dll", "SetTreeViewScrollPos", , , 设置滚动位置像素
+.DLL命令 设置树形框滚动位置, 逻辑型, "emoji_window.dll", "SetTreeViewScrollPos", , , 设置滚动位置像素
     .参数 树形框句柄, 整数型
     .参数 位置, 整数型
 
-.DLL命令 GetTreeViewScrollPos, 整数型, "emoji_window.dll", "GetTreeViewScrollPos", , , 获取滚动位置像素
+.DLL命令 取树形框滚动位置, 整数型, "emoji_window.dll", "GetTreeViewScrollPos", , , 获取滚动位置像素
     .参数 树形框句柄, 整数型
 
-.DLL命令 SetTreeViewCallback, 逻辑型, "emoji_window.dll", "SetTreeViewCallback", , , 树形框回调，类型1选中2展开3折叠4双击5右键6文本改7勾选8移动
+.DLL命令 设置树形框回调, 逻辑型, "emoji_window.dll", "SetTreeViewCallback", , , 树形框回调，类型1选中2展开3折叠4双击5右键6文本改7勾选8移动
     .参数 树形框句柄, 整数型
     .参数 回调类型, 整数型
     .参数 回调函数, 子程序指针
 
-.DLL命令 EnableTreeViewDragDrop, 逻辑型, "emoji_window.dll", "EnableTreeViewDragDrop", , , 启用拖放移动节点
+.DLL命令 启用树形框拖放, 逻辑型, "emoji_window.dll", "EnableTreeViewDragDrop", , , 启用拖放移动节点
     .参数 树形框句柄, 整数型
     .参数 启用, 逻辑型
 
-.DLL命令 SetTreeViewSidebarMode, 逻辑型, "emoji_window.dll", "SetTreeViewSidebarMode", , , 侧栏折叠菜单模式（右侧箭头交互见文档）
+.DLL命令 设置树形框侧栏模式, 逻辑型, "emoji_window.dll", "SetTreeViewSidebarMode", , , 侧栏折叠菜单模式（右侧箭头交互见文档）
     .参数 树形框句柄, 整数型
     .参数 启用, 逻辑型
 
-.DLL命令 GetTreeViewSidebarMode, 逻辑型, "emoji_window.dll", "GetTreeViewSidebarMode", , , 是否侧栏模式
+.DLL命令 取树形框侧栏模式, 逻辑型, "emoji_window.dll", "GetTreeViewSidebarMode", , , 是否侧栏模式
     .参数 树形框句柄, 整数型
 
-.DLL命令 SetTreeViewRowHeight, 逻辑型, "emoji_window.dll", "SetTreeViewRowHeight", , , 设置行高（逻辑单位）
+.DLL命令 设置树形框行高, 逻辑型, "emoji_window.dll", "SetTreeViewRowHeight", , , 设置行高（逻辑单位）
     .参数 树形框句柄, 整数型
     .参数 行高, 小数型
 
-.DLL命令 GetTreeViewRowHeight, 小数型, "emoji_window.dll", "GetTreeViewRowHeight", , , 获取行高
+.DLL命令 取树形框行高, 小数型, "emoji_window.dll", "GetTreeViewRowHeight", , , 获取行高
     .参数 树形框句柄, 整数型
 
-.DLL命令 SetTreeViewItemSpacing, 逻辑型, "emoji_window.dll", "SetTreeViewItemSpacing", , , 设置行间距
+.DLL命令 设置树形框行间距, 逻辑型, "emoji_window.dll", "SetTreeViewItemSpacing", , , 设置行间距
     .参数 树形框句柄, 整数型
     .参数 间距, 小数型
 
-.DLL命令 GetTreeViewItemSpacing, 小数型, "emoji_window.dll", "GetTreeViewItemSpacing", , , 获取行间距
+.DLL命令 取树形框行间距, 小数型, "emoji_window.dll", "GetTreeViewItemSpacing", , , 获取行间距
     .参数 树形框句柄, 整数型
 
-.DLL命令 SetTreeViewTextColor, 逻辑型, "emoji_window.dll", "SetTreeViewTextColor", , , 全局默认文字色ARGB
-    .参数 树形框句柄, 整数型
-    .参数 颜色, 整数型
-
-.DLL命令 GetTreeViewTextColor, 整数型, "emoji_window.dll", "GetTreeViewTextColor", , , 获取全局默认文字色
-    .参数 树形框句柄, 整数型
-
-.DLL命令 SetTreeViewSelectedBgColor, 逻辑型, "emoji_window.dll", "SetTreeViewSelectedBgColor", , , 选中背景ARGB
+.DLL命令 设置树形框文字色, 逻辑型, "emoji_window.dll", "SetTreeViewTextColor", , , 全局默认文字色ARGB
     .参数 树形框句柄, 整数型
     .参数 颜色, 整数型
 
-.DLL命令 GetTreeViewSelectedBgColor, 整数型, "emoji_window.dll", "GetTreeViewSelectedBgColor", , , 获取选中背景
+.DLL命令 取树形框文字色, 整数型, "emoji_window.dll", "GetTreeViewTextColor", , , 获取全局默认文字色
     .参数 树形框句柄, 整数型
 
-.DLL命令 SetTreeViewSelectedForeColor, 逻辑型, "emoji_window.dll", "SetTreeViewSelectedForeColor", , , 选中前景ARGB
-    .参数 树形框句柄, 整数型
-    .参数 颜色, 整数型
-
-.DLL命令 GetTreeViewSelectedForeColor, 整数型, "emoji_window.dll", "GetTreeViewSelectedForeColor", , , 获取选中前景
-    .参数 树形框句柄, 整数型
-
-.DLL命令 SetTreeViewHoverBgColor, 逻辑型, "emoji_window.dll", "SetTreeViewHoverBgColor", , , 悬停背景ARGB
+.DLL命令 设置树形框选中背景色, 逻辑型, "emoji_window.dll", "SetTreeViewSelectedBgColor", , , 选中背景ARGB
     .参数 树形框句柄, 整数型
     .参数 颜色, 整数型
 
-.DLL命令 GetTreeViewHoverBgColor, 整数型, "emoji_window.dll", "GetTreeViewHoverBgColor", , , 获取悬停背景
+.DLL命令 取树形框选中背景色, 整数型, "emoji_window.dll", "GetTreeViewSelectedBgColor", , , 获取选中背景
     .参数 树形框句柄, 整数型
 
-.DLL命令 SetTreeViewFont, 逻辑型, "emoji_window.dll", "SetTreeViewFont", , , 设置树字体UTF-8族名、字号、字重、斜体
+.DLL命令 设置树形框选中前景色, 逻辑型, "emoji_window.dll", "SetTreeViewSelectedForeColor", , , 选中前景ARGB
+    .参数 树形框句柄, 整数型
+    .参数 颜色, 整数型
+
+.DLL命令 取树形框选中前景色, 整数型, "emoji_window.dll", "GetTreeViewSelectedForeColor", , , 获取选中前景
+    .参数 树形框句柄, 整数型
+
+.DLL命令 设置树形框悬停背景色, 逻辑型, "emoji_window.dll", "SetTreeViewHoverBgColor", , , 悬停背景ARGB
+    .参数 树形框句柄, 整数型
+    .参数 颜色, 整数型
+
+.DLL命令 取树形框悬停背景色, 整数型, "emoji_window.dll", "GetTreeViewHoverBgColor", , , 获取悬停背景
+    .参数 树形框句柄, 整数型
+
+.DLL命令 设置树形框字体, 逻辑型, "emoji_window.dll", "SetTreeViewFont", , , 设置树字体UTF-8族名、字号、字重、斜体
     .参数 树形框句柄, 整数型
     .参数 字体族字节集指针, 整数型
     .参数 字体族长度, 整数型
@@ -852,7 +852,7 @@
     .参数 字重, 整数型, , 如400正常700粗体
     .参数 斜体, 逻辑型
 
-.DLL命令 GetTreeViewFont, 逻辑型, "emoji_window.dll", "GetTreeViewFont", , , 获取字体；族名写入缓冲区UTF-8
+.DLL命令 取树形框字体, 逻辑型, "emoji_window.dll", "GetTreeViewFont", , , 获取字体；族名写入缓冲区UTF-8
     .参数 树形框句柄, 整数型
     .参数 缓冲区指针, 整数型
     .参数 缓冲区大小, 整数型
@@ -860,7 +860,7 @@
     .参数 字重, 整数型, 传址
     .参数 斜体, 逻辑型, 传址
 
-.DLL命令 MoveTreeViewNode, 逻辑型, "emoji_window.dll", "MoveTreeViewNode", , , 程序化移动节点；新父-1表示根
+.DLL命令 移动树形框节点, 逻辑型, "emoji_window.dll", "MoveTreeViewNode", , , 程序化移动节点；新父-1表示根
     .参数 树形框句柄, 整数型
     .参数 节点ID, 整数型
     .参数 新父节点ID, 整数型
@@ -1243,6 +1243,70 @@
 
 .DLL命令 设置D2D组合框位置, , "emoji_window.dll", "SetD2DComboBoxBounds", , , 设置D2D组合框位置和大小
     .参数 组合框句柄, 整数型
+    .参数 X坐标, 整数型
+    .参数 Y坐标, 整数型
+    .参数 宽度, 整数型
+    .参数 高度, 整数型
+
+
+' ========== D2D日期时间选择器（Element风格弹出层，支持彩色emoji显示文本） ==========
+
+.DLL命令 创建D2D日期时间选择器, 整数型, "emoji_window.dll", "CreateD2DDateTimePicker", , , 创建D2D日期时间选择器
+    .参数 父窗口句柄, 整数型
+    .参数 X坐标, 整数型
+    .参数 Y坐标, 整数型
+    .参数 宽度, 整数型
+    .参数 高度, 整数型
+    .参数 初始精度, 整数型, , 0=仅年 1=年月日 2=年月日时 3=年月日时分 4=年月日时分秒
+    .参数 前景色, 整数型, , ARGB颜色（易语言勿写 #FF303133，# 后为常量名；请用 到ARGB (255,R,G,B) 等）
+    .参数 背景色, 整数型, , ARGB颜色
+    .参数 边框色, 整数型, , ARGB颜色
+    .参数 字体名字节集指针, 整数型, , 字体名称UTF-8字节集指针
+    .参数 字体名长度, 整数型, , 字体名长度（字节）
+    .参数 字体大小, 整数型
+    .参数 粗体, 逻辑型
+    .参数 斜体, 逻辑型
+    .参数 下划线, 逻辑型
+
+.DLL命令 获取D2D日期时间选择器精度, 整数型, "emoji_window.dll", "GetD2DDateTimePickerPrecision", , , 返回当前精度（0～4，含义同创建时的初始精度）
+    .参数 选择器句柄, 整数型
+
+.DLL命令 设置D2D日期时间选择器精度, , "emoji_window.dll", "SetD2DDateTimePickerPrecision", , , 设置显示精度并规范化内部日期时间
+    .参数 选择器句柄, 整数型
+    .参数 精度, 整数型, , 0=仅年 1=年月日 2=年月日时 3=年月日时分 4=年月日时分秒
+
+.DLL命令 获取D2D日期时间选择器日期时间, , "emoji_window.dll", "GetD2DDateTimePickerDateTime", , , 读取年月日时分秒；不需要的项可传0（空指针）
+    .参数 选择器句柄, 整数型
+    .参数 年, 整数型, , 传址 输出；可为0表示不读取
+    .参数 月, 整数型, , 传址 输出；可为0
+    .参数 日, 整数型, , 传址 输出；可为0
+    .参数 时, 整数型, , 传址 输出；可为0
+    .参数 分, 整数型, , 传址 输出；可为0
+    .参数 秒, 整数型, , 传址 输出；可为0
+
+.DLL命令 设置D2D日期时间选择器日期时间, , "emoji_window.dll", "SetD2DDateTimePickerDateTime", , , 按当前精度写入；超出部分由DLL按规则忽略或规范化
+    .参数 选择器句柄, 整数型
+    .参数 年, 整数型
+    .参数 月, 整数型
+    .参数 日, 整数型
+    .参数 时, 整数型
+    .参数 分, 整数型
+    .参数 秒, 整数型
+
+.DLL命令 设置D2D日期时间选择器回调, , "emoji_window.dll", "SetD2DDateTimePickerCallback", , , 值改变时回调（选择日期/时间或程序调用设置后）
+    .参数 选择器句柄, 整数型
+    .参数 回调函数, 子程序指针, , stdcall，参数：控件句柄(整数型)
+
+.DLL命令 启用D2D日期时间选择器, , "emoji_window.dll", "EnableD2DDateTimePicker", , , 启用或禁用
+    .参数 选择器句柄, 整数型
+    .参数 启用, 逻辑型
+
+.DLL命令 显示D2D日期时间选择器, , "emoji_window.dll", "ShowD2DDateTimePicker", , , 显示或隐藏
+    .参数 选择器句柄, 整数型
+    .参数 显示, 逻辑型
+
+.DLL命令 设置D2D日期时间选择器位置, , "emoji_window.dll", "SetD2DDateTimePickerBounds", , , 设置位置和大小
+    .参数 选择器句柄, 整数型
     .参数 X坐标, 整数型
     .参数 Y坐标, 整数型
     .参数 宽度, 整数型

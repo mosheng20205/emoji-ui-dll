@@ -334,21 +334,60 @@ export default function ControlRenderer({ control, onTabSelect }: Props) {
       );
 
     case 'treeview':
+    case 'treeview_sidebar': {
+      const isSidebar = type === 'treeview_sidebar';
+      const rowH = isSidebar ? Math.max(20, (p.rowHeight as number) || 38) : 28;
+      const gap = isSidebar ? Math.max(0, (p.itemSpacing as number) ?? 2) : 0;
+      const selBg = (p.selectedBgColor as string) || '#335EEA';
+      const selFg = (p.selectedForeColor as string) || '#fff';
+      const Row = ({
+        indent,
+        label,
+        chevron,
+        selected,
+      }: { indent: number; label: string; chevron: string; selected?: boolean }) => (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          minHeight: rowH,
+          marginBottom: gap,
+          paddingLeft: 8 + indent * 14,
+          paddingRight: 8,
+          borderRadius: 4,
+          background: selected ? selBg : 'transparent',
+          color: selected ? selFg : ((p.fgColor as string) || '#303133'),
+          fontSize: (p.fontSize as number) || 13,
+        }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+          {isSidebar ? <span style={{ opacity: 0.55, fontSize: 11 }}>{chevron}</span> : null}
+        </div>
+      );
       return (
         <div style={{
           width: '100%', height: '100%',
           border: '1px solid #DCDFE6', borderRadius: 4,
           background: (p.bgColor as string) || '#fff',
-          color: (p.fgColor as string) || '#303133',
-          fontSize: (p.fontSize as number) || 13,
-          padding: 4, overflow: 'hidden',
+          padding: isSidebar ? '6px 4px' : 4, overflow: 'hidden',
+          display: 'flex', flexDirection: 'column',
         }}>
-          <div style={{ padding: '2px 4px' }}>📁 根节点</div>
-          <div style={{ padding: '2px 4px 2px 20px' }}>📄 子节点 1</div>
-          <div style={{ padding: '2px 4px 2px 20px' }}>📁 子节点 2</div>
-          <div style={{ padding: '2px 4px 2px 36px' }}>📄 孙节点</div>
+          {isSidebar ? (
+            <>
+              <Row indent={0} label="商户中心" chevron="" />
+              <Row indent={0} label="订单管理" chevron="∨" />
+              <Row indent={1} label="全部订单" chevron="" selected />
+              <Row indent={1} label="售后单" chevron="" />
+              <Row indent={0} label="通道管理" chevron="›" />
+            </>
+          ) : (
+            <>
+              <div style={{ padding: '2px 4px', color: (p.fgColor as string) || '#303133', fontSize: (p.fontSize as number) || 13 }}>📁 根节点</div>
+              <div style={{ padding: '2px 4px 2px 20px', color: (p.fgColor as string) || '#303133', fontSize: (p.fontSize as number) || 13 }}>📄 子节点 1</div>
+              <div style={{ padding: '2px 4px 2px 20px', color: (p.fgColor as string) || '#303133', fontSize: (p.fontSize as number) || 13 }}>📁 子节点 2</div>
+              <div style={{ padding: '2px 4px 2px 36px', color: (p.fgColor as string) || '#303133', fontSize: (p.fontSize as number) || 13 }}>📄 孙节点</div>
+            </>
+          )}
         </div>
       );
+    }
 
     default:
       return (

@@ -108,7 +108,7 @@ export function generateEpl(win: DesignWindow, controls: DesignControl[]): strin
         lines.push(`.局部变量 列_${c.name}_${i}, 字节集`);
       }
     }
-    if (c.type === 'treeview') {
+    if (c.type === 'treeview' || c.type === 'treeview_sidebar') {
       const nodesStr = (c.props.nodes as string) || '';
       const nodeLines = nodesStr.split('\n').map((s) => s.trimEnd()).filter((s) => s.length > 0);
       for (let i = 0; i < nodeLines.length; i++) {
@@ -338,7 +338,8 @@ export function generateEpl(win: DesignWindow, controls: DesignControl[]): strin
         }
         break;
       }
-      case 'treeview': {
+      case 'treeview':
+      case 'treeview_sidebar': {
         lines.push(`${c.name} ＝ 创建树形框 (${parentExpr}, ${c.x}, ${c.y}, ${c.width}, ${c.height}, ${bgColor}, ${fgColor}, 0)`);
         const nodesStr = (p.nodes as string) || '';
         const nodeLines = nodesStr.split('\n').map((s) => s.trimEnd()).filter((s) => s.length > 0);
@@ -379,6 +380,20 @@ export function generateEpl(win: DesignWindow, controls: DesignControl[]): strin
               }
             }
           }
+        }
+        if (c.type === 'treeview_sidebar') {
+          const rowH = (p.rowHeight as number) ?? 38;
+          const rowSp = (p.itemSpacing as number) ?? 2;
+          const selBg = eplColor((p.selectedBgColor as string) || '#335EEA');
+          const selFg = eplColor((p.selectedForeColor as string) || '#FFFFFF');
+          const hoverBg = eplColor((p.hoverBgColor as string) || '#F5F7FA');
+          lines.push(`设置树形框行高 (${c.name}, ${rowH})`);
+          lines.push(`设置树形框行间距 (${c.name}, ${rowSp})`);
+          lines.push(`设置树形框文字色 (${c.name}, ${fgColor})`);
+          lines.push(`设置树形框选中背景色 (${c.name}, ${selBg})`);
+          lines.push(`设置树形框选中前景色 (${c.name}, ${selFg})`);
+          lines.push(`设置树形框悬停背景色 (${c.name}, ${hoverBg})`);
+          lines.push(`设置树形框侧栏模式 (${c.name}, 真)`);
         }
         break;
       }

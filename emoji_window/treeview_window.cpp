@@ -1,5 +1,7 @@
+#define _CRT_SECURE_NO_WARNINGS
 #include "treeview_window.h"
 #include "treeview_state.h"
+#include "log.h"
 #include <windowsx.h>
 #include <algorithm>
 #include <cwctype>
@@ -35,6 +37,20 @@ TreeViewState* GetTreeViewState(HWND hwnd) {
         return it->second;
     }
     return nullptr;
+}
+
+void TreeViewOnNodeSelectedDeferred(HWND hTree, int node_id) {
+    TreeViewState* st = GetTreeViewState(hTree);
+    WriteLog("TreeViewOnNodeSelectedDeferred: hTree=%p, node_id=%d, state=%p, callback=%p, context=%p",
+        hTree,
+        node_id,
+        st,
+        st ? reinterpret_cast<void*>(st->on_node_selected) : nullptr,
+        st ? reinterpret_cast<void*>(st->callback_context) : nullptr);
+    if (st && st->on_node_selected) {
+        st->on_node_selected(node_id, st->callback_context);
+        WriteLog("TreeViewOnNodeSelectedDeferred: callback returned, hTree=%p, node_id=%d", hTree, node_id);
+    }
 }
 
 /**
@@ -173,10 +189,35 @@ static void TreeViewApplySelection(HWND hwnd, TreeViewState* state, TreeNode* no
     }
     state->selected_node = node;
     node->selected = true;
-    if (notify && state->on_node_selected && (!same || always_notify_if_same)) {
-        state->on_node_selected(node->id, state->callback_context);
+    const bool need_cb =
+        notify && state->on_node_selected && (!same || always_notify_if_same);
+    if (need_cb) {
+        HWND root = GetAncestor(hwnd, GA_ROOT);
+        WriteLog("TreeViewApplySelection: hTree=%p, root=%p, node_id=%d, same=%d, always_notify_if_same=%d, callback=%p",
+            hwnd,
+            root,
+            node->id,
+            same ? 1 : 0,
+            always_notify_if_same ? 1 : 0,
+            reinterpret_cast<void*>(state->on_node_selected));
+        if (root && PostMessageW(root, WM_EW_TV_NODE_SELECTED_DEFERRED, (WPARAM)hwnd, (LPARAM)(INT_PTR)node->id)) {
+            WriteLog("TreeViewApplySelection: posted WM_EW_TV_NODE_SELECTED_DEFERRED, hTree=%p, root=%p, node_id=%d",
+                hwnd, root, node->id);
+            // 下一轮在主窗口过程里再调易语言回调，避免 DLL 仍在 TreeViewApplySelection 栈上时同步进入易语言崩溃
+        } else {
+            WriteLog("TreeViewApplySelection: PostMessage failed, invoking callback inline, hTree=%p, root=%p, node_id=%d",
+                hwnd, root, node->id);
+            state->on_node_selected(node->id, state->callback_context);
+            WriteLog("TreeViewApplySelection: inline callback returned, hTree=%p, node_id=%d", hwnd, node->id);
+            if (root) {
+                PostMessageW(root, WM_EW_TV_INVALIDATE_DEFERRED, (WPARAM)hwnd, 0);
+            } else {
+                InvalidateRect(hwnd, NULL, FALSE);
+            }
+        }
+    } else {
+        InvalidateRect(hwnd, NULL, FALSE);
     }
-    InvalidateRect(hwnd, NULL, FALSE);
 }
 
 /**
@@ -965,50 +1006,50 @@ HWND __stdcall CreateTreeView(
     return hwnd;
 }
 
-bool __stdcall DestroyTreeView(HWND hwnd) {
-    // 参数验证
-    if (!hwnd) {
+/** 仅释放 TreeViewState（不销毁 HWND）；供 WM_DESTROY 与 DestroyTreeView 共用 */
+static bool FreeTreeViewState(HWND hwnd) {
+    if (!hwnd)
         return false;
-    }
-    
-    // 获取 State
     TreeViewState* state = GetTreeViewState(hwnd);
-    if (!state) {
+    if (!state)
         return false;
+
+    // 必须在 DeleteAllNodes 之前退出编辑：否则 editing_node 被清空后 ExitEditMode 无法 KillTimer，
+    // 且 state->text_format 由 TextFormatCache 持有 refcount，不得对 text_format 单独 Release（否则缓存 Clear 时 UAF/double-free）
+    if (state->custom_editing && state->editing_node) {
+        ExitEditMode(state, false);
+    } else if (state->custom_editing) {
+        state->custom_editing = false;
+        KillTimer(state->hwnd, 1);
     }
-    
-    // 释放所有节点内存（递归删除）
+    if (state->edit_control) {
+        HWND ec = state->edit_control;
+        state->edit_control = nullptr;
+        DestroyWindow(ec);
+    }
     DeleteAllNodes(state);
-    
-    // 如果正在编辑，退出编辑模式
-    if (state->editing_node || state->edit_control) {
-        ExitEditMode(state, false); // 不保存更改
-    }
-    
-    // 释放 Direct2D 资源
+
     SafeRelease(&state->brush);
-    SafeRelease(&state->text_format);
+    // text_format 来自 text_format_cache->GetOrCreate，无独立 AddRef，由缓存 Clear 统一 Release
+    state->text_format = nullptr;
     SafeRelease(&state->render_target);
     SafeRelease(&state->d2d_factory);
-    
-    // 释放文本格式缓存
     if (state->text_format_cache) {
         delete state->text_format_cache;
         state->text_format_cache = nullptr;
     }
-    
-    // 释放 DirectWrite 资源
     SafeRelease(&state->dwrite_factory);
-    
-    // 从全局 map 移除 State
     g_treeview_states.erase(hwnd);
-    
-    // 释放 State 内存
     delete state;
-    
-    // 销毁窗口
+    return true;
+}
+
+bool __stdcall DestroyTreeView(HWND hwnd) {
+    if (!hwnd)
+        return false;
+    if (!FreeTreeViewState(hwnd))
+        return false;
     DestroyWindow(hwnd);
-    
     return true;
 }
 
@@ -1027,6 +1068,7 @@ int __stdcall AddRootNode(
     // 获取 State
     TreeViewState* state = GetTreeViewState(hwnd);
     if (!state) {
+        WriteLog("GetNodeParent: state not found, hwnd=%p", hwnd);
         return -1;
     }
     
@@ -1459,6 +1501,7 @@ bool __stdcall SetSelectedNode(HWND hwnd, int node_id) {
 int __stdcall GetSelectedNode(HWND hwnd) {
     // 参数验证
     if (!hwnd) {
+        WriteLog("GetNodeParent: hwnd is null");
         return -1;
     }
     
@@ -1543,6 +1586,7 @@ int __stdcall GetNodeText(
     // 验证节点存在性
     TreeNode* node = FindNodeById(state, node_id);
     if (!node) {
+        WriteLog("GetNodeParent: node not found, hwnd=%p, node_id=%d", hwnd, node_id);
         return -1;
     }
     
@@ -1893,28 +1937,44 @@ int __stdcall FindNodeByText(
 }
 
 int __stdcall GetNodeParent(HWND hwnd, int node_id) {
-    // 参数验证
+    WriteLog("GetNodeParent: enter hwnd=%p, node_id=%d", hwnd, node_id);
     if (!hwnd) {
+        WriteLog("GetNodeParent: hwnd is null");
         return -1;
     }
     
     TreeViewState* state = GetTreeViewState(hwnd);
     if (!state) {
+        WriteLog("GetNodeParent: state not found, hwnd=%p", hwnd);
+        return -1;
+    }
+
+    if (node_id <= 0) {
+        WriteLog("GetNodeParent: invalid non-positive node_id=%d, hwnd=%p", node_id, hwnd);
+        return -1;
+    }
+
+    if (state->next_node_id > 1 && node_id >= state->next_node_id) {
+        WriteLog("GetNodeParent: node_id out of range, hwnd=%p, node_id=%d, next_node_id=%d",
+            hwnd,
+            node_id,
+            state->next_node_id);
         return -1;
     }
     
-    // 验证节点存在性
     TreeNode* node = FindNodeById(state, node_id);
     if (!node) {
+        WriteLog("GetNodeParent: node not found, hwnd=%p, node_id=%d", hwnd, node_id);
         return -1;
     }
     
-    // 返回父节点 ID，如果是根节点则返回 -1
     if (node->parent) {
+        WriteLog("GetNodeParent: return parent_id=%d for node_id=%d", node->parent->id, node_id);
         return node->parent->id;
     }
     
-    return -1; // 根节点没有父节点
+    WriteLog("GetNodeParent: node_id=%d is root, return -1", node_id);
+    return -1;
 }
 
 int __stdcall GetNodeChildCount(HWND hwnd, int node_id) {
@@ -3250,13 +3310,16 @@ void RenderNode(TreeViewState* state, TreeNode* node, float y_offset) {
         x_cursor += checkbox_size + 6 * state->dpi_scale;
     }
     
-    // 4. emoji 图标
+    // 4. emoji 图标（行内垂直居中；RenderEmoji 布局高度=size，与此处计算的 icon_y 一致）
     if (!node->icon.empty()) {
         float icon_x = x_cursor;
         float text_font_size = state->font_size_logical * state->dpi_scale;
         float icon_size = state->icon_size * state->dpi_scale;
         if (icon_size > text_font_size) icon_size = text_font_size;
-        float icon_y = y_offset;
+        float icon_y = y_offset + (node_height - icon_size) * 0.5f;
+        if (icon_y < y_offset) {
+            icon_y = y_offset;
+        }
         
         if (node->enabled && node->selected) {
             brush->SetColor(state->selected_foreground);
@@ -3488,6 +3551,9 @@ void RenderCheckbox(TreeViewState* state, float x, float y, float size, bool che
 /**
  * 渲染 Emoji 图标
  * 使用 CreateTextLayout + DrawTextLayout 并启用 ENABLE_COLOR_FONT 以显示彩色 emoji
+ *
+ * 布局高度必须与 RenderNode 传入的 size 一致：此前使用 2size×2size 而外侧按 size 做行内垂直居中，
+ * 实际墨稿中心与行中心相差约 size/2，导致与右侧段落垂直居中的文字对不齐。
  */
 void RenderEmoji(TreeViewState* state, const wchar_t* emoji, float x, float y, float size) {
     if (!state || !emoji || !state->render_target || !state->brush || !state->dwrite_factory || !state->text_format_cache) {
@@ -3506,15 +3572,20 @@ void RenderEmoji(TreeViewState* state, const wchar_t* emoji, float x, float y, f
     if (!emoji_format) return;
 
     IDWriteTextLayout* text_layout = nullptr;
+    const float box_h = size;
+    const float box_w = (std::max)(size * 1.25f, size + 4.0f);
     HRESULT hr = state->dwrite_factory->CreateTextLayout(
         emoji,
         static_cast<UINT32>(emoji_len),
         emoji_format,
-        size * 2.0f,
-        size * 2.0f,
+        box_w,
+        box_h,
         &text_layout
     );
     if (FAILED(hr) || !text_layout) return;
+
+    text_layout->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    text_layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
 
     state->brush->SetColor(D2D1::ColorF(0, 0, 0));
     rt->DrawTextLayout(
