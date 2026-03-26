@@ -195,6 +195,7 @@ emoji_window_cpp/
 | 分组框 | [groupbox.md](docs/controls/groupbox.md) | 控件分组容器 |
 | 热键控件 | [hotkey.md](docs/controls/hotkey.md) | 键盘快捷键捕获 |
 | 树形框 | [treeview.md](docs/controls/treeview.md) | 层次结构数据，支持 Emoji 图标和拖放 |
+| 日期时间 | [datetimepicker.md](docs/controls/datetimepicker.md) | D2D 日期时间选择器，Element 风格弹出层 |
 | 表格 | [datagridview.md](docs/controls/datagridview.md) | 高性能数据表格，支持虚拟模式 |
 | 选项卡 | [tabcontrol.md](docs/controls/tabcontrol.md) | 多标签页容器，支持外观定制、拖拽排序、关闭按钮、滚动 |
 
@@ -717,8 +718,17 @@ MIT License
   </table>
 </div>
 
-## 赞赏名单
-姓名：秋叶,QQ号：121***007
+## 💝 赞赏名单
+
+感谢每一位支持者，排名不分先后。
+
+<div align="center">
+
+| 昵称 | 联系方式 |
+|:---:|:---:|
+| **秋叶** | QQ `121***007` |
+
+</div>
 
 ## 📧 联系方式
 

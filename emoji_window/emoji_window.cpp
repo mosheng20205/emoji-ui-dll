@@ -1257,6 +1257,9 @@ static void DrawParentLabel(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, 
     if (bg_brush) bg_brush->Release();
 }
 
+static void ApplyShowGroupBox(HWND hGroupBox, BOOL show);
+static BOOL ApplySelectTab(HWND hTabControl, int index);
+
 // Window procedure
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     auto it = g_windows.find(hwnd);
@@ -1296,6 +1299,65 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     }
 
     switch (msg) {
+    case WM_EW_TV_INVALIDATE_DEFERRED: {
+        HWND hTree = reinterpret_cast<HWND>(wparam);
+        if (hTree && IsWindow(hTree)) {
+            InvalidateRect(hTree, nullptr, FALSE);
+        }
+        return 0;
+    }
+
+    case WM_EW_GROUPBOX_SHOW_DEFERRED: {
+        HWND hGb = reinterpret_cast<HWND>(wparam);
+        WriteLog("WindowProc: WM_EW_GROUPBOX_SHOW_DEFERRED hwnd=%p, hGroupBox=%p, show=%d, is_window=%d",
+            hwnd, hGb, (int)lparam, (hGb && IsWindow(hGb)) ? 1 : 0);
+        if (hGb && IsWindow(hGb)) {
+            ApplyShowGroupBox(hGb, (BOOL)lparam);
+        }
+        return 0;
+    }
+
+    case WM_EW_TV_NODE_SELECTED_DEFERRED: {
+        HWND hTree = reinterpret_cast<HWND>(wparam);
+        int node_id = static_cast<int>(static_cast<INT_PTR>(lparam));
+        WriteLog("WindowProc: WM_EW_TV_NODE_SELECTED_DEFERRED hwnd=%p, hTree=%p, node_id=%d, is_window=%d",
+            hwnd, hTree, node_id, (hTree && IsWindow(hTree)) ? 1 : 0);
+        if (!hTree || !IsWindow(hTree)) {
+            return 0;
+        }
+        // 再投递一帧，避免本消息处理末尾仍在本轮 WindowProc 栈上同步进入易语言（部分环境下仍会崩）
+        if (!PostMessageW(hwnd, WM_EW_TV_NODE_SELECTED_INVOKE, (WPARAM)hTree, (LPARAM)(INT_PTR)node_id)) {
+            TreeViewOnNodeSelectedDeferred(hTree, node_id);
+            WriteLog("WindowProc: TreeViewOnNodeSelectedDeferred returned (PostMessage INVOKE failed), hTree=%p, node_id=%d", hTree, node_id);
+            PostMessageW(hwnd, WM_EW_TV_INVALIDATE_DEFERRED, (WPARAM)hTree, 0);
+        }
+        return 0;
+    }
+
+    case WM_EW_TV_NODE_SELECTED_INVOKE: {
+        HWND hTree = reinterpret_cast<HWND>(wparam);
+        int node_id = static_cast<int>(static_cast<INT_PTR>(lparam));
+        WriteLog("WindowProc: WM_EW_TV_NODE_SELECTED_INVOKE hwnd=%p, hTree=%p, node_id=%d", hwnd, hTree, node_id);
+        if (!hTree || !IsWindow(hTree)) {
+            return 0;
+        }
+        TreeViewOnNodeSelectedDeferred(hTree, node_id);
+        WriteLog("WindowProc: TreeViewOnNodeSelectedDeferred returned, hTree=%p, node_id=%d", hTree, node_id);
+        PostMessageW(hwnd, WM_EW_TV_INVALIDATE_DEFERRED, (WPARAM)hTree, 0);
+        return 0;
+    }
+
+    case WM_EW_SELECT_TAB_DEFERRED: {
+        HWND hTab = reinterpret_cast<HWND>(wparam);
+        int tabIdx = static_cast<int>(static_cast<INT_PTR>(lparam));
+        WriteLog("WindowProc: WM_EW_SELECT_TAB_DEFERRED hwnd=%p, hTab=%p, index=%d", hwnd, hTab, tabIdx);
+        if (!hTab || !IsWindow(hTab)) {
+            return 0;
+        }
+        ApplySelectTab(hTab, tabIdx);
+        return 0;
+    }
+
     case WM_NCCALCSIZE: {
         // 自定义标题栏：移除系统标题栏，让客户区占满整个窗口
         if (state && state->custom_titlebar) {
@@ -4124,8 +4186,8 @@ int __stdcall GetCurrentTabIndex(HWND hTabControl) {
     return it->second->currentIndex;
 }
 
-// 切换到指定 Tab
-BOOL __stdcall SelectTab(HWND hTabControl, int index) {
+// 实际执行 Tab 切换（在消息泵中调用；勿在树选中易语言回调同栈同步 TabCtrl_SetCurSel，否则会 WM_NOTIFY/UpdateTabLayout 与 D2D 树重入崩溃）
+static BOOL ApplySelectTab(HWND hTabControl, int index) {
     auto it = g_tab_controls.find(hTabControl);
     if (it == g_tab_controls.end()) return FALSE;
 
@@ -4142,6 +4204,22 @@ BOOL __stdcall SelectTab(HWND hTabControl, int index) {
     }
 
     return TRUE;
+}
+
+// 切换到指定 Tab（投递到顶层主窗口延后执行，避免树回调内同步 SelectTab 崩溃）
+BOOL __stdcall SelectTab(HWND hTabControl, int index) {
+    auto it = g_tab_controls.find(hTabControl);
+    if (it == g_tab_controls.end()) return FALSE;
+
+    TabControlState* state = it->second;
+
+    if (index < 0 || index >= (int)state->pages.size()) return FALSE;
+
+    HWND root = GetAncestor(hTabControl, GA_ROOT);
+    if (root && PostMessageW(root, WM_EW_SELECT_TAB_DEFERRED, (WPARAM)hTabControl, (LPARAM)(INT_PTR)index)) {
+        return TRUE;
+    }
+    return ApplySelectTab(hTabControl, index);
 }
 
 // 获取 Tab 数量
@@ -9750,33 +9828,59 @@ void __stdcall EnableGroupBox(
             }
         }
     }
-    
-    // 触发主窗口重绘，更新分组框内的按钮显示
-    // 使用 RedrawWindow 强制立即同步重绘
-    RedrawWindow(state->parent, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
 }
 
-// 显示/隐藏分组框
+// 实际执行显示/隐藏（在消息泵中调用，勿在树回调同栈直接 ShowWindow）
+static void ApplyShowGroupBox(HWND hGroupBox, BOOL show) {
+    auto it = g_groupboxes.find(hGroupBox);
+    if (it == g_groupboxes.end()) {
+        WriteLog("ApplyShowGroupBox: groupbox not found, hGroupBox=%p, show=%d", hGroupBox, show ? 1 : 0);
+        return;
+    }
+
+    GroupBoxState* state = it->second;
+    WriteLog("ApplyShowGroupBox: begin hGroupBox=%p, show=%d, state=%p, child_count=%zu, visible_before=%d",
+        hGroupBox,
+        show ? 1 : 0,
+        state,
+        state->children.size(),
+        state->visible ? 1 : 0);
+    state->visible = show ? true : false;
+
+    for (HWND hChild : state->children) {
+        WriteLog("ApplyShowGroupBox: child ShowWindow hGroupBox=%p, hChild=%p, cmd=%d, child_is_window=%d",
+            hGroupBox, hChild, show ? SW_SHOW : SW_HIDE, (hChild && IsWindow(hChild)) ? 1 : 0);
+        ShowWindow(hChild, show ? SW_SHOW : SW_HIDE);
+    }
+
+    WriteLog("ApplyShowGroupBox: groupbox ShowWindow hGroupBox=%p, cmd=%d", hGroupBox, show ? SW_SHOW : SW_HIDE);
+    ShowWindow(hGroupBox, show ? SW_SHOW : SW_HIDE);
+    WriteLog("ApplyShowGroupBox: InvalidateRect hGroupBox=%p", hGroupBox);
+    InvalidateRect(hGroupBox, nullptr, FALSE);
+    WriteLog("ApplyShowGroupBox: end hGroupBox=%p, visible_now=%d", hGroupBox, state->visible ? 1 : 0);
+}
+
+// 显示/隐藏分组框（投递到顶层主窗口延后执行，避免易语言树选中回调内同步 ShowWindow 重入崩溃）
 void __stdcall ShowGroupBox(
     HWND hGroupBox,
     BOOL show
 ) {
     auto it = g_groupboxes.find(hGroupBox);
-    if (it == g_groupboxes.end()) return;
-    
-    GroupBoxState* state = it->second;
-    state->visible = show ? true : false;
-    
-    // 同步显示/隐藏所有子控件
-    for (HWND hChild : state->children) {
-        ShowWindow(hChild, show ? SW_SHOW : SW_HIDE);
+    if (it == g_groupboxes.end()) {
+        WriteLog("ShowGroupBox: groupbox not found, hGroupBox=%p, show=%d", hGroupBox, show ? 1 : 0);
+        return;
     }
-    
-    ShowWindow(hGroupBox, show ? SW_SHOW : SW_HIDE);
-    
-    // 触发主窗口重绘，更新分组框内的按钮显示
-    // 使用 RedrawWindow 强制立即同步重绘
-    RedrawWindow(state->parent, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+
+    HWND root = GetAncestor(hGroupBox, GA_ROOT);
+    WriteLog("ShowGroupBox: request hGroupBox=%p, show=%d, root=%p", hGroupBox, show ? 1 : 0, root);
+    if (root && PostMessageW(root, WM_EW_GROUPBOX_SHOW_DEFERRED, (WPARAM)hGroupBox, (LPARAM)(show ? 1 : 0))) {
+        WriteLog("ShowGroupBox: posted WM_EW_GROUPBOX_SHOW_DEFERRED, hGroupBox=%p, root=%p, show=%d",
+            hGroupBox, root, show ? 1 : 0);
+        return;
+    }
+    WriteLog("ShowGroupBox: PostMessage failed or no root, applying inline, hGroupBox=%p, show=%d",
+        hGroupBox, show ? 1 : 0);
+    ApplyShowGroupBox(hGroupBox, show);
 }
 
 // 设置分组框位置和大小
@@ -11015,9 +11119,18 @@ LRESULT CALLBACK GroupBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
             return HTTRANSPARENT;
         }
 
+        case WM_SHOWWINDOW:
+            WriteLog("GroupBoxProc: WM_SHOWWINDOW hwnd=%p, show=%d, status=%d, visible=%d",
+                hwnd,
+                wparam ? 1 : 0,
+                (int)lparam,
+                state->visible ? 1 : 0);
+            break;
+
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
+            WriteLog("GroupBoxProc: WM_PAINT begin hwnd=%p, state=%p, visible=%d", hwnd, state, state->visible ? 1 : 0);
 
             // 创建 D2D1 渲染目标
             RECT rc;
@@ -11031,6 +11144,12 @@ LRESULT CALLBACK GroupBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
             );
             
             HRESULT hr = g_d2d_factory->CreateHwndRenderTarget(props, hwndProps, &render_target);
+            WriteLog("GroupBoxProc: CreateHwndRenderTarget hwnd=%p, hr=0x%08X, render_target=%p, size=%ldx%ld",
+                hwnd,
+                (unsigned int)hr,
+                render_target,
+                (long)(rc.right - rc.left),
+                (long)(rc.bottom - rc.top));
             
             if (SUCCEEDED(hr) && render_target) {
                 render_target->BeginDraw();
@@ -11038,11 +11157,15 @@ LRESULT CALLBACK GroupBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
                 
                 DrawGroupBox(render_target, g_dwrite_factory, state);
                 
-                render_target->EndDraw();
+                HRESULT end_hr = render_target->EndDraw();
+                WriteLog("GroupBoxProc: EndDraw hwnd=%p, hr=0x%08X", hwnd, (unsigned int)end_hr);
                 render_target->Release();
+            } else {
+                WriteLog("GroupBoxProc: skipping draw because render target creation failed, hwnd=%p", hwnd);
             }
             
             EndPaint(hwnd, &ps);
+            WriteLog("GroupBoxProc: WM_PAINT end hwnd=%p", hwnd);
             return 0;
         }
         
@@ -11051,6 +11174,7 @@ LRESULT CALLBACK GroupBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
         
         case WM_NCDESTROY: {
             // 清理资源
+            WriteLog("GroupBoxProc: WM_NCDESTROY hwnd=%p, state=%p", hwnd, state);
             RemoveWindowSubclass(hwnd, GroupBoxProc, 0);
             
             // 从全局map中移除

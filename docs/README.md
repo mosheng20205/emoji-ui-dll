@@ -14,6 +14,8 @@
 #### 高级控件
 - [DataGridView 表格](controls/datagridview.md) - 高性能数据表格，支持虚拟模式
 - [树形框 (TreeView)](controls/treeview.md) - 层次结构数据，支持 Emoji 图标和拖放
+- [侧栏折叠菜单 (TreeView 侧栏模式)](controls/sidebar_menu_treeview.md) - 右侧 ∨/∧、全局配色与 `MoveTreeViewNode`
+- [D2D 日期时间选择器](controls/datetimepicker.md) - Element 风格弹出日历与时间，支持多精度
 - [图片框 (PictureBox)](controls/picturebox.md) - 支持多种格式和缩放模式
 
 > 📝 其他控件文档正在完善中，可参考主 README 或易语言示例代码

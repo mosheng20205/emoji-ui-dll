@@ -60,7 +60,7 @@ export function generatePython(win: DesignWindow, controls: DesignControl[]): st
   const sortedControls = [...controls].sort((a, b) => depthOf(a) - depthOf(b));
 
   lines.push(`import ctypes`);
-  lines.push(`from ctypes import c_int, c_uint, c_void_p, c_bool, WINFUNCTYPE`);
+  lines.push(`from ctypes import c_int, c_uint, c_void_p, c_bool, c_float, WINFUNCTYPE`);
   lines.push(``);
   lines.push(`dll = ctypes.WinDLL("emoji_window.dll")`);
   lines.push(``);
@@ -86,7 +86,9 @@ export function generatePython(win: DesignWindow, controls: DesignControl[]): st
   const hasPicture = controls.some(c => c.type === 'picturebox');
   const hasTab = controls.some(c => c.type === 'tabcontrol');
   const hasGrid = controls.some(c => c.type === 'datagridview');
-  const hasTree = controls.some(c => c.type === 'treeview');
+  const hasTree = controls.some((c) => c.type === 'treeview' || c.type === 'treeview_sidebar');
+  const hasTreeSidebar = controls.some((c) => c.type === 'treeview_sidebar');
+  const hasDtp = controls.some((c) => c.type === 'datetimepicker');
 
   if (hasBtns) {
     lines.push(`dll.create_emoji_button_bytes.argtypes = [c_void_p, ctypes.c_char_p, c_int, ctypes.c_char_p, c_int, c_int, c_int, c_int, c_int, c_uint]`);
@@ -166,6 +168,32 @@ export function generatePython(win: DesignWindow, controls: DesignControl[]): st
   if (hasTree) {
     lines.push(`dll.CreateTreeView.argtypes = [c_void_p, c_int, c_int, c_int, c_int, c_uint, c_uint, ctypes.c_char_p, c_int, c_int, c_int, c_int, c_int, c_int]`);
     lines.push(`dll.CreateTreeView.restype = c_void_p`);
+  }
+  if (hasTreeSidebar) {
+    lines.push(`dll.SetTreeViewSidebarMode.argtypes = [c_void_p, c_bool]`);
+    lines.push(`dll.SetTreeViewSidebarMode.restype = c_bool`);
+    lines.push(`dll.SetTreeViewRowHeight.argtypes = [c_void_p, c_float]`);
+    lines.push(`dll.SetTreeViewRowHeight.restype = c_bool`);
+    lines.push(`dll.SetTreeViewItemSpacing.argtypes = [c_void_p, c_float]`);
+    lines.push(`dll.SetTreeViewItemSpacing.restype = c_bool`);
+    lines.push(`dll.SetTreeViewTextColor.argtypes = [c_void_p, c_uint]`);
+    lines.push(`dll.SetTreeViewTextColor.restype = c_bool`);
+    lines.push(`dll.SetTreeViewSelectedBgColor.argtypes = [c_void_p, c_uint]`);
+    lines.push(`dll.SetTreeViewSelectedBgColor.restype = c_bool`);
+    lines.push(`dll.SetTreeViewSelectedForeColor.argtypes = [c_void_p, c_uint]`);
+    lines.push(`dll.SetTreeViewSelectedForeColor.restype = c_bool`);
+    lines.push(`dll.SetTreeViewHoverBgColor.argtypes = [c_void_p, c_uint]`);
+    lines.push(`dll.SetTreeViewHoverBgColor.restype = c_bool`);
+  }
+  if (hasDtp) {
+    lines.push(`dll.CreateD2DDateTimePicker.argtypes = [c_void_p, c_int, c_int, c_int, c_int, c_int, c_uint, c_uint, c_uint, ctypes.c_char_p, c_int, c_int, c_int, c_int, c_int]`);
+    lines.push(`dll.CreateD2DDateTimePicker.restype = c_void_p`);
+    lines.push(`dll.SetD2DDateTimePickerDateTime.argtypes = [c_void_p, c_int, c_int, c_int, c_int, c_int, c_int]`);
+    lines.push(`dll.SetD2DDateTimePickerDateTime.restype = None`);
+    lines.push(`dll.EnableD2DDateTimePicker.argtypes = [c_void_p, c_int]`);
+    lines.push(`dll.EnableD2DDateTimePicker.restype = None`);
+    lines.push(`dll.ShowD2DDateTimePicker.argtypes = [c_void_p, c_int]`);
+    lines.push(`dll.ShowD2DDateTimePicker.restype = None`);
   }
 
   lines.push(``);
@@ -368,10 +396,38 @@ export function generatePython(win: DesignWindow, controls: DesignControl[]): st
         }
         break;
       }
-      case 'treeview': {
+      case 'treeview':
+      case 'treeview_sidebar': {
         lines.push(``);
         lines.push(`# ${c.name}`);
         lines.push(`${c.name} = dll.CreateTreeView(${parentExpr}, ${c.x}, ${c.y}, ${c.width}, ${c.height}, ${pyColor((p.fgColor as string) || '#303133')}, ${pyColor((p.bgColor as string) || '#FFFFFF')}, ${fontVar}, len(${fontVar}), ${(p.fontSize as number) || 13}, ${p.bold ? 1 : 0}, ${p.italic ? 1 : 0}, ${p.underline ? 1 : 0}, ${p.showCheckBoxes ? 1 : 0})`);
+        if (attachToGroup) {
+          lines.push(`dll.AddChildToGroup(${c.parentId}, ${c.name})`);
+        }
+        if (c.type === 'treeview_sidebar') {
+          const rowH = (p.rowHeight as number) ?? 38;
+          const rowSp = (p.itemSpacing as number) ?? 2;
+          lines.push(`dll.SetTreeViewRowHeight(${c.name}, float(${rowH}))`);
+          lines.push(`dll.SetTreeViewItemSpacing(${c.name}, float(${rowSp}))`);
+          lines.push(`dll.SetTreeViewTextColor(${c.name}, ${pyColor((p.fgColor as string) || '#303133')})`);
+          lines.push(`dll.SetTreeViewSelectedBgColor(${c.name}, ${pyColor((p.selectedBgColor as string) || '#335EEA')})`);
+          lines.push(`dll.SetTreeViewSelectedForeColor(${c.name}, ${pyColor((p.selectedForeColor as string) || '#FFFFFF')})`);
+          lines.push(`dll.SetTreeViewHoverBgColor(${c.name}, ${pyColor((p.hoverBgColor as string) || '#F5F7FA')})`);
+          lines.push(`dll.SetTreeViewSidebarMode(${c.name}, True)`);
+        }
+        break;
+      }
+      case 'datetimepicker': {
+        lines.push(``);
+        lines.push(`# ${c.name}`);
+        lines.push(`${c.name} = dll.CreateD2DDateTimePicker(${parentExpr}, ${c.x}, ${c.y}, ${c.width}, ${c.height}, ${(p.precision as number) ?? 4}, ${pyColor((p.fgColor as string) || '#606266')}, ${pyColor((p.bgColor as string) || '#FFFFFF')}, ${pyColor((p.borderColor as string) || '#DCDFE6')}, ${fontVar}, len(${fontVar}), ${(p.fontSize as number) || 14}, ${p.bold ? 1 : 0}, ${p.italic ? 1 : 0}, ${p.underline ? 1 : 0})`);
+        lines.push(`dll.SetD2DDateTimePickerDateTime(${c.name}, ${(p.year as number) ?? 2024}, ${(p.month as number) ?? 6}, ${(p.day as number) ?? 15}, ${(p.hour as number) ?? 0}, ${(p.minute as number) ?? 0}, ${(p.second as number) ?? 0})`);
+        if (p.enabled === false) {
+          lines.push(`dll.EnableD2DDateTimePicker(${c.name}, 0)`);
+        }
+        if (p.visible === false) {
+          lines.push(`dll.ShowD2DDateTimePicker(${c.name}, 0)`);
+        }
         if (attachToGroup) {
           lines.push(`dll.AddChildToGroup(${c.parentId}, ${c.name})`);
         }

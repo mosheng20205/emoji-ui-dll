@@ -74,7 +74,7 @@ const CONTROLS_NEEDING_TEXT_BYTES = new Set([
 ]);
 
 const CONTROLS_NEEDING_FONT_BYTES = new Set([
-  'label', 'editbox', 'checkbox', 'radiobutton', 'groupbox', 'combobox',
+  'label', 'editbox', 'checkbox', 'radiobutton', 'groupbox', 'combobox', 'datetimepicker',
 ]);
 
 export function generateEpl(win: DesignWindow, controls: DesignControl[]): string {
@@ -108,7 +108,7 @@ export function generateEpl(win: DesignWindow, controls: DesignControl[]): strin
         lines.push(`.局部变量 列_${c.name}_${i}, 字节集`);
       }
     }
-    if (c.type === 'treeview') {
+    if (c.type === 'treeview' || c.type === 'treeview_sidebar') {
       const nodesStr = (c.props.nodes as string) || '';
       const nodeLines = nodesStr.split('\n').map((s) => s.trimEnd()).filter((s) => s.length > 0);
       for (let i = 0; i < nodeLines.length; i++) {
@@ -338,7 +338,8 @@ export function generateEpl(win: DesignWindow, controls: DesignControl[]): strin
         }
         break;
       }
-      case 'treeview': {
+      case 'treeview':
+      case 'treeview_sidebar': {
         lines.push(`${c.name} ＝ 创建树形框 (${parentExpr}, ${c.x}, ${c.y}, ${c.width}, ${c.height}, ${bgColor}, ${fgColor}, 0)`);
         const nodesStr = (p.nodes as string) || '';
         const nodeLines = nodesStr.split('\n').map((s) => s.trimEnd()).filter((s) => s.length > 0);
@@ -379,6 +380,38 @@ export function generateEpl(win: DesignWindow, controls: DesignControl[]): strin
               }
             }
           }
+        }
+        if (c.type === 'treeview_sidebar') {
+          const rowH = (p.rowHeight as number) ?? 38;
+          const rowSp = (p.itemSpacing as number) ?? 2;
+          const selBg = eplColor((p.selectedBgColor as string) || '#335EEA');
+          const selFg = eplColor((p.selectedForeColor as string) || '#FFFFFF');
+          const hoverBg = eplColor((p.hoverBgColor as string) || '#F5F7FA');
+          lines.push(`设置树形框行高 (${c.name}, ${rowH})`);
+          lines.push(`设置树形框行间距 (${c.name}, ${rowSp})`);
+          lines.push(`设置树形框文字色 (${c.name}, ${fgColor})`);
+          lines.push(`设置树形框选中背景色 (${c.name}, ${selBg})`);
+          lines.push(`设置树形框选中前景色 (${c.name}, ${selFg})`);
+          lines.push(`设置树形框悬停背景色 (${c.name}, ${hoverBg})`);
+          lines.push(`设置树形框侧栏模式 (${c.name}, 真)`);
+        }
+        break;
+      }
+      case 'datetimepicker': {
+        emitFontBytes();
+        const borderColor = eplColor((p.borderColor as string) || '#DCDFE6');
+        const prec = (p.precision as number) ?? 4;
+        lines.push(`${c.name} ＝ 创建D2D日期时间选择器 (${parentExpr}, ${c.x}, ${c.y}, ${c.width}, ${c.height}, ${prec}, ${fgColor}, ${bgColor}, ${borderColor}, ${fontPtr}, ${fontLen}, ${fontSize}, ${eplBool(p.bold)}, ${eplBool(p.italic)}, ${eplBool(p.underline)})`);
+        lines.push(`设置D2D日期时间选择器日期时间 (${c.name}, ${(p.year as number) ?? 2024}, ${(p.month as number) ?? 6}, ${(p.day as number) ?? 15}, ${(p.hour as number) ?? 0}, ${(p.minute as number) ?? 0}, ${(p.second as number) ?? 0})`);
+        if (p.enabled === false) {
+          lines.push(`启用D2D日期时间选择器 (${c.name}, 假)`);
+        }
+        if (p.visible === false) {
+          lines.push(`显示D2D日期时间选择器 (${c.name}, 假)`);
+        }
+        const vh = normalizeControlIdentifier((p.onValueChanged as string) || '');
+        if (vh) {
+          lines.push(`设置D2D日期时间选择器回调 (${c.name}, &${vh})`);
         }
         break;
       }

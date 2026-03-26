@@ -187,9 +187,59 @@ export function generateCSharp(win: DesignWindow, controls: DesignControl[]): st
     lines.push(`    static extern IntPtr CreateDataGridView(IntPtr parent, int x, int y, int w, int h, uint fg, uint bg, uint headerColor, byte[] font, int fontLen, int fontSize);`);
     lines.push(``);
   }
-  if (types.has('treeview')) {
+  if (types.has('treeview') || types.has('treeview_sidebar')) {
     lines.push(`    [DllImport(DLL, CallingConvention = CallingConvention.StdCall)]`);
     lines.push(`    static extern IntPtr CreateTreeView(IntPtr parent, int x, int y, int w, int h, uint fg, uint bg, byte[] font, int fontLen, int fontSize, int bold, int italic, int underline, int showCheckBoxes);`);
+    lines.push(``);
+  }
+  if (types.has('treeview_sidebar')) {
+    lines.push(`    [DllImport(DLL, CallingConvention = CallingConvention.StdCall)]`);
+    lines.push(`    [return: MarshalAs(UnmanagedType.Bool)]`);
+    lines.push(`    static extern bool SetTreeViewSidebarMode(IntPtr hwnd, [MarshalAs(UnmanagedType.Bool)] bool enable);`);
+    lines.push(``);
+    lines.push(`    [DllImport(DLL, CallingConvention = CallingConvention.StdCall)]`);
+    lines.push(`    [return: MarshalAs(UnmanagedType.Bool)]`);
+    lines.push(`    static extern bool SetTreeViewRowHeight(IntPtr hwnd, float height);`);
+    lines.push(``);
+    lines.push(`    [DllImport(DLL, CallingConvention = CallingConvention.StdCall)]`);
+    lines.push(`    [return: MarshalAs(UnmanagedType.Bool)]`);
+    lines.push(`    static extern bool SetTreeViewItemSpacing(IntPtr hwnd, float spacing);`);
+    lines.push(``);
+    lines.push(`    [DllImport(DLL, CallingConvention = CallingConvention.StdCall)]`);
+    lines.push(`    [return: MarshalAs(UnmanagedType.Bool)]`);
+    lines.push(`    static extern bool SetTreeViewTextColor(IntPtr hwnd, uint color);`);
+    lines.push(``);
+    lines.push(`    [DllImport(DLL, CallingConvention = CallingConvention.StdCall)]`);
+    lines.push(`    [return: MarshalAs(UnmanagedType.Bool)]`);
+    lines.push(`    static extern bool SetTreeViewSelectedBgColor(IntPtr hwnd, uint color);`);
+    lines.push(``);
+    lines.push(`    [DllImport(DLL, CallingConvention = CallingConvention.StdCall)]`);
+    lines.push(`    [return: MarshalAs(UnmanagedType.Bool)]`);
+    lines.push(`    static extern bool SetTreeViewSelectedForeColor(IntPtr hwnd, uint color);`);
+    lines.push(``);
+    lines.push(`    [DllImport(DLL, CallingConvention = CallingConvention.StdCall)]`);
+    lines.push(`    [return: MarshalAs(UnmanagedType.Bool)]`);
+    lines.push(`    static extern bool SetTreeViewHoverBgColor(IntPtr hwnd, uint color);`);
+    lines.push(``);
+  }
+  if (types.has('datetimepicker')) {
+    lines.push(`    [UnmanagedFunctionPointer(CallingConvention.StdCall)]`);
+    lines.push(`    delegate void ValueChangedCallback(IntPtr hwnd);`);
+    lines.push(``);
+    lines.push(`    [DllImport(DLL, CallingConvention = CallingConvention.StdCall)]`);
+    lines.push(`    static extern IntPtr CreateD2DDateTimePicker(IntPtr parent, int x, int y, int w, int h, int initialPrecision, uint fg, uint bg, uint borderColor, byte[] font, int fontLen, int fontSize, int bold, int italic, int underline);`);
+    lines.push(``);
+    lines.push(`    [DllImport(DLL, CallingConvention = CallingConvention.StdCall)]`);
+    lines.push(`    static extern void SetD2DDateTimePickerDateTime(IntPtr hPicker, int year, int month, int day, int hour, int minute, int second);`);
+    lines.push(``);
+    lines.push(`    [DllImport(DLL, CallingConvention = CallingConvention.StdCall)]`);
+    lines.push(`    static extern void SetD2DDateTimePickerCallback(IntPtr hPicker, ValueChangedCallback cb);`);
+    lines.push(``);
+    lines.push(`    [DllImport(DLL, CallingConvention = CallingConvention.StdCall)]`);
+    lines.push(`    static extern void EnableD2DDateTimePicker(IntPtr hPicker, int enable);`);
+    lines.push(``);
+    lines.push(`    [DllImport(DLL, CallingConvention = CallingConvention.StdCall)]`);
+    lines.push(`    static extern void ShowD2DDateTimePicker(IntPtr hPicker, int show);`);
     lines.push(``);
   }
 
@@ -206,6 +256,14 @@ export function generateCSharp(win: DesignWindow, controls: DesignControl[]): st
   if (types.has('button')) {
     lines.push(`    static ButtonClickCallback _btnCb;`);
     lines.push(``);
+  }
+
+  for (const c of controls) {
+    if (c.type !== 'datetimepicker') continue;
+    const ov = c.props.onValueChanged;
+    if (typeof ov === 'string' && ov.trim()) {
+      lines.push(`    static ValueChangedCallback _dtpCb_${c.name};`);
+    }
   }
 
   lines.push(`    static void Main()`);
@@ -350,9 +408,40 @@ export function generateCSharp(win: DesignWindow, controls: DesignControl[]): st
         if (attachToGroup) lines.push(`        AddChildToGroup(${c.parentId}, ${c.name});`);
         break;
       }
-      case 'treeview': {
+      case 'treeview':
+      case 'treeview_sidebar': {
         lines.push(`        font = ToUtf8("${fn}");`);
         lines.push(`        ${c.name} = CreateTreeView(${parentExpr}, ${c.x}, ${c.y}, ${c.width}, ${c.height}, ${csColor((p.fgColor as string) || '#303133')}, ${csColor((p.bgColor as string) || '#FFFFFF')}, font, font.Length, ${(p.fontSize as number) || 13}, ${p.bold ? 1 : 0}, ${p.italic ? 1 : 0}, ${p.underline ? 1 : 0}, ${p.showCheckBoxes ? 1 : 0});`);
+        if (attachToGroup) lines.push(`        AddChildToGroup(${c.parentId}, ${c.name});`);
+        if (c.type === 'treeview_sidebar') {
+          const rowH = (p.rowHeight as number) ?? 38;
+          const rowSp = (p.itemSpacing as number) ?? 2;
+          lines.push(`        SetTreeViewRowHeight(${c.name}, ${rowH}f);`);
+          lines.push(`        SetTreeViewItemSpacing(${c.name}, ${rowSp}f);`);
+          lines.push(`        SetTreeViewTextColor(${c.name}, ${csColor((p.fgColor as string) || '#303133')});`);
+          lines.push(`        SetTreeViewSelectedBgColor(${c.name}, ${csColor((p.selectedBgColor as string) || '#335EEA')});`);
+          lines.push(`        SetTreeViewSelectedForeColor(${c.name}, ${csColor((p.selectedForeColor as string) || '#FFFFFF')});`);
+          lines.push(`        SetTreeViewHoverBgColor(${c.name}, ${csColor((p.hoverBgColor as string) || '#F5F7FA')});`);
+          lines.push(`        SetTreeViewSidebarMode(${c.name}, true);`);
+        }
+        break;
+      }
+      case 'datetimepicker': {
+        lines.push(`        font = ToUtf8("${fn}");`);
+        lines.push(`        ${c.name} = CreateD2DDateTimePicker(${parentExpr}, ${c.x}, ${c.y}, ${c.width}, ${c.height}, ${(p.precision as number) ?? 4}, ${csColor((p.fgColor as string) || '#606266')}, ${csColor((p.bgColor as string) || '#FFFFFF')}, ${csColor((p.borderColor as string) || '#DCDFE6')}, font, font.Length, ${(p.fontSize as number) || 14}, ${p.bold ? 1 : 0}, ${p.italic ? 1 : 0}, ${p.underline ? 1 : 0});`);
+        lines.push(`        SetD2DDateTimePickerDateTime(${c.name}, ${(p.year as number) ?? 2024}, ${(p.month as number) ?? 6}, ${(p.day as number) ?? 15}, ${(p.hour as number) ?? 0}, ${(p.minute as number) ?? 0}, ${(p.second as number) ?? 0});`);
+        if (p.enabled === false) {
+          lines.push(`        EnableD2DDateTimePicker(${c.name}, 0);`);
+        }
+        if (p.visible === false) {
+          lines.push(`        ShowD2DDateTimePicker(${c.name}, 0);`);
+        }
+        const ov = (p.onValueChanged as string) || '';
+        const hname = normalizeControlIdentifier(ov);
+        if (hname) {
+          lines.push(`        _dtpCb_${c.name} = DtpVc_${c.name};`);
+          lines.push(`        SetD2DDateTimePickerCallback(${c.name}, _dtpCb_${c.name});`);
+        }
         if (attachToGroup) lines.push(`        AddChildToGroup(${c.parentId}, ${c.name});`);
         break;
       }
@@ -380,6 +469,18 @@ export function generateCSharp(win: DesignWindow, controls: DesignControl[]): st
       const handlerName = normalizeControlIdentifier((b.props.onClick as string) || '');
       lines.push(`        if (buttonId == ${b.name}) { ${handlerName ? `${handlerName}();` : `/* TODO: ${b.name} 点击处理 */`} }`);
     }
+    lines.push(`    }`);
+  }
+
+  for (const c of controls) {
+    if (c.type !== 'datetimepicker') continue;
+    const ov = (c.props.onValueChanged as string) || '';
+    const hname = normalizeControlIdentifier(ov);
+    if (!hname) continue;
+    lines.push(``);
+    lines.push(`    static void DtpVc_${c.name}(IntPtr hwnd)`);
+    lines.push(`    {`);
+    lines.push(`        ${hname}();`);
     lines.push(`    }`);
   }
 

@@ -7,6 +7,18 @@
 
 // Tab 页变为可见时发送，用于 D2D 自定义控件重建渲染目标
 #define WM_EW_TABPAGE_VISIBLE (WM_APP + 1)
+// 主窗口收到后对树 InvalidateRect，避免在 TreeViewApplySelection 内外部回调返回后立即失效树窗口导致 D2D 重入
+#define WM_EW_TV_INVALIDATE_DEFERRED (WM_APP + 3)
+// 主窗口延后执行 ShowGroupBox 内 ShowWindow，避免在树回调栈上同步 ShowWindow 向父窗发消息导致重入
+#define WM_EW_GROUPBOX_SHOW_DEFERRED (WM_APP + 4)
+// 主窗口下一轮消息再调用易语言「树选中」回调，避免在 TreeViewApplySelection 栈上同步进入易语言导致崩溃
+#define WM_EW_TV_NODE_SELECTED_DEFERRED (WM_APP + 5)
+// 再延后一帧才真正调用易语言「树选中」回调（DEFERRED 处理函数里仅 PostMessage 本消息），减轻 WindowProc 嵌套分发时易语言运行库崩溃
+#define WM_EW_TV_NODE_SELECTED_INVOKE (WM_APP + 7)
+// 主窗口下一轮消息再执行 SelectTab（TabCtrl_SetCurSel/WM_NOTIFY/UpdateTabLayout），避免在树选中易语言回调栈上同步切换 Tab 与 D2D 重入崩溃
+#define WM_EW_SELECT_TAB_DEFERRED (WM_APP + 6)
+
+void TreeViewOnNodeSelectedDeferred(HWND hTree, int node_id);
 
 // 回调类型枚举
 enum TreeViewCallbackType {
@@ -410,6 +422,51 @@ bool __stdcall SetTreeViewScrollPos(HWND hwnd, int pos);
  * @return 当前滚动位置（像素），失败返回 -1
  */
 int __stdcall GetTreeViewScrollPos(HWND hwnd);
+
+// ============================================================================
+// 侧栏模式与全局样式（多层级折叠菜单）
+// ============================================================================
+
+bool __stdcall SetTreeViewSidebarMode(HWND hwnd, bool enable);
+bool __stdcall GetTreeViewSidebarMode(HWND hwnd);
+
+bool __stdcall SetTreeViewRowHeight(HWND hwnd, float height);
+float __stdcall GetTreeViewRowHeight(HWND hwnd);
+
+bool __stdcall SetTreeViewItemSpacing(HWND hwnd, float spacing);
+float __stdcall GetTreeViewItemSpacing(HWND hwnd);
+
+bool __stdcall SetTreeViewTextColor(HWND hwnd, unsigned int argb);
+unsigned int __stdcall GetTreeViewTextColor(HWND hwnd);
+
+bool __stdcall SetTreeViewSelectedBgColor(HWND hwnd, unsigned int argb);
+unsigned int __stdcall GetTreeViewSelectedBgColor(HWND hwnd);
+
+bool __stdcall SetTreeViewSelectedForeColor(HWND hwnd, unsigned int argb);
+unsigned int __stdcall GetTreeViewSelectedForeColor(HWND hwnd);
+
+bool __stdcall SetTreeViewHoverBgColor(HWND hwnd, unsigned int argb);
+unsigned int __stdcall GetTreeViewHoverBgColor(HWND hwnd);
+
+bool __stdcall SetTreeViewFont(
+    HWND hwnd,
+    const unsigned char* family_utf8,
+    int family_len,
+    float font_size,
+    int font_weight,
+    bool italic
+);
+
+bool __stdcall GetTreeViewFont(
+    HWND hwnd,
+    unsigned char* family_buf,
+    int family_buf_size,
+    float* out_font_size,
+    int* out_font_weight,
+    bool* out_italic
+);
+
+bool __stdcall MoveTreeViewNode(HWND hwnd, int node_id, int new_parent_id, int insert_index);
 
 // ============================================================================
 // 回调设置

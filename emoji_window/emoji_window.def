@@ -226,6 +226,15 @@ EXPORTS
     EnableD2DComboBox
     ShowD2DComboBox
     SetD2DComboBoxBounds
+    CreateD2DDateTimePicker
+    GetD2DDateTimePickerPrecision
+    SetD2DDateTimePickerPrecision
+    GetD2DDateTimePickerDateTime
+    SetD2DDateTimePickerDateTime
+    SetD2DDateTimePickerCallback
+    EnableD2DDateTimePicker
+    ShowD2DDateTimePicker
+    SetD2DDateTimePickerBounds
     CreateDataGridView
     DataGrid_AddTextColumn
     DataGrid_AddCheckBoxColumn
@@ -329,10 +338,29 @@ EXPORTS
     GetNodeChildren
     GetNodeLevel
     ScrollToNode
-    SetScrollPos
-    GetScrollPos
+    SetTreeViewScrollPos
+    GetTreeViewScrollPos
+    SetScrollPos = SetTreeViewScrollPos
+    GetScrollPos = GetTreeViewScrollPos
     SetTreeViewCallback
     EnableTreeViewDragDrop
+    SetTreeViewSidebarMode
+    GetTreeViewSidebarMode
+    SetTreeViewRowHeight
+    GetTreeViewRowHeight
+    SetTreeViewItemSpacing
+    GetTreeViewItemSpacing
+    SetTreeViewTextColor
+    GetTreeViewTextColor
+    SetTreeViewSelectedBgColor
+    GetTreeViewSelectedBgColor
+    SetTreeViewSelectedForeColor
+    GetTreeViewSelectedForeColor
+    SetTreeViewHoverBgColor
+    GetTreeViewHoverBgColor
+    SetTreeViewFont
+    GetTreeViewFont
+    MoveTreeViewNode
     SetTabItemSize
     SetTabFont
     SetTabColors

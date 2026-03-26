@@ -31,7 +31,13 @@ private:
     std::unordered_map<std::wstring, IDWriteTextFormat*> formats;
     
     // 生成缓存键
-    std::wstring GenerateKey(const wchar_t* font_family, float font_size, float dpi_scale);
+    std::wstring GenerateKey(
+        const wchar_t* font_family,
+        float font_size,
+        float dpi_scale,
+        DWRITE_FONT_WEIGHT font_weight,
+        DWRITE_FONT_STYLE font_style
+    );
     
 public:
     TextFormatCache(IDWriteFactory* factory);
@@ -41,7 +47,9 @@ public:
     IDWriteTextFormat* GetOrCreate(
         const wchar_t* font_family,
         float font_size,
-        float dpi_scale
+        float dpi_scale,
+        DWRITE_FONT_WEIGHT font_weight = DWRITE_FONT_WEIGHT_NORMAL,
+        DWRITE_FONT_STYLE font_style = DWRITE_FONT_STYLE_NORMAL
     );
     
     // 清除所有缓存
@@ -146,10 +154,15 @@ struct TreeViewState {
     float indent_width;                  // 缩进宽度（默认 20）
     float icon_size;                     // 图标大小（默认 16）
     float expand_icon_size;              // 展开图标大小（默认 12）
+    float item_spacing;                  // 行间距（逻辑单位，行间额外空隙）
+    float sidebar_pad_left;              // 侧栏模式左侧内容内边距（逻辑单位）
+    float sidebar_pad_right;             // 侧栏模式右侧（箭头区）内边距（逻辑单位）
+    bool sidebar_mode;                   // 侧栏折叠菜单模式（右侧箭头、交互见文档）
     
     D2D1_COLOR_F background_color;       // 背景色
-    D2D1_COLOR_F text_color;             // 文本颜色
+    D2D1_COLOR_F text_color;             // 文本颜色（全局默认，新节点前景）
     D2D1_COLOR_F selected_color;         // 选中背景色
+    D2D1_COLOR_F selected_foreground;    // 选中前景色（字、侧栏图标与箭头）
     D2D1_COLOR_F hover_color;            // 悬停背景色
     D2D1_COLOR_F border_color;           // 边框颜色
     D2D1_COLOR_F scrollbar_bg_color;     // 滚动条背景色
@@ -189,6 +202,12 @@ struct TreeViewState {
     TreeViewCheckCallback on_node_checked;
     TreeViewMoveCallback on_node_moved;
     
+    // 全局字体（树控件主字体，逻辑单位）
+    std::wstring font_family_name;
+    float font_size_logical;
+    DWRITE_FONT_WEIGHT font_weight;
+    DWRITE_FONT_STYLE font_style;
+    
     // 构造函数
     TreeViewState() :
         hwnd(NULL),
@@ -215,6 +234,10 @@ struct TreeViewState {
         indent_width(20.0f),
         icon_size(16.0f),
         expand_icon_size(12.0f),
+        item_spacing(0.0f),
+        sidebar_pad_left(16.0f),
+        sidebar_pad_right(16.0f),
+        sidebar_mode(false),
         hover_node(nullptr),
         editing_node(nullptr),
         edit_control(NULL),
@@ -238,12 +261,17 @@ struct TreeViewState {
         on_node_right_click(nullptr),
         on_node_text_changed(nullptr),
         on_node_checked(nullptr),
-        on_node_moved(nullptr)
+        on_node_moved(nullptr),
+        font_family_name(L"Segoe UI Emoji"),
+        font_size_logical(14.0f),
+        font_weight(DWRITE_FONT_WEIGHT_NORMAL),
+        font_style(DWRITE_FONT_STYLE_NORMAL)
     {
         // 默认颜色（Element UI 风格）
         background_color = D2D1::ColorF(1.0f, 1.0f, 1.0f);           // 白色
         text_color = D2D1::ColorF(0.2f, 0.2f, 0.2f);                 // 深灰色
         selected_color = D2D1::ColorF(0.95f, 0.97f, 1.0f);           // 浅蓝色
+        selected_foreground = D2D1::ColorF(0.26f, 0.59f, 0.98f);     // Element 主色字 #409EFF 近似
         hover_color = D2D1::ColorF(0.98f, 0.98f, 0.98f);             // 浅灰色
         border_color = D2D1::ColorF(0.9f, 0.9f, 0.9f);               // 边框灰色
         scrollbar_bg_color = D2D1::ColorF(0.95f, 0.95f, 0.95f);      // 滚动条背景
@@ -472,6 +500,11 @@ void RenderTreeView(TreeViewState* state);
  * @param y_offset Y 偏移量
  */
 void RenderNode(TreeViewState* state, TreeNode* node, float y_offset);
+
+/**
+ * 侧栏模式右侧折叠箭头（∨ / ∧）
+ */
+void RenderSidebarChevron(TreeViewState* state, float center_x, float center_y, float size, bool expanded);
 
 /**
  * 渲染展开/折叠图标

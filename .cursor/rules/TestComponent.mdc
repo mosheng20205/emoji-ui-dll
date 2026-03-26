@@ -1,0 +1,8 @@
+---
+alwaysApply: true
+---
+
+自动编译64位dll给Python测试
+编写Python代码放在这个目录：examples\Python
+你需要使用Python运行测试检查组件所有功能是否正常，如果有问题自动修复
+运行的Python要有界面，我可以查看，不要运行一下就闪没了
