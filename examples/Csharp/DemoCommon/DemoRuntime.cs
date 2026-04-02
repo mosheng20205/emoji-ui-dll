@@ -89,6 +89,12 @@ namespace EmojiWindowDemo
 
         public void CreateStatusBar(string text) => StatusLabel = Label(16, Height - 52, Width - 32, 28, text, DemoColors.Black, DemoColors.LightBlue);
 
+        public void UpdateWindowSize(int width, int height)
+        {
+            Width = width;
+            Height = height;
+        }
+
         public void SetStatus(string text)
         {
             if (StatusLabel == IntPtr.Zero)
@@ -117,10 +123,26 @@ namespace EmojiWindowDemo
             return EmojiWindowNative.CreateEditBox(parent ?? Window, x, y, width, height, bytes, bytes.Length, DemoColors.Black, DemoColors.White, _fontBytes, _fontBytes.Length, 13, 0, 0, 0, 0, multiline ? 1 : 0, readOnly ? 1 : 0, password ? 1 : 0, 1, multiline ? 0 : 1);
         }
 
-        public IntPtr GroupBox(int x, int y, int width, int height, string title, uint? borderColor = null, uint? bgColor = null)
+        public IntPtr GroupBox(int x, int y, int width, int height, string title, uint? borderColor = null, uint? bgColor = null, IntPtr? parent = null)
         {
             byte[] bytes = U(title);
-            return EmojiWindowNative.CreateGroupBox(Window, x, y, width, height, bytes, bytes.Length, borderColor ?? DemoColors.Border, bgColor ?? DemoColors.Surface, _fontBytes, _fontBytes.Length, 13, 1, 0, 0);
+            return EmojiWindowNative.CreateGroupBox(parent ?? Window, x, y, width, height, bytes, bytes.Length, borderColor ?? DemoColors.Border, bgColor ?? DemoColors.Surface, _fontBytes, _fontBytes.Length, 13, 1, 0, 0);
+        }
+
+        public IntPtr Panel(int x, int y, int width, int height, uint? bgColor = null, IntPtr? parent = null)
+        {
+            return EmojiWindowNative.CreatePanel(parent ?? Window, x, y, width, height, bgColor ?? DemoColors.Surface);
+        }
+
+        public void AttachToGroup(IntPtr groupBox, params IntPtr[] children)
+        {
+            foreach (IntPtr child in children)
+            {
+                if (child != IntPtr.Zero)
+                {
+                    EmojiWindowNative.AddChildToGroup(groupBox, child);
+                }
+            }
         }
 
         public int Button(int x, int y, int width, int height, string text, string emoji = "", uint? color = null, Action onClick = null, IntPtr? parent = null)

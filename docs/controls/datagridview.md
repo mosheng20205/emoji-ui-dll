@@ -37,6 +37,7 @@ int __stdcall DataGrid_AddLinkColumn(HWND hDataGrid, const unsigned char* header
 
 // 图片列
 int __stdcall DataGrid_AddImageColumn(HWND hDataGrid, const unsigned char* header_bytes, int header_len, int width);
+int __stdcall DataGrid_AddProgressColumn(HWND hDataGrid, const unsigned char* header_bytes, int header_len, int width);
 ```
 
 ### 列类型常量
@@ -77,6 +78,8 @@ int  __stdcall DataGrid_GetCellText(HWND hDataGrid, int row, int col, unsigned c
 // 复选框
 void __stdcall DataGrid_SetCellChecked(HWND hDataGrid, int row, int col, BOOL checked);
 BOOL __stdcall DataGrid_GetCellChecked(HWND hDataGrid, int row, int col);
+void __stdcall DataGrid_SetCellProgress(HWND hDataGrid, int row, int col, int progress);
+int  __stdcall DataGrid_GetCellProgress(HWND hDataGrid, int row, int col);
 
 // 样式
 void __stdcall DataGrid_SetCellStyle(HWND hDataGrid, int row, int col, UINT32 fg_color, UINT32 bg_color);
@@ -96,7 +99,23 @@ void __stdcall DataGrid_SortByColumn(HWND hDataGrid, int col, BOOL ascending);
 
 ```c++
 void __stdcall DataGrid_SetFreezeHeader(HWND hDataGrid, BOOL freeze);
-void __stdcall DataGrid_SetFreezeFirstColumn(HWND hDataGrid, BOOL freeze);
+void __stdcall DataGrid_SetFreezeFirstColumn(HWND hDataGrid, BOOL freeze);  // 兼容接口
+void __stdcall DataGrid_SetFreezeColumnCount(HWND hDataGrid, int count);
+void __stdcall DataGrid_SetFreezeRowCount(HWND hDataGrid, int count);
+```
+
+- `DataGrid_SetFreezeHeader`：冻结列表头。启用后，纵向滚动时表头保持固定。
+- `DataGrid_SetFreezeColumnCount`：冻结左侧前 `N` 列。横向滚动时，这些列保持固定。
+- `DataGrid_SetFreezeRowCount`：冻结数据区顶部前 `N` 行。这里不包含列表头；如果需要表头固定，仍需同时调用 `DataGrid_SetFreezeHeader`。
+- `DataGrid_SetFreezeFirstColumn`：旧接口，内部等价于 `DataGrid_SetFreezeColumnCount(hDataGrid, freeze ? 1 : 0)`，保留用于兼容旧代码。
+- `count` 超出当前行数/列数时会自动截断；传 `0` 可取消对应冻结。
+
+### 推荐用法
+
+```c++
+DataGrid_SetFreezeHeader(hGrid, TRUE);     // 固定列表头
+DataGrid_SetFreezeColumnCount(hGrid, 2);   // 固定前 2 列
+DataGrid_SetFreezeRowCount(hGrid, 2);      // 固定前 2 行数据
 ```
 
 ## 虚拟模式
@@ -164,7 +183,7 @@ BOOL __stdcall DataGrid_ExportCSV(HWND hDataGrid, const unsigned char* file_path
 - ✅ 多种列类型：文本、复选框、按钮、链接、图片
 - ✅ 虚拟模式：支持 100000+ 行数据，仅加载可见行
 - ✅ 隔行变色：Zebra Stripes 提升可读性
-- ✅ 冻结行列：冻结列头和首列，方便浏览大表格
+- ✅ 冻结行列：支持冻结列头、前 N 列、前 N 行，方便浏览大表格
 - ✅ 排序：点击列头排序，支持升序/降序
 - ✅ 键盘导航：方向键、Tab、PageUp/Down、Home/End
 - ✅ 单元格编辑：双击进入编辑模式

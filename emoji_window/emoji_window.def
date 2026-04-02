@@ -167,6 +167,9 @@ EXPORTS
     ShowRadioButton
     SetRadioButtonText
     SetRadioButtonBounds
+    GetRadioButtonBounds
+    GetRadioButtonVisible
+    GetRadioButtonEnabled
     GetRadioButtonText
     SetRadioButtonFont
     GetRadioButtonFont
@@ -201,6 +204,12 @@ EXPORTS
     SetSwitchBounds
     CreateTooltip
     SetTooltipText
+    SetTooltipPlacement
+    SetTooltipTheme
+    SetTooltipColors
+    SetTooltipFont
+    SetTooltipTrigger
+    BindTooltipToControl
     ShowTooltipForControl
     HideTooltip
     DestroyTooltip
@@ -318,6 +327,7 @@ EXPORTS
     DataGrid_AddImageColumn
     DataGrid_AddComboBoxColumn
     DataGrid_AddTagColumn
+    DataGrid_AddProgressColumn
     DataGrid_RemoveColumn
     DataGrid_ClearColumns
     DataGrid_GetColumnCount
@@ -335,6 +345,8 @@ EXPORTS
     DataGrid_ClearCellImage
     DataGrid_SetCellChecked
     DataGrid_GetCellChecked
+    DataGrid_SetCellProgress
+    DataGrid_GetCellProgress
     DataGrid_SetCellStyle
     DataGrid_GetSelectedRow
     DataGrid_GetSelectedCol
@@ -343,6 +355,8 @@ EXPORTS
     DataGrid_SortByColumn
     DataGrid_SetFreezeHeader
     DataGrid_SetFreezeFirstColumn
+    DataGrid_SetFreezeColumnCount
+    DataGrid_SetFreezeRowCount
     DataGrid_SetVirtualRowCount
     DataGrid_SetVirtualDataCallback
     DataGrid_SetShowGridLines

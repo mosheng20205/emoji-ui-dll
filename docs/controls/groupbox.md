@@ -389,6 +389,56 @@ int __stdcall GetGroupBoxColor(HWND hGroupBox, UINT32* border_color, UINT32* bg_
 - 子控件距底部: 10px
 ```
 
+## 正确用法（重要）
+
+⚠️ **请优先按下面的规则使用 `GroupBox`：**
+
+1. **最稳妥、通用的做法**
+   - 普通 HWND 控件不要直接把 `GroupBox` 句柄当作父窗口来创建。
+   - 推荐做法是：**子控件仍然创建在主窗口/Tab页等真实父窗口上**，只是视觉上放到分组框区域内，然后再调用 `AddChildToGroup(...)` 把它登记到分组框。
+   - 这样可以确保显示、启用/禁用、显示/隐藏等行为都稳定。
+
+2. **不要误解“在 GroupBox 中创建子控件”**
+   - 文档里说“可以在分组框中创建子控件”，更准确地说，是**按分组框的相对坐标进行布局，并让分组框管理这些控件**。
+   - 这**不等同于**“所有控件都适合直接把父窗口设为 GroupBox 句柄”。
+
+3. **当前最安全的经验规则**
+   - `Button`、`CheckBox`、`RadioButton` 这几类控件可以按分组框相对坐标使用。
+   - `Label`、`EditBox`、`ProgressBar`、`ComboBox`、`ListBox`、`PictureBox`、`DataGridView` 等普通 HWND 控件，**不要手写成直接 parent 到 GroupBox 句柄**，否则可能出现空白、显示异常或行为不一致。
+
+### 推荐写法
+
+```e
+' 推荐：子控件创建在真实父窗口上，再加入分组框管理
+分组框1 ＝ 创建分组框_辅助 (窗口句柄, 20, 20, 260, 150, "标题", ...)
+标签1 ＝ 创建标签 (窗口句柄, 30, 55, 120, 24, ...)
+添加子控件到分组框 (分组框1, 标签1)
+```
+
+```csharp
+// 推荐：控件仍然挂在主窗口上，只是在视觉上放进 GroupBox 区域
+var group1 = CreateGroupBox(hwnd, 20, 20, 260, 150, ...);
+var label1 = CreateLabel(hwnd, 30, 55, 120, 24, ...);
+AddChildToGroup(group1, label1);
+```
+
+### 不推荐写法
+
+```e
+' 不推荐：普通 HWND 控件直接以 GroupBox 句柄作为父窗口
+标签1 ＝ 创建标签 (分组框1, 10, 10, 120, 24, ...)
+```
+
+```csharp
+// 不推荐：普通 HWND 控件直接 parent 到 GroupBox 句柄
+var label1 = CreateLabel(group1, 10, 10, 120, 24, ...);
+```
+
+### 设计器生成代码说明
+
+- 设计器生成的 C#、Python、易语言代码默认会尽量采用安全方式：控件创建在真实父窗口上，再加入 GroupBox 管理。
+- 如果你是手写代码，请遵循上面的“推荐写法”，不要自行把普通 HWND 控件直接挂到 `GroupBox` 句柄上。
+
 ## 相关文档
 
 - [单选按钮](radiobutton.md)

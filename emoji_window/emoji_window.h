@@ -640,13 +640,15 @@ enum DataGridColumnTypeFixed {
     DGCOL_LINK = 3,
     DGCOL_IMAGE = 4,
     DGCOL_COMBOBOX = 5,
-    DGCOL_TAG = 6
+    DGCOL_TAG = 6,
+    DGCOL_PROGRESS = 7
 };
 
 #if 0
 enum DataGridColumnType {
     DGCOL_TEXT = 0,         // 鏂囨湰鍒?    DGCOL_CHECKBOX = 1,     // 澶嶉€夋鍒?    DGCOL_BUTTON = 2,       // 鎸夐挳鍒?    DGCOL_LINK = 3,         // 閾炬帴鍒?    DGCOL_IMAGE = 4,        // 鍥剧墖鍒?    DGCOL_COMBOBOX = 5,     // 缁勫悎妗嗗垪
-    DGCOL_TAG = 6           // 标签列
+    DGCOL_TAG = 6,          // 标签列
+    DGCOL_PROGRESS = 7      // 进度条列
 };
 
 // 鎺掑簭鏂瑰悜
@@ -698,8 +700,11 @@ struct DataGridColumn {
 struct DataGridCell {
     std::wstring text;          // 鏂囨湰鍐呭
     bool checked;               // 澶嶉€夋鐘舵€?(DGCOL_CHECKBOX)
+    int progress;               // 杩涘害鍊?0-100锛圗GCOL_PROGRESS锛?
     DataGridCellStyle style;    // 鍗曞厓鏍兼牱寮?
     std::vector<unsigned char> image_data; // 鍥剧墖鍘熷缂栫爜鏁版嵁锛堢敤浜庣湡 bitmap 鍥剧墖鍒楋級
+
+    DataGridCell() : checked(false), progress(0), style{} {}
 };
 
 // 琛屾暟鎹?
@@ -759,6 +764,8 @@ struct DataGridViewState {
 
     // 鍐荤粨
     bool freeze_header;         // 鍐荤粨棣栬锛堝垪澶达級
+    int freeze_col_count;       // 鍐荤粨鍓嶯鍒楋紙鍐呴儴涓荤姸鎬侊級
+    int freeze_row_count;       // 鍐荤粨鍓嶯琛岋紙鍐呴儴棰勭暀锛?
     bool freeze_first_col;      // 鍐荤粨棣栧垪
 
     // 澶栬
@@ -2336,6 +2343,25 @@ extern "C" {
         int x, int y, int width, int height
     );
 
+    // 鑾峰彇鍗曢€夋寜閽綅缃拰澶у皬
+    __declspec(dllexport) int __stdcall GetRadioButtonBounds(
+        HWND hRadioButton,
+        int* x,
+        int* y,
+        int* width,
+        int* height
+    );
+
+    // 鑾峰彇鍗曢€夋寜閽彲瑙嗙姸鎬?
+    __declspec(dllexport) int __stdcall GetRadioButtonVisible(
+        HWND hRadioButton
+    );
+
+    // 鑾峰彇鍗曢€夋寜閽惎鐢ㄧ姸鎬?
+    __declspec(dllexport) int __stdcall GetRadioButtonEnabled(
+        HWND hRadioButton
+    );
+
     // 鑾峰彇鍗曢€夋寜閽枃鏈紙UTF-8锛屼袱娆¤皟鐢ㄦā寮忥級
     __declspec(dllexport) int __stdcall GetRadioButtonText(
         HWND hRadioButton,
@@ -3163,6 +3189,13 @@ extern "C" {
         int width
     );
 
+    __declspec(dllexport) int __stdcall DataGrid_AddProgressColumn(
+        HWND hGrid,
+        const unsigned char* header_bytes,
+        int header_len,
+        int width
+    );
+
     // 绉婚櫎鍒?
     __declspec(dllexport) void __stdcall DataGrid_RemoveColumn(
         HWND hGrid,
@@ -3278,6 +3311,17 @@ extern "C" {
         int row, int col
     );
 
+    __declspec(dllexport) void __stdcall DataGrid_SetCellProgress(
+        HWND hGrid,
+        int row, int col,
+        int progress
+    );
+
+    __declspec(dllexport) int __stdcall DataGrid_GetCellProgress(
+        HWND hGrid,
+        int row, int col
+    );
+
     // 璁剧疆鍗曞厓鏍兼牱寮?
     __declspec(dllexport) void __stdcall DataGrid_SetCellStyle(
         HWND hGrid,
@@ -3333,6 +3377,18 @@ extern "C" {
     __declspec(dllexport) void __stdcall DataGrid_SetFreezeFirstColumn(
         HWND hGrid,
         BOOL freeze
+    );
+
+    // 璁剧疆鍐荤粨鍓嶯鍒?
+    __declspec(dllexport) void __stdcall DataGrid_SetFreezeColumnCount(
+        HWND hGrid,
+        int count
+    );
+
+    // 璁剧疆鍐荤粨鍓嶯琛?
+    __declspec(dllexport) void __stdcall DataGrid_SetFreezeRowCount(
+        HWND hGrid,
+        int count
     );
 
     // --- 铏氭嫙妯″紡 ---

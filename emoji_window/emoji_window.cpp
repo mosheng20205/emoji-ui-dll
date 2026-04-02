@@ -3,6 +3,7 @@
 #include "treeview_window.h"  // WM_EW_TABPAGE_VISIBLE
 #include "submenu_window.h"
 #include <algorithm>
+#include <cwctype>
 #include <cmath>
 #include <windowsx.h>  // For GET_X_LPARAM and GET_Y_LPARAM
 #include <set>
@@ -2069,6 +2070,7 @@ void DrawButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, const EmojiB
     }
 
     float cursor_x = content_start_x;
+    const float content_y_offset = 0.0f;
 
     if (show_spinner) {
         DrawButtonSpinner(
@@ -2097,9 +2099,9 @@ void DrawButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, const EmojiB
             emoji_format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
             D2D1_RECT_F emoji_rect = D2D1::RectF(
                 cursor_x,
-                (FLOAT)button.y,
+                (FLOAT)button.y + content_y_offset,
                 cursor_x + emoji_width + 8.0f,
-                (FLOAT)(button.y + button.height)
+                (FLOAT)(button.y + button.height + content_y_offset)
             );
             rt->DrawText(
                 button.emoji.c_str(),
@@ -2136,9 +2138,9 @@ void DrawButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, const EmojiB
 
             D2D1_RECT_F text_rect = D2D1::RectF(
                 cursor_x,
-                (FLOAT)button.y,
+                (FLOAT)button.y + content_y_offset,
                 cursor_x + max(text_width + 8.0f, (float)button.width - (cursor_x - button.x)),
-                (FLOAT)(button.y + button.height)
+                (FLOAT)(button.y + button.height + content_y_offset)
             );
             rt->DrawText(
                 button.text.c_str(),
@@ -4684,6 +4686,11 @@ static LRESULT CALLBACK TabContentWindowProc(HWND hwnd, UINT msg, WPARAM wparam,
         if (state) {
             int x = LOWORD(lparam);
             int y = HIWORD(lparam);
+            POINT screen_pt = { x, y };
+            ClientToScreen(hwnd, &screen_pt);
+            if (DispatchVisiblePopupMenuClick(hwnd, screen_pt, false)) {
+                return 0;
+            }
             for (auto& button : state->buttons) {
                 if (button.hwnd && IsWindow(button.hwnd)) continue;
                 if (IsButtonOwnedByAnyGroupBox(button.id)) continue;
@@ -4700,6 +4707,11 @@ static LRESULT CALLBACK TabContentWindowProc(HWND hwnd, UINT msg, WPARAM wparam,
         if (state) {
             int x = LOWORD(lparam);
             int y = HIWORD(lparam);
+            POINT screen_pt = { x, y };
+            ClientToScreen(hwnd, &screen_pt);
+            if (DispatchVisiblePopupMenuClick(hwnd, screen_pt, true)) {
+                return 0;
+            }
             for (auto& button : state->buttons) {
                 if (button.hwnd && IsWindow(button.hwnd)) continue;
                 if (IsButtonOwnedByAnyGroupBox(button.id)) continue;
@@ -4713,6 +4725,22 @@ static LRESULT CALLBACK TabContentWindowProc(HWND hwnd, UINT msg, WPARAM wparam,
             }
         }
         return 0;
+    }
+    case WM_RBUTTONDOWN: {
+        POINT screen_pt = { LOWORD(lparam), HIWORD(lparam) };
+        ClientToScreen(hwnd, &screen_pt);
+        if (DispatchVisiblePopupMenuClick(hwnd, screen_pt, false)) {
+            return 0;
+        }
+        break;
+    }
+    case WM_RBUTTONUP: {
+        POINT screen_pt = { LOWORD(lparam), HIWORD(lparam) };
+        ClientToScreen(hwnd, &screen_pt);
+        if (DispatchVisiblePopupMenuClick(hwnd, screen_pt, true)) {
+            return 0;
+        }
+        break;
     }
     case WM_MOUSEMOVE: {
         if (state) {
@@ -9686,10 +9714,60 @@ void __stdcall SetRadioButtonBounds(HWND hRadioButton, int x, int y, int width, 
     auto it = g_radiobuttons.find(hRadioButton);
     if (it == g_radiobuttons.end()) return;
     
+    it->second->x = x;
+    it->second->y = y;
     it->second->width = width;
     it->second->height = height;
     SetWindowPos(hRadioButton, nullptr, x, y, width, height, SWP_NOZORDER);
     InvalidateRect(hRadioButton, nullptr, FALSE);
+}
+
+// 获取单选按钮位置和大小
+__declspec(dllexport) int __stdcall GetRadioButtonBounds(
+    HWND hRadioButton,
+    int* x,
+    int* y,
+    int* width,
+    int* height
+) {
+    auto it = g_radiobuttons.find(hRadioButton);
+    if (it == g_radiobuttons.end()) return -1;
+
+    RECT rc;
+    if (!GetWindowRect(hRadioButton, &rc)) return -1;
+
+    HWND hParent = GetParent(hRadioButton);
+    if (hParent) {
+        POINT pt = { rc.left, rc.top };
+        ScreenToClient(hParent, &pt);
+        if (x) *x = pt.x;
+        if (y) *y = pt.y;
+    } else {
+        if (x) *x = rc.left;
+        if (y) *y = rc.top;
+    }
+
+    if (width) *width = rc.right - rc.left;
+    if (height) *height = rc.bottom - rc.top;
+    return 0;
+}
+
+// 获取单选按钮可视状态
+__declspec(dllexport) int __stdcall GetRadioButtonVisible(
+    HWND hRadioButton
+) {
+    auto it = g_radiobuttons.find(hRadioButton);
+    if (it == g_radiobuttons.end()) return -1;
+    return IsWindowVisible(hRadioButton) ? 1 : 0;
+}
+
+// 获取单选按钮启用状态
+__declspec(dllexport) int __stdcall GetRadioButtonEnabled(
+    HWND hRadioButton
+) {
+    auto it = g_radiobuttons.find(hRadioButton);
+    if (it == g_radiobuttons.end()) return -1;
+    return it->second->enabled ? 1 : 0;
 }
 
 // 获取单选按钮文本（UTF-8，两次调用模式）
@@ -15609,6 +15687,11 @@ LRESULT CALLBACK GroupBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
         case WM_LBUTTONDOWN: {
             int x = GET_X_LPARAM(lparam);
             int y = GET_Y_LPARAM(lparam);
+            POINT screen_pt = { x, y };
+            ClientToScreen(hwnd, &screen_pt);
+            if (DispatchVisiblePopupMenuClick(hwnd, screen_pt, false)) {
+                return 0;
+            }
             if (EmojiButton* button = FindGroupBoxButtonAtPoint(state, x, y)) {
                 button->is_pressed = true;
                 InvalidateRect(hwnd, nullptr, FALSE);
@@ -15620,6 +15703,11 @@ LRESULT CALLBACK GroupBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
         case WM_LBUTTONUP: {
             int x = GET_X_LPARAM(lparam);
             int y = GET_Y_LPARAM(lparam);
+            POINT screen_pt = { x, y };
+            ClientToScreen(hwnd, &screen_pt);
+            if (DispatchVisiblePopupMenuClick(hwnd, screen_pt, true)) {
+                return 0;
+            }
             bool needs_redraw = false;
             EmojiButton* hit_button = FindGroupBoxButtonAtPoint(state, x, y);
             auto win_it = g_windows.find(state->parent);
@@ -15640,6 +15728,24 @@ LRESULT CALLBACK GroupBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
             }
             if (needs_redraw) {
                 InvalidateRect(hwnd, nullptr, FALSE);
+                return 0;
+            }
+            break;
+        }
+
+        case WM_RBUTTONDOWN: {
+            POINT screen_pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
+            ClientToScreen(hwnd, &screen_pt);
+            if (DispatchVisiblePopupMenuClick(hwnd, screen_pt, false)) {
+                return 0;
+            }
+            break;
+        }
+
+        case WM_RBUTTONUP: {
+            POINT screen_pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
+            ClientToScreen(hwnd, &screen_pt);
+            if (DispatchVisiblePopupMenuClick(hwnd, screen_pt, true)) {
                 return 0;
             }
             break;
@@ -18376,6 +18482,102 @@ static int DataGrid_GetTotalColumnsWidth(DataGridViewState* state) {
     return total;
 }
 
+static int DataGrid_GetFrozenColumnCount(const DataGridViewState* state) {
+    if (!state) return 0;
+    int count = state->freeze_col_count;
+    if (count <= 0 && state->freeze_first_col) {
+        count = 1;
+    }
+    return max(0, min(count, (int)state->columns.size()));
+}
+
+static int DataGrid_GetFrozenRowCount(const DataGridViewState* state) {
+    if (!state) return 0;
+    int row_count = state->virtual_mode ? state->virtual_row_count : (int)state->rows.size();
+    return max(0, min(state->freeze_row_count, row_count));
+}
+
+static int DataGrid_GetFrozenColumnsWidth(const DataGridViewState* state) {
+    if (!state) return 0;
+    int total = 0;
+    int count = DataGrid_GetFrozenColumnCount(state);
+    for (int i = 0; i < count; ++i) {
+        total += state->columns[i].width;
+    }
+    return total;
+}
+
+static int DataGrid_GetFrozenRowsHeight(const DataGridViewState* state) {
+    if (!state) return 0;
+    return DataGrid_GetFrozenRowCount(state) * state->default_row_height;
+}
+
+static int DataGrid_GetScrollableColumnsWidth(const DataGridViewState* state) {
+    if (!state) return 0;
+    int total = 0;
+    int frozen_count = DataGrid_GetFrozenColumnCount(state);
+    for (int i = frozen_count; i < (int)state->columns.size(); ++i) {
+        total += state->columns[i].width;
+    }
+    return total;
+}
+
+static int DataGrid_GetScrollableRowsHeight(const DataGridViewState* state) {
+    if (!state) return 0;
+    int row_count = state->virtual_mode ? state->virtual_row_count : (int)state->rows.size();
+    return max(0, row_count - DataGrid_GetFrozenRowCount(state)) * state->default_row_height;
+}
+
+static int DataGrid_GetScrollableViewportWidth(const DataGridViewState* state) {
+    if (!state) return 0;
+    return max(0, state->width - DataGrid_GetFrozenColumnsWidth(state));
+}
+
+static int DataGrid_GetScrollableViewportHeight(const DataGridViewState* state) {
+    if (!state) return 0;
+    return max(0, state->height - state->header_height - DataGrid_GetFrozenRowsHeight(state));
+}
+
+static int DataGrid_GetMaxScrollX(const DataGridViewState* state) {
+    return max(0, DataGrid_GetScrollableColumnsWidth(state) - DataGrid_GetScrollableViewportWidth(state));
+}
+
+static int DataGrid_GetMaxScrollY(const DataGridViewState* state) {
+    return max(0, DataGrid_GetScrollableRowsHeight(state) - DataGrid_GetScrollableViewportHeight(state));
+}
+
+static int DataGrid_GetColumnLeft(const DataGridViewState* state, int col) {
+    if (!state || col < 0 || col >= (int)state->columns.size()) return 0;
+
+    int frozen_count = DataGrid_GetFrozenColumnCount(state);
+    int left = 0;
+    if (col < frozen_count) {
+        for (int i = 0; i < col; ++i) {
+            left += state->columns[i].width;
+        }
+        return left;
+    }
+
+    left = DataGrid_GetFrozenColumnsWidth(state) - state->scroll_x;
+    for (int i = frozen_count; i < col; ++i) {
+        left += state->columns[i].width;
+    }
+    return left;
+}
+
+static int DataGrid_GetRowTop(const DataGridViewState* state, int row) {
+    if (!state || row < 0) return state ? state->header_height : 0;
+
+    int frozen_row_count = DataGrid_GetFrozenRowCount(state);
+    int frozen_rows_height = DataGrid_GetFrozenRowsHeight(state);
+    if (row < frozen_row_count) {
+        return state->header_height + row * state->default_row_height;
+    }
+
+    return state->header_height + frozen_rows_height +
+        (row - frozen_row_count) * state->default_row_height - state->scroll_y;
+}
+
 static void DataGrid_EndEdit(DataGridViewState* state, bool apply);
 static const UINT WM_DATAGRID_COMBO_COMMIT = WM_APP + 0x341;
 static const UINT WM_DATAGRID_TEXT_COMMIT = WM_APP + 0x342;
@@ -18431,6 +18633,12 @@ static int DataGrid_GetEffectiveRowCount(DataGridViewState* state) {
     return state->virtual_mode ? state->virtual_row_count : (int)state->rows.size();
 }
 
+static int DataGrid_ClampProgressValue(int value) {
+    return max(0, min(value, 100));
+}
+
+static DataGridCell* DataGrid_GetConcreteCell(DataGridViewState* state, int row, int col);
+
 // 获取单元格文本（考虑虚拟模式）
 static std::wstring DataGrid_GetCellDisplayText(DataGridViewState* state, int row, int col) {
     if (state->virtual_mode) {
@@ -18445,9 +18653,43 @@ static std::wstring DataGrid_GetCellDisplayText(DataGridViewState* state, int ro
     }
     if (row >= 0 && row < (int)state->rows.size() &&
         col >= 0 && col < (int)state->rows[row].cells.size()) {
-        return state->rows[row].cells[col].text;
+        const DataGridCell& cell = state->rows[row].cells[col];
+        if (col >= 0 && col < (int)state->columns.size() &&
+            state->columns[col].type == DGCOL_PROGRESS &&
+            cell.text.empty()) {
+            return std::to_wstring(DataGrid_ClampProgressValue(cell.progress)) + L"%";
+        }
+        return cell.text;
     }
     return L"";
+}
+
+static bool DataGrid_TryParseProgressText(const std::wstring& text, int* value) {
+    if (!value) return false;
+    const wchar_t* ptr = text.c_str();
+    while (*ptr && iswspace(*ptr)) ptr++;
+    if (!*ptr) return false;
+
+    wchar_t* end_ptr = nullptr;
+    long parsed = wcstol(ptr, &end_ptr, 10);
+    if (end_ptr == ptr) return false;
+
+    while (*end_ptr && (iswspace(*end_ptr) || *end_ptr == L'%')) end_ptr++;
+    if (*end_ptr != L'\0') return false;
+
+    *value = DataGrid_ClampProgressValue((int)parsed);
+    return true;
+}
+
+static int DataGrid_GetCellProgressValue(DataGridViewState* state, int row, int col) {
+    if (!state) return 0;
+    if (state->virtual_mode) {
+        int parsed = 0;
+        return DataGrid_TryParseProgressText(DataGrid_GetCellDisplayText(state, row, col), &parsed) ? parsed : 0;
+    }
+
+    DataGridCell* cell = DataGrid_GetConcreteCell(state, row, col);
+    return cell ? DataGrid_ClampProgressValue(cell->progress) : 0;
 }
 
 // 获取单元格复选框状态（考虑虚拟模式）
@@ -18485,11 +18727,8 @@ static bool DataGrid_GetCellRect(DataGridViewState* state, int row, int col, REC
     if (!state || !rect) return false;
     if (row < 0 || col < 0 || col >= (int)state->columns.size()) return false;
 
-    rect->left = -state->scroll_x;
-    for (int c = 0; c < col; ++c) {
-        rect->left += state->columns[c].width;
-    }
-    rect->top = state->header_height + row * state->default_row_height - state->scroll_y;
+    rect->left = DataGrid_GetColumnLeft(state, col);
+    rect->top = DataGrid_GetRowTop(state, row);
     rect->right = rect->left + state->columns[col].width;
     rect->bottom = rect->top + state->default_row_height;
     return true;
@@ -18565,13 +18804,21 @@ static std::wstring DataGrid_ReadEditText(DataGridViewState* state) {
 static void DataGrid_HitTest(DataGridViewState* state, int px, int py, int& out_row, int& out_col) {
     out_row = -1;
     out_col = -1;
+    if (!state) return;
 
     // 检查是否在列头区域
     if (py < state->header_height) {
         out_row = -1; // 列头
     } else {
-        int y_offset = py - state->header_height + state->scroll_y;
-        out_row = y_offset / state->default_row_height;
+        int frozen_rows_height = DataGrid_GetFrozenRowsHeight(state);
+        int frozen_row_count = DataGrid_GetFrozenRowCount(state);
+        int y_offset = py - state->header_height;
+        if (y_offset < frozen_rows_height) {
+            out_row = y_offset / state->default_row_height;
+        } else {
+            y_offset = y_offset - frozen_rows_height + state->scroll_y;
+            out_row = frozen_row_count + y_offset / state->default_row_height;
+        }
         int row_count = DataGrid_GetEffectiveRowCount(state);
         if (out_row < 0 || out_row >= row_count) {
             out_row = -1;
@@ -18579,8 +18826,23 @@ static void DataGrid_HitTest(DataGridViewState* state, int px, int py, int& out_
     }
 
     // 计算列
-    int x_accum = -state->scroll_x;
-    for (int c = 0; c < (int)state->columns.size(); c++) {
+    int frozen_col_count = DataGrid_GetFrozenColumnCount(state);
+    int frozen_width = DataGrid_GetFrozenColumnsWidth(state);
+    int x_accum = 0;
+    for (int c = 0; c < frozen_col_count; ++c) {
+        if (px >= x_accum && px < x_accum + state->columns[c].width) {
+            out_col = c;
+            break;
+        }
+        x_accum += state->columns[c].width;
+    }
+
+    if (out_col >= 0 || px < frozen_width) {
+        return;
+    }
+
+    x_accum = frozen_width - state->scroll_x;
+    for (int c = frozen_col_count; c < (int)state->columns.size(); ++c) {
         if (px >= x_accum && px < x_accum + state->columns[c].width) {
             out_col = c;
             break;
@@ -18592,9 +18854,10 @@ static void DataGrid_HitTest(DataGridViewState* state, int px, int py, int& out_
 // 检查是否在列边界上（用于调整列宽）
 static int DataGrid_HitTestColumnBorder(DataGridViewState* state, int px, int py) {
     if (py >= state->header_height) return -1; // 只在列头区域
-    int x_accum = -state->scroll_x;
+    if (!state) return -1;
+
     for (int c = 0; c < (int)state->columns.size(); c++) {
-        x_accum += state->columns[c].width;
+        int x_accum = DataGrid_GetColumnLeft(state, c) + state->columns[c].width;
         if (px >= x_accum - 4 && px <= x_accum + 4) {
             if (state->columns[c].resizable) return c;
         }
@@ -18604,31 +18867,40 @@ static int DataGrid_HitTestColumnBorder(DataGridViewState* state, int px, int py
 
 // 确保选中单元格可见（自动滚动）
 static void DataGrid_EnsureVisible(DataGridViewState* state, int row, int col) {
+    if (!state) return;
     if (row < 0) return;
+
+    int frozen_row_count = DataGrid_GetFrozenRowCount(state);
+    int frozen_col_count = DataGrid_GetFrozenColumnCount(state);
+    int max_scroll_y = DataGrid_GetMaxScrollY(state);
+    int max_scroll_x = DataGrid_GetMaxScrollX(state);
+
     // 垂直滚动
-    int row_top = row * state->default_row_height;
-    int row_bottom = row_top + state->default_row_height;
-    int visible_top = state->scroll_y;
-    int visible_bottom = state->scroll_y + (state->height - state->header_height);
-    if (row_top < visible_top) {
-        state->scroll_y = row_top;
-    } else if (row_bottom > visible_bottom) {
-        state->scroll_y = row_bottom - (state->height - state->header_height);
+    if (row >= frozen_row_count) {
+        int row_top = (row - frozen_row_count) * state->default_row_height;
+        int row_bottom = row_top + state->default_row_height;
+        int visible_top = state->scroll_y;
+        int visible_bottom = state->scroll_y + DataGrid_GetScrollableViewportHeight(state);
+        if (row_top < visible_top) {
+            state->scroll_y = row_top;
+        } else if (row_bottom > visible_bottom) {
+            state->scroll_y = row_bottom - DataGrid_GetScrollableViewportHeight(state);
+        }
     }
+
     // 水平滚动
-    if (col >= 0 && col < (int)state->columns.size()) {
+    if (col >= frozen_col_count && col < (int)state->columns.size()) {
         int col_left = 0;
-        for (int c = 0; c < col; c++) col_left += state->columns[c].width;
+        for (int c = frozen_col_count; c < col; c++) col_left += state->columns[c].width;
         int col_right = col_left + state->columns[col].width;
         if (col_left < state->scroll_x) {
             state->scroll_x = col_left;
-        } else if (col_right > state->scroll_x + state->width) {
-            state->scroll_x = col_right - state->width;
+        } else if (col_right > state->scroll_x + DataGrid_GetScrollableViewportWidth(state)) {
+            state->scroll_x = col_right - DataGrid_GetScrollableViewportWidth(state);
         }
     }
+
     // 限制滚动范围
-    int max_scroll_y = max(0, DataGrid_GetTotalRowsHeight(state) - (state->height - state->header_height));
-    int max_scroll_x = max(0, DataGrid_GetTotalColumnsWidth(state) - state->width);
     state->scroll_y = max(0, min(state->scroll_y, max_scroll_y));
     state->scroll_x = max(0, min(state->scroll_x, max_scroll_x));
 }
@@ -18902,6 +19174,8 @@ void DrawDataGridView(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, DataGr
     rt->FillRectangle(D2D1::RectF(0, 0, size.width, size.height), brush);
 
     float hdr_h = (float)state->header_height;
+    int frozen_col_count = DataGrid_GetFrozenColumnCount(state);
+    int frozen_width = DataGrid_GetFrozenColumnsWidth(state);
     D2D1_COLOR_F grid_color = ColorFromUInt32(grid_argb);
     D2D1_COLOR_F header_bg_color = ColorFromUInt32(header_bg_argb);
     D2D1_COLOR_F header_text_color = ColorFromUInt32(header_fg_argb);
@@ -18912,10 +19186,18 @@ void DrawDataGridView(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, DataGr
     brush->SetColor(header_bg_color);
     rt->FillRectangle(D2D1::RectF(0, 0, size.width, hdr_h), brush);
 
-    float col_x = (float)(-state->scroll_x);
     for (int c = 0; c < (int)state->columns.size(); c++) {
+        float col_x = (float)DataGrid_GetColumnLeft(state, c);
         float col_w = (float)state->columns[c].width;
-        if (col_x + col_w > 0 && col_x < size.width) {
+        bool is_frozen_col = (c < frozen_col_count);
+        D2D1_RECT_F clip_rect = is_frozen_col
+            ? D2D1::RectF(0.0f, 0.0f, (float)frozen_width, hdr_h)
+            : D2D1::RectF((float)frozen_width, 0.0f, size.width, hdr_h);
+        if (clip_rect.right <= clip_rect.left) {
+            continue;
+        }
+        if (col_x + col_w > clip_rect.left && col_x < clip_rect.right) {
+            rt->PushAxisAlignedClip(clip_rect, D2D1_ANTIALIAS_MODE_ALIASED);
             D2D1_RECT_F cell_rect = D2D1::RectF(col_x, 0, col_x + col_w, hdr_h);
             UINT32 cell_bg_argb = header_bg_argb;
             UINT32 cell_fg_argb = header_fg_argb;
@@ -18995,8 +19277,8 @@ void DrawDataGridView(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, DataGr
                 brush->SetColor(grid_color);
                 rt->DrawLine(D2D1::Point2F(col_x + col_w, 0), D2D1::Point2F(col_x + col_w, hdr_h), brush, 1.0f);
             }
+            rt->PopAxisAlignedClip();
         }
-        col_x += col_w;
     }
     if (state->show_grid_lines) {
         brush->SetColor(grid_color);
@@ -19005,14 +19287,21 @@ void DrawDataGridView(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, DataGr
 
     rt->PushAxisAlignedClip(D2D1::RectF(0, hdr_h, size.width, size.height), D2D1_ANTIALIAS_MODE_ALIASED);
 
-    int visible_start = state->scroll_y / state->default_row_height;
-    int visible_count = (int)((size.height - hdr_h) / state->default_row_height) + 2;
-    int visible_end = min(visible_start + visible_count, row_count);
+    int frozen_row_count = DataGrid_GetFrozenRowCount(state);
+    int frozen_rows_height = DataGrid_GetFrozenRowsHeight(state);
+    int scrollable_viewport_h = DataGrid_GetScrollableViewportHeight(state);
 
-    for (int r = visible_start; r < visible_end; r++) {
-        float row_y = hdr_h + (float)(r * state->default_row_height - state->scroll_y);
+    auto draw_row = [&](int r) {
+        float row_y = (float)DataGrid_GetRowTop(state, r);
         float row_h = (float)state->default_row_height;
-        if (row_y + row_h < hdr_h || row_y > size.height) continue;
+        if (row_y + row_h < hdr_h || row_y > size.height) return;
+        bool is_frozen_row = (r < frozen_row_count);
+        float row_clip_top = is_frozen_row ? hdr_h : hdr_h + (float)frozen_rows_height;
+        float row_clip_bottom = is_frozen_row ? hdr_h + (float)frozen_rows_height : size.height;
+        if (row_clip_bottom <= row_clip_top) return;
+
+        D2D1_RECT_F row_clip = D2D1::RectF(0.0f, row_clip_top, size.width, row_clip_bottom);
+        rt->PushAxisAlignedClip(row_clip, D2D1_ANTIALIAS_MODE_ALIASED);
 
         bool is_selected_row = (r == state->selected_row);
         bool is_hovered = (r == state->hovered_row);
@@ -19030,13 +19319,21 @@ void DrawDataGridView(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, DataGr
             rt->FillRectangle(D2D1::RectF(0, row_y, size.width, row_y + row_h), brush);
         }
 
-        col_x = (float)(-state->scroll_x);
         for (int c = 0; c < (int)state->columns.size(); c++) {
+            float col_x = (float)DataGrid_GetColumnLeft(state, c);
             float cw = (float)state->columns[c].width;
-            if (col_x + cw <= 0 || col_x >= size.width) {
-                col_x += cw;
+            bool is_frozen_col = (c < frozen_col_count);
+            D2D1_RECT_F region_clip = is_frozen_col
+                ? D2D1::RectF(0.0f, row_clip_top, (float)frozen_width, row_clip_bottom)
+                : D2D1::RectF((float)frozen_width, row_clip_top, size.width, row_clip_bottom);
+            if (region_clip.right <= region_clip.left) {
                 continue;
             }
+            if (col_x + cw <= region_clip.left || col_x >= region_clip.right) {
+                continue;
+            }
+
+            rt->PushAxisAlignedClip(region_clip, D2D1_ANTIALIAS_MODE_ALIASED);
 
             D2D1_RECT_F cell_rect = D2D1::RectF(col_x, row_y, col_x + cw, row_y + row_h);
             bool is_selected_cell = (state->selection_mode == DGSEL_CELL && r == state->selected_row && c == state->selected_col);
@@ -19050,7 +19347,10 @@ void DrawDataGridView(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, DataGr
                 cell_style = state->rows[r].cells[c].style;
             }
 
-            if (cell_style.bg_color && !is_selected_cell && !(is_selected_row && state->selection_mode == DGSEL_ROW)) {
+            if (cell_style.bg_color &&
+                state->columns[c].type != DGCOL_PROGRESS &&
+                !is_selected_cell &&
+                !(is_selected_row && state->selection_mode == DGSEL_ROW)) {
                 brush->SetColor(ColorFromUInt32(ResolveThemeColor(cell_style.bg_color)));
                 rt->FillRectangle(cell_rect, brush);
             }
@@ -19198,6 +19498,74 @@ void DrawDataGridView(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, DataGr
                 }
                 break;
             }
+            case DGCOL_PROGRESS: {
+                int progress = DataGrid_GetCellProgressValue(state, r, c);
+                UINT32 progress_fill = cell_style.bg_color ? ResolveThemeColor(cell_style.bg_color) : ThemeColor_Primary();
+                UINT32 progress_track = dark_theme
+                    ? BlendThemeSurface(ThemeColor_BackgroundLight(), progress_fill, 0.18f)
+                    : BlendThemeSurface(ThemeColor_BackgroundLight(), progress_fill, 0.08f);
+                UINT32 progress_border = is_selected_cell
+                    ? DarkenColor(progress_fill, 0.90f)
+                    : BlendThemeSurface(ThemeColor_BorderLight(), progress_fill, dark_theme ? 0.18f : 0.10f);
+                UINT32 track_text = cell_style.fg_color ? ResolveThemeColor(cell_style.fg_color) : ThemeColor_TextSecondary();
+                UINT32 fill_text = AutoContrastText(progress_fill);
+                std::wstring value = DataGrid_GetCellDisplayText(state, r, c);
+                if (value.empty()) value = std::to_wstring(progress) + L"%";
+
+                float bar_x = col_x + 10.0f;
+                float bar_y = row_y + max(7.0f, (row_h - 16.0f) / 2.0f);
+                float bar_w = max(18.0f, cw - 20.0f);
+                float bar_h = min(16.0f, row_h - 10.0f);
+                float inner_padding = 1.5f;
+                float inner_x = bar_x + inner_padding;
+                float inner_y = bar_y + inner_padding;
+                float inner_w = max(1.0f, bar_w - inner_padding * 2.0f);
+                float inner_h = max(1.0f, bar_h - inner_padding * 2.0f);
+                float fill_w = (inner_w * progress) / 100.0f;
+                D2D1_ROUNDED_RECT track_rect = D2D1::RoundedRect(
+                    D2D1::RectF(bar_x, bar_y, bar_x + bar_w, bar_y + bar_h),
+                    bar_h / 2.0f,
+                    bar_h / 2.0f
+                );
+
+                brush->SetColor(ColorFromUInt32(progress_track));
+                rt->FillRoundedRectangle(track_rect, brush);
+                brush->SetColor(ColorFromUInt32(progress_border));
+                rt->DrawRoundedRectangle(track_rect, brush, 1.0f);
+
+                if (fill_w > 0.0f) {
+                    brush->SetColor(ColorFromUInt32(progress_fill));
+                    rt->FillRoundedRectangle(
+                        D2D1::RoundedRect(
+                            D2D1::RectF(inner_x, inner_y, inner_x + fill_w, inner_y + inner_h),
+                            inner_h / 2.0f,
+                            inner_h / 2.0f
+                        ),
+                        brush
+                    );
+                }
+
+                IDWriteTextLayout* layout = nullptr;
+                factory->CreateTextLayout(value.c_str(), (UINT32)value.length(), text_format, max(1.0f, bar_w - 12.0f), max(1.0f, bar_h), &layout);
+                if (layout) {
+                    layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                    layout->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
+                    D2D1_POINT_2F text_origin = D2D1::Point2F(bar_x + 6.0f, bar_y - 0.5f);
+                    brush->SetColor(ColorFromUInt32(track_text));
+                    rt->DrawTextLayout(text_origin, layout, brush, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+
+                    if (fill_w > 8.0f) {
+                        rt->PushAxisAlignedClip(D2D1::RectF(inner_x, inner_y, inner_x + fill_w, inner_y + inner_h), D2D1_ANTIALIAS_MODE_ALIASED);
+                        brush->SetColor(ColorFromUInt32(fill_text));
+                        rt->DrawTextLayout(text_origin, layout, brush, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+                        rt->PopAxisAlignedClip();
+                    }
+
+                    layout->Release();
+                }
+                break;
+            }
             case DGCOL_IMAGE: {
                 DataGridCell* concrete_cell = DataGrid_GetConcreteCell(state, r, c);
                 bool has_bitmap = concrete_cell && !concrete_cell->image_data.empty();
@@ -19259,12 +19627,26 @@ void DrawDataGridView(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, DataGr
                 brush->SetColor(grid_color);
                 rt->DrawLine(D2D1::Point2F(col_x + cw, row_y), D2D1::Point2F(col_x + cw, row_y + row_h), brush, 0.5f);
             }
-            col_x += cw;
+            rt->PopAxisAlignedClip();
         }
 
         if (state->show_grid_lines) {
             brush->SetColor(grid_color);
             rt->DrawLine(D2D1::Point2F(0, row_y + row_h), D2D1::Point2F(size.width, row_y + row_h), brush, 0.5f);
+        }
+        rt->PopAxisAlignedClip();
+    };
+
+    for (int r = 0; r < frozen_row_count; ++r) {
+        draw_row(r);
+    }
+
+    if (scrollable_viewport_h > 0) {
+        int visible_start = frozen_row_count + state->scroll_y / state->default_row_height;
+        int visible_count = (int)((float)scrollable_viewport_h / state->default_row_height) + 2;
+        int visible_end = min(visible_start + visible_count, row_count);
+        for (int r = visible_start; r < visible_end; ++r) {
+            draw_row(r);
         }
     }
 
@@ -19273,16 +19655,17 @@ void DrawDataGridView(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, DataGr
     brush->SetColor(ColorFromUInt32(ThemeColor_BorderBase()));
     rt->DrawRectangle(D2D1::RectF(0, 0, size.width, size.height), brush, 1.0f);
 
-    int total_rows_h = DataGrid_GetTotalRowsHeight(state);
-    int visible_h = state->height - state->header_height;
-    if (total_rows_h > visible_h && visible_h > 0) {
+    int total_rows_h = DataGrid_GetScrollableRowsHeight(state);
+    int visible_h = DataGrid_GetScrollableViewportHeight(state);
+    int max_scroll_y = DataGrid_GetMaxScrollY(state);
+    if (total_rows_h > visible_h && visible_h > 0 && max_scroll_y > 0) {
         const float scrollbar_width = 8.0f;
         const float scrollbar_margin = 2.0f;
         float track_x = size.width - scrollbar_width - scrollbar_margin;
-        float track_y = hdr_h + scrollbar_margin;
+        float track_y = hdr_h + (float)frozen_rows_height + scrollbar_margin;
         float track_h = (float)visible_h - scrollbar_margin * 2.0f;
-        float thumb_h = max(20.0f, track_h * visible_h / total_rows_h);
-        float thumb_y = track_y + (track_h - thumb_h) * state->scroll_y / (total_rows_h - visible_h);
+        float thumb_h = min(track_h, max(20.0f, track_h * visible_h / total_rows_h));
+        float thumb_y = track_y + (track_h - thumb_h) * state->scroll_y / max_scroll_y;
         brush->SetColor(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.05f));
         rt->FillRoundedRectangle(
             D2D1::RoundedRect(
@@ -19300,15 +19683,20 @@ void DrawDataGridView(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, DataGr
             brush
         );
     }
-    int total_cols_w = DataGrid_GetTotalColumnsWidth(state);
-    if (total_cols_w > state->width && state->width > 0) {
+    int total_cols_w = DataGrid_GetScrollableColumnsWidth(state);
+    int visible_w = DataGrid_GetScrollableViewportWidth(state);
+    int max_scroll_x = DataGrid_GetMaxScrollX(state);
+    if (total_cols_w > visible_w && visible_w > 0 && max_scroll_x > 0) {
         const float scrollbar_width = 8.0f;
         const float scrollbar_margin = 2.0f;
-        float track_x = scrollbar_margin;
+        float track_x = (float)frozen_width + scrollbar_margin;
         float track_y = size.height - scrollbar_width - scrollbar_margin;
-        float track_w = (float)state->width - scrollbar_margin * 2.0f;
-        float thumb_w = max(20.0f, track_w * state->width / total_cols_w);
-        float thumb_x = track_x + (track_w - thumb_w) * state->scroll_x / (total_cols_w - state->width);
+        float track_w = (float)visible_w - scrollbar_margin * 2.0f;
+        if (track_w <= 0.0f) {
+            track_w = 0.0f;
+        }
+        float thumb_w = min(track_w, max(20.0f, track_w * visible_w / total_cols_w));
+        float thumb_x = track_x + (track_w - thumb_w) * state->scroll_x / max_scroll_x;
         brush->SetColor(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.05f));
         rt->FillRoundedRectangle(
             D2D1::RoundedRect(
@@ -19374,15 +19762,19 @@ LRESULT CALLBACK DataGridViewProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
 
             // --- Vertical scrollbar hit-test ---
             {
-                int total_rows_h = DataGrid_GetTotalRowsHeight(state);
-                int visible_h = state->height - state->header_height;
-                if (total_rows_h > visible_h && visible_h > 0 && px >= state->width - 12) {
+                int total_rows_h = DataGrid_GetScrollableRowsHeight(state);
+                int visible_h = DataGrid_GetScrollableViewportHeight(state);
+                int frozen_rows_height = DataGrid_GetFrozenRowsHeight(state);
+                int max_scroll = DataGrid_GetMaxScrollY(state);
+                if (total_rows_h > visible_h && visible_h > 0 && max_scroll > 0 && px >= state->width - 12) {
                     const float scrollbar_width = 8.0f;
                     const float scrollbar_margin = 2.0f;
                     float track_h = (float)visible_h - scrollbar_margin * 2.0f;
-                    float thumb_h = max(20.0f, track_h * visible_h / total_rows_h);
-                    float hdr_h = (float)state->header_height + scrollbar_margin;
-                    int max_scroll = total_rows_h - visible_h;
+                    if (track_h <= 0.0f) {
+                        break;
+                    }
+                    float thumb_h = min(track_h, max(20.0f, track_h * visible_h / total_rows_h));
+                    float hdr_h = (float)state->header_height + (float)frozen_rows_height + scrollbar_margin;
                     float thumb_y = hdr_h + (track_h - thumb_h) * state->scroll_y / max_scroll;
                     float track_x = (float)state->width - scrollbar_width - scrollbar_margin;
                     if ((float)px < track_x) {
@@ -19410,23 +19802,29 @@ LRESULT CALLBACK DataGridViewProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
 
             // --- Horizontal scrollbar hit-test ---
             {
-                int total_cols_w = DataGrid_GetTotalColumnsWidth(state);
-                if (total_cols_w > state->width && state->width > 0 && py >= state->height - 12) {
+                int total_cols_w = DataGrid_GetScrollableColumnsWidth(state);
+                int visible_w = DataGrid_GetScrollableViewportWidth(state);
+                int frozen_width = DataGrid_GetFrozenColumnsWidth(state);
+                int max_scroll = DataGrid_GetMaxScrollX(state);
+                if (total_cols_w > visible_w && visible_w > 0 && max_scroll > 0 && py >= state->height - 12) {
                     const float scrollbar_width = 8.0f;
                     const float scrollbar_margin = 2.0f;
-                    float track_w = (float)state->width - scrollbar_margin * 2.0f;
-                    float thumb_w = max(20.0f, track_w * state->width / total_cols_w);
-                    int max_scroll = total_cols_w - state->width;
-                    float thumb_x = scrollbar_margin + (track_w - thumb_w) * state->scroll_x / max_scroll;
+                    float track_x = (float)frozen_width + scrollbar_margin;
+                    float track_w = (float)visible_w - scrollbar_margin * 2.0f;
+                    if (track_w <= 0.0f) {
+                        break;
+                    }
+                    float thumb_w = min(track_w, max(20.0f, track_w * visible_w / total_cols_w));
+                    float thumb_x = track_x + (track_w - thumb_w) * state->scroll_x / max_scroll;
                     float track_y = (float)state->height - scrollbar_width - scrollbar_margin;
-                    if ((float)py < track_y) {
+                    if ((float)py < track_y || (float)px < track_x) {
                         break;
                     }
                     if ((float)px >= thumb_x && (float)px <= thumb_x + thumb_w) {
                         state->scrollbar_h_dragging = true;
                         state->scrollbar_drag_offset = (float)px - thumb_x;
                     } else {
-                        float ratio = ((float)px - scrollbar_margin - thumb_w * 0.5f) / (track_w - thumb_w);
+                        float ratio = ((float)px - track_x - thumb_w * 0.5f) / (track_w - thumb_w);
                         ratio = max(0.0f, min(1.0f, ratio));
                         state->scroll_x = (int)(ratio * max_scroll);
                         state->scrollbar_h_dragging = true;
@@ -19582,13 +19980,19 @@ LRESULT CALLBACK DataGridViewProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
 
             // Scrollbar dragging
             if (state->scrollbar_v_dragging) {
-                int total_rows_h = DataGrid_GetTotalRowsHeight(state);
-                int visible_h = state->height - state->header_height;
-                int max_scroll = max(0, total_rows_h - visible_h);
+                int total_rows_h = DataGrid_GetScrollableRowsHeight(state);
+                int visible_h = DataGrid_GetScrollableViewportHeight(state);
+                int frozen_rows_height = DataGrid_GetFrozenRowsHeight(state);
+                int max_scroll = DataGrid_GetMaxScrollY(state);
                 const float scrollbar_margin = 2.0f;
                 float track_h = (float)visible_h - scrollbar_margin * 2.0f;
-                float thumb_h = max(20.0f, track_h * visible_h / total_rows_h);
-                float hdr_h = (float)state->header_height + scrollbar_margin;
+                if (track_h <= 0.0f) {
+                    state->scrollbar_v_dragging = false;
+                    ReleaseCapture();
+                    return 0;
+                }
+                float thumb_h = min(track_h, max(20.0f, track_h * visible_h / total_rows_h));
+                float hdr_h = (float)state->header_height + (float)frozen_rows_height + scrollbar_margin;
                 float new_thumb_y = (float)py - state->scrollbar_drag_offset - hdr_h;
                 float ratio = new_thumb_y / (track_h - thumb_h);
                 ratio = max(0.0f, min(1.0f, ratio));
@@ -19597,12 +20001,20 @@ LRESULT CALLBACK DataGridViewProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
                 return 0;
             }
             if (state->scrollbar_h_dragging) {
-                int total_cols_w = DataGrid_GetTotalColumnsWidth(state);
-                int max_scroll = max(0, total_cols_w - state->width);
+                int total_cols_w = DataGrid_GetScrollableColumnsWidth(state);
+                int visible_w = DataGrid_GetScrollableViewportWidth(state);
+                int frozen_width = DataGrid_GetFrozenColumnsWidth(state);
+                int max_scroll = DataGrid_GetMaxScrollX(state);
                 const float scrollbar_margin = 2.0f;
-                float track_w = (float)state->width - scrollbar_margin * 2.0f;
-                float thumb_w = max(20.0f, track_w * state->width / total_cols_w);
-                float new_thumb_x = (float)px - state->scrollbar_drag_offset - scrollbar_margin;
+                float track_x = (float)frozen_width + scrollbar_margin;
+                float track_w = (float)visible_w - scrollbar_margin * 2.0f;
+                if (track_w <= 0.0f) {
+                    state->scrollbar_h_dragging = false;
+                    ReleaseCapture();
+                    return 0;
+                }
+                float thumb_w = min(track_w, max(20.0f, track_w * visible_w / total_cols_w));
+                float new_thumb_x = (float)px - state->scrollbar_drag_offset - track_x;
                 float ratio = new_thumb_x / (track_w - thumb_w);
                 ratio = max(0.0f, min(1.0f, ratio));
                 state->scroll_x = (int)(ratio * max_scroll);
@@ -19655,7 +20067,7 @@ LRESULT CALLBACK DataGridViewProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
             if (!state->enabled) break;
             int delta = GET_WHEEL_DELTA_WPARAM(wparam);
             int scroll_amount = -delta / 3;
-            int max_scroll = max(0, DataGrid_GetTotalRowsHeight(state) - (state->height - state->header_height));
+            int max_scroll = DataGrid_GetMaxScrollY(state);
             state->scroll_y = max(0, min(max_scroll, state->scroll_y + scroll_amount));
             InvalidateRect(hwnd, nullptr, TRUE);
             return 0;
@@ -19665,7 +20077,7 @@ LRESULT CALLBACK DataGridViewProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
             if (!state->enabled) break;
             int delta = GET_WHEEL_DELTA_WPARAM(wparam);
             int scroll_amount = delta / 3;
-            int max_scroll = max(0, DataGrid_GetTotalColumnsWidth(state) - state->width);
+            int max_scroll = DataGrid_GetMaxScrollX(state);
             state->scroll_x = max(0, min(max_scroll, state->scroll_x + scroll_amount));
             InvalidateRect(hwnd, nullptr, TRUE);
             return 0;
@@ -19713,10 +20125,10 @@ LRESULT CALLBACK DataGridViewProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
                     if (state->selection_mode == DGSEL_CELL) state->selected_col = col_count - 1;
                     break;
                 case VK_PRIOR: // Page Up
-                    state->selected_row = max(0, row - (state->height - state->header_height) / state->default_row_height);
+                    state->selected_row = max(0, row - max(1, DataGrid_GetScrollableViewportHeight(state) / state->default_row_height));
                     break;
                 case VK_NEXT: // Page Down
-                    state->selected_row = min(row_count - 1, row + (state->height - state->header_height) / state->default_row_height);
+                    state->selected_row = min(row_count - 1, row + max(1, DataGrid_GetScrollableViewportHeight(state) / state->default_row_height));
                     break;
                 case VK_RETURN:
                 case VK_F2:
@@ -19866,7 +20278,7 @@ __declspec(dllexport) HWND __stdcall CreateDataGridView(
     state->resizing_col = false; state->resize_col_index = -1;
     state->scrollbar_v_dragging = false; state->scrollbar_h_dragging = false; state->scrollbar_drag_offset = 0;
     state->sort_col = -1; state->sort_order = DGSORT_NONE;
-    state->freeze_header = true; state->freeze_first_col = false;
+    state->freeze_header = true; state->freeze_col_count = 0; state->freeze_row_count = 0; state->freeze_first_col = false;
     state->header_height = 36;
     state->default_row_height = 32;
     state->zebra_stripe = (zebra_stripe != 0);
@@ -19910,7 +20322,7 @@ static int DataGrid_AddColumn(HWND hGrid, const unsigned char* header_bytes, int
     col.min_width = 30;
     col.type = type;
     col.resizable = true;
-    col.sortable = (type == DGCOL_TEXT || type == DGCOL_COMBOBOX || type == DGCOL_TAG);
+    col.sortable = (type == DGCOL_TEXT || type == DGCOL_COMBOBOX || type == DGCOL_TAG || type == DGCOL_PROGRESS);
     col.sort_order = DGSORT_NONE;
     state->columns.push_back(col);
     // Add cells to existing rows
@@ -19945,6 +20357,9 @@ __declspec(dllexport) int __stdcall DataGrid_AddComboBoxColumn(HWND hGrid, const
 }
 __declspec(dllexport) int __stdcall DataGrid_AddTagColumn(HWND hGrid, const unsigned char* h, int hl, int w) {
     return DataGrid_AddColumn(hGrid, h, hl, w, DGCOL_TAG);
+}
+__declspec(dllexport) int __stdcall DataGrid_AddProgressColumn(HWND hGrid, const unsigned char* h, int hl, int w) {
+    return DataGrid_AddColumn(hGrid, h, hl, w, DGCOL_PROGRESS);
 }
 __declspec(dllexport) void __stdcall DataGrid_RemoveColumn(HWND hGrid, int col_index) {
     auto it = g_datagrids.find(hGrid);
@@ -20072,7 +20487,15 @@ __declspec(dllexport) void __stdcall DataGrid_SetCellText(HWND hGrid, int row, i
     if (state->virtual_mode) return;
     if (row < 0 || row >= (int)state->rows.size()) return;
     if (col < 0 || col >= (int)state->rows[row].cells.size()) return;
-    state->rows[row].cells[col].text = Utf8ToWide(text_bytes, text_len);
+    DataGridCell& cell = state->rows[row].cells[col];
+    cell.text = Utf8ToWide(text_bytes, text_len);
+    if (col >= 0 && col < (int)state->columns.size() &&
+        state->columns[col].type == DGCOL_PROGRESS) {
+        int parsed = 0;
+        if (DataGrid_TryParseProgressText(cell.text, &parsed)) {
+            cell.progress = parsed;
+        }
+    }
     InvalidateRect(hGrid, nullptr, TRUE);
 }
 
@@ -20144,6 +20567,23 @@ __declspec(dllexport) BOOL __stdcall DataGrid_GetCellChecked(HWND hGrid, int row
     return DataGrid_GetCellCheckedState(it->second, row, col) ? TRUE : FALSE;
 }
 
+__declspec(dllexport) void __stdcall DataGrid_SetCellProgress(HWND hGrid, int row, int col, int progress) {
+    auto it = g_datagrids.find(hGrid);
+    if (it == g_datagrids.end()) return;
+    DataGridViewState* state = it->second;
+    if (state->virtual_mode) return;
+    DataGridCell* cell = DataGrid_GetConcreteCell(state, row, col);
+    if (!cell) return;
+    cell->progress = DataGrid_ClampProgressValue(progress);
+    InvalidateRect(hGrid, nullptr, TRUE);
+}
+
+__declspec(dllexport) int __stdcall DataGrid_GetCellProgress(HWND hGrid, int row, int col) {
+    auto it = g_datagrids.find(hGrid);
+    if (it == g_datagrids.end()) return 0;
+    return DataGrid_GetCellProgressValue(it->second, row, col);
+}
+
 __declspec(dllexport) void __stdcall DataGrid_SetCellStyle(HWND hGrid, int row, int col,
     UINT32 fg_color, UINT32 bg_color, BOOL bold, BOOL italic) {
     auto it = g_datagrids.find(hGrid);
@@ -20199,9 +20639,14 @@ __declspec(dllexport) void __stdcall DataGrid_SortByColumn(HWND hGrid, int col_i
     if (!state->virtual_mode && state->sort_order != DGSORT_NONE) {
         int sc = col_index;
         bool asc = (state->sort_order == DGSORT_ASC);
+        DataGridColumnType sort_type = state->columns[sc].type;
         std::sort(state->rows.begin(), state->rows.end(),
-            [sc, asc](const DataGridRow& a, const DataGridRow& b) {
+            [sc, asc, sort_type](const DataGridRow& a, const DataGridRow& b) {
                 if (sc >= (int)a.cells.size() || sc >= (int)b.cells.size()) return false;
+                if (sort_type == DGCOL_PROGRESS) {
+                    return asc ? (a.cells[sc].progress < b.cells[sc].progress)
+                        : (a.cells[sc].progress > b.cells[sc].progress);
+                }
                 return asc ? (a.cells[sc].text < b.cells[sc].text) : (a.cells[sc].text > b.cells[sc].text);
             });
     }
@@ -20217,7 +20662,34 @@ __declspec(dllexport) void __stdcall DataGrid_SetFreezeHeader(HWND hGrid, BOOL f
 
 __declspec(dllexport) void __stdcall DataGrid_SetFreezeFirstColumn(HWND hGrid, BOOL freeze) {
     auto it = g_datagrids.find(hGrid);
-    if (it != g_datagrids.end()) it->second->freeze_first_col = (freeze != 0);
+    if (it != g_datagrids.end()) {
+        it->second->freeze_first_col = (freeze != 0);
+        it->second->freeze_col_count = (freeze != 0) ? 1 : 0;
+        it->second->scroll_x = max(0, min(it->second->scroll_x, DataGrid_GetMaxScrollX(it->second)));
+        InvalidateRect(hGrid, nullptr, TRUE);
+    }
+}
+
+__declspec(dllexport) void __stdcall DataGrid_SetFreezeColumnCount(HWND hGrid, int count) {
+    auto it = g_datagrids.find(hGrid);
+    if (it == g_datagrids.end()) return;
+
+    DataGridViewState* state = it->second;
+    state->freeze_col_count = max(0, min(count, (int)state->columns.size()));
+    state->freeze_first_col = (state->freeze_col_count > 0);
+    state->scroll_x = max(0, min(state->scroll_x, DataGrid_GetMaxScrollX(state)));
+    InvalidateRect(hGrid, nullptr, TRUE);
+}
+
+__declspec(dllexport) void __stdcall DataGrid_SetFreezeRowCount(HWND hGrid, int count) {
+    auto it = g_datagrids.find(hGrid);
+    if (it == g_datagrids.end()) return;
+
+    DataGridViewState* state = it->second;
+    int row_count = DataGrid_GetEffectiveRowCount(state);
+    state->freeze_row_count = max(0, min(count, row_count));
+    state->scroll_y = max(0, min(state->scroll_y, DataGrid_GetMaxScrollY(state)));
+    InvalidateRect(hGrid, nullptr, TRUE);
 }
 
 // --- Virtual mode ---
