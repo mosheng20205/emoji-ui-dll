@@ -1748,6 +1748,10 @@
     .参数 列索引, 整数型
     .参数 对齐方式, 整数型, , 0=左对齐, 1=居中, 2=右对齐
 
+.DLL命令 表格_设置双击启用, , "emoji_window.dll", "DataGrid_SetDoubleClickEnabled", , , 设置是否启用单元格双击事件和双击编辑
+    .参数 表格句柄, 整数型
+    .参数 启用, 逻辑型
+
 .DLL命令 表格_启用, , "emoji_window.dll", "DataGrid_Enable", , , 启用/禁用DataGridView
     .参数 表格句柄, 整数型
     .参数 启用, 逻辑型

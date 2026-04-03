@@ -169,6 +169,7 @@ void __stdcall DataGrid_SetColumnHeaderClickCallback(HWND hDataGrid, ColumnHeade
 void __stdcall DataGrid_SetShowGridLines(HWND hDataGrid, BOOL show);
 void __stdcall DataGrid_SetDefaultRowHeight(HWND hDataGrid, int height);
 void __stdcall DataGrid_SetHeaderHeight(HWND hDataGrid, int height);
+void __stdcall DataGrid_SetDoubleClickEnabled(HWND hDataGrid, BOOL enabled);
 void __stdcall DataGrid_Enable(HWND hDataGrid, BOOL enable);
 void __stdcall DataGrid_Show(HWND hDataGrid, BOOL show);
 void __stdcall DataGrid_SetBounds(HWND hDataGrid, int x, int y, int w, int h);
@@ -186,7 +187,7 @@ BOOL __stdcall DataGrid_ExportCSV(HWND hDataGrid, const unsigned char* file_path
 - ✅ 冻结行列：支持冻结列头、前 N 列、前 N 行，方便浏览大表格
 - ✅ 排序：点击列头排序，支持升序/降序
 - ✅ 键盘导航：方向键、Tab、PageUp/Down、Home/End
-- ✅ 单元格编辑：双击进入编辑模式
+- ✅ 单元格编辑：默认双击进入编辑模式，可用 `DataGrid_SetDoubleClickEnabled` 关闭双击编辑
 - ✅ CSV 导出：一键导出表格数据
 - ✅ Element UI 风格：统一的视觉设计
 
