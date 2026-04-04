@@ -13,6 +13,7 @@ namespace EmojiWindowDemo
         public const int SW_HIDE = 0;
         public const int SW_SHOW = 5;
         public const uint WM_SETICON = 0x0080;
+        public const uint WM_SETREDRAW = 0x000B;
         public const uint WM_CANCELMODE = 0x001F;
         public const uint WM_KEYDOWN = 0x0100;
         public const uint WM_KEYUP = 0x0101;
@@ -26,6 +27,11 @@ namespace EmojiWindowDemo
         public const uint SWP_NOMOVE = 0x0002;
         public const uint SWP_NOACTIVATE = 0x0010;
         public const uint SWP_SHOWWINDOW = 0x0040;
+        public const uint RDW_INVALIDATE = 0x0001;
+        public const uint RDW_ERASE = 0x0004;
+        public const uint RDW_ALLCHILDREN = 0x0080;
+        public const uint RDW_UPDATENOW = 0x0100;
+        public const uint RDW_FRAME = 0x0400;
 
         [DllImport("user32.dll")] public static extern int ShowWindow(IntPtr hWnd, int nCmdShow);
         [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int x, int y, int width, int height, bool repaint);
@@ -37,6 +43,23 @@ namespace EmojiWindowDemo
         [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)] public static extern IntPtr LoadImage(IntPtr hInst, string lpszName, uint uType, int cxDesired, int cyDesired, uint fuLoad);
         [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
         [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+        [DllImport("user32.dll")] public static extern bool RedrawWindow(IntPtr hWnd, IntPtr lprcUpdate, IntPtr hrgnUpdate, uint flags);
+
+        public static void SetRedraw(IntPtr hWnd, bool enabled)
+        {
+            if (hWnd != IntPtr.Zero)
+            {
+                SendMessage(hWnd, WM_SETREDRAW, enabled ? new IntPtr(1) : IntPtr.Zero, IntPtr.Zero);
+            }
+        }
+
+        public static void RefreshWindowTree(IntPtr hWnd)
+        {
+            if (hWnd != IntPtr.Zero)
+            {
+                RedrawWindow(hWnd, IntPtr.Zero, IntPtr.Zero, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW | RDW_FRAME);
+            }
+        }
 
         public static bool TrySetWindowIcon(IntPtr hwnd, string iconPath)
         {

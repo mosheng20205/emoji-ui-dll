@@ -66,6 +66,7 @@ namespace EmojiWindowDemo
         private IntPtr _headerDesc;
         private string _currentPageKey = string.Empty;
         private int _suppressNavNodeOnce;
+        private bool? _lastAppliedDarkMode;
 
         public AllDemoShell(DemoApp app)
         {
@@ -103,7 +104,7 @@ namespace EmojiWindowDemo
 
             var themeChanged = App.Pin(new EmojiWindowNative.ThemeChangedCallback(_ => ApplyTheme()));
             EmojiWindowNative.SetThemeChangedCallback(themeChanged);
-            ApplyTheme();
+            ApplyTheme(true);
         }
 
         private void BuildNavigationTree()
@@ -411,7 +412,7 @@ namespace EmojiWindowDemo
                     SetStatus("生成菜单：窗口布局已重新应用");
                     break;
                 case MenuBuildReapplyTheme:
-                    ApplyTheme();
+                    ApplyTheme(true);
                     SetStatus("生成菜单：主题已重新应用");
                     break;
                 case MenuDebugCurrentKey:
@@ -436,7 +437,7 @@ namespace EmojiWindowDemo
                     SetStatus("工具菜单：已切换到深色主题");
                     break;
                 case MenuToolsThemeRefresh:
-                    ApplyTheme();
+                    ApplyTheme(true);
                     SetStatus("工具菜单：主题刷新完成");
                     break;
                 case MenuHelpGuide:
@@ -508,15 +509,15 @@ namespace EmojiWindowDemo
                 pageHandle = App.Panel(PageMargin, HeaderHeight, PageWidth, PageHeight, Palette.PageBackground, _host);
                 _pageHandles[pageKey] = pageHandle;
                 page.Build(this, pageHandle);
-                ApplyThemeForPage(pageHandle);
             }
 
+            EmojiWindowNative.SetPanelBackgroundColor(pageHandle, Palette.PageBackground);
+            ApplyThemeForPage(pageHandle);
             SetLabelText(_headerTitle, page.Title);
             SetLabelText(_headerDesc, page.Description);
             Win32Native.ShowWindow(pageHandle, Win32Native.SW_SHOW);
             _currentPageKey = pageKey;
             SyncTreeSelection(pageKey);
-            ApplyThemeForPage(pageHandle);
             BringStatusToFront();
             SetStatus("已切换到 " + page.Title);
         }
@@ -529,71 +530,85 @@ namespace EmojiWindowDemo
             ApplyTheme();
         }
 
-        public void ApplyTheme()
+        public void ApplyTheme(bool force = false)
         {
             DemoThemePalette palette = Palette;
-
-            if (App.Window != IntPtr.Zero)
+            if (!force && _lastAppliedDarkMode.HasValue && _lastAppliedDarkMode.Value == palette.Dark)
             {
-                EmojiWindowNative.SetWindowBackgroundColor(App.Window, palette.PageBackground);
+                return;
             }
 
-            if (_sidebar != IntPtr.Zero)
+            ThemeRedrawScope redrawScope = BeginThemeRedraw();
+            try
             {
-                EmojiWindowNative.SetPanelBackgroundColor(_sidebar, palette.SidebarBackground);
-            }
+                if (App.Window != IntPtr.Zero)
+                {
+                    EmojiWindowNative.SetWindowBackgroundColor(App.Window, palette.PageBackground);
+                }
 
-            if (_host != IntPtr.Zero)
+                if (_sidebar != IntPtr.Zero)
+                {
+                    EmojiWindowNative.SetPanelBackgroundColor(_sidebar, palette.SidebarBackground);
+                }
+
+                if (_host != IntPtr.Zero)
+                {
+                    EmojiWindowNative.SetPanelBackgroundColor(_host, palette.PageBackground);
+                }
+
+                IntPtr currentPageHandle = GetCurrentPageHandle();
+                if (currentPageHandle != IntPtr.Zero)
+                {
+                    EmojiWindowNative.SetPanelBackgroundColor(currentPageHandle, palette.PageBackground);
+                    ApplyThemeForPage(currentPageHandle);
+                }
+
+                if (_navTree != IntPtr.Zero)
+                {
+                    EmojiWindowNative.SetTreeViewBackgroundColor(_navTree, palette.TreeBackground);
+                    EmojiWindowNative.SetTreeViewTextColor(_navTree, palette.SidebarText);
+                    EmojiWindowNative.SetTreeViewSelectedBgColor(_navTree, DemoColors.Blue);
+                    EmojiWindowNative.SetTreeViewSelectedForeColor(_navTree, DemoColors.White);
+                    EmojiWindowNative.SetTreeViewHoverBgColor(_navTree, palette.TreeHoverBackground);
+                }
+
+                foreach (int buttonId in _topMenuButtons)
+                {
+                    StyleTopMenuButton(buttonId);
+                }
+
+                if (_sidebarTitle != IntPtr.Zero)
+                {
+                    EmojiWindowNative.SetLabelColor(_sidebarTitle, palette.SidebarText, palette.SidebarBackground);
+                }
+
+                if (_sidebarDesc != IntPtr.Zero)
+                {
+                    EmojiWindowNative.SetLabelColor(_sidebarDesc, palette.SidebarMuted, palette.SidebarBackground);
+                }
+
+                if (_headerTitle != IntPtr.Zero)
+                {
+                    EmojiWindowNative.SetLabelColor(_headerTitle, palette.Text, palette.PageBackground);
+                }
+
+                if (_headerDesc != IntPtr.Zero)
+                {
+                    EmojiWindowNative.SetLabelColor(_headerDesc, palette.Muted, palette.PageBackground);
+                }
+
+                if (App.StatusLabel != IntPtr.Zero)
+                {
+                    EmojiWindowNative.SetLabelColor(App.StatusLabel, palette.Muted, palette.PageBackground);
+                }
+
+                BringStatusToFront();
+                _lastAppliedDarkMode = palette.Dark;
+            }
+            finally
             {
-                EmojiWindowNative.SetPanelBackgroundColor(_host, palette.PageBackground);
+                redrawScope.Dispose();
             }
-
-            foreach (IntPtr pageHandle in _pageHandles.Values)
-            {
-                EmojiWindowNative.SetPanelBackgroundColor(pageHandle, palette.PageBackground);
-                ApplyThemeForPage(pageHandle);
-            }
-
-            if (_navTree != IntPtr.Zero)
-            {
-                EmojiWindowNative.SetTreeViewBackgroundColor(_navTree, palette.TreeBackground);
-                EmojiWindowNative.SetTreeViewTextColor(_navTree, palette.SidebarText);
-                EmojiWindowNative.SetTreeViewSelectedBgColor(_navTree, DemoColors.Blue);
-                EmojiWindowNative.SetTreeViewSelectedForeColor(_navTree, DemoColors.White);
-                EmojiWindowNative.SetTreeViewHoverBgColor(_navTree, palette.TreeHoverBackground);
-            }
-
-            foreach (int buttonId in _topMenuButtons)
-            {
-                StyleTopMenuButton(buttonId);
-            }
-
-            if (_sidebarTitle != IntPtr.Zero)
-            {
-                EmojiWindowNative.SetLabelColor(_sidebarTitle, palette.SidebarText, palette.SidebarBackground);
-            }
-
-            if (_sidebarDesc != IntPtr.Zero)
-            {
-                EmojiWindowNative.SetLabelColor(_sidebarDesc, palette.SidebarMuted, palette.SidebarBackground);
-            }
-
-            if (_headerTitle != IntPtr.Zero)
-            {
-                EmojiWindowNative.SetLabelColor(_headerTitle, palette.Text, palette.PageBackground);
-            }
-
-            if (_headerDesc != IntPtr.Zero)
-            {
-                EmojiWindowNative.SetLabelColor(_headerDesc, palette.Muted, palette.PageBackground);
-            }
-
-            if (App.StatusLabel != IntPtr.Zero)
-            {
-                EmojiWindowNative.SetLabelColor(App.StatusLabel, palette.Muted, palette.PageBackground);
-            }
-
-            BringStatusToFront();
         }
 
         private void ApplyThemeForPage(IntPtr pageHandle)
@@ -601,6 +616,53 @@ namespace EmojiWindowDemo
             if (_pageThemeHandlers.TryGetValue(pageHandle, out Action applyTheme))
             {
                 applyTheme();
+            }
+        }
+
+        private IntPtr GetCurrentPageHandle()
+        {
+            return !string.IsNullOrEmpty(_currentPageKey) && _pageHandles.TryGetValue(_currentPageKey, out IntPtr pageHandle)
+                ? pageHandle
+                : IntPtr.Zero;
+        }
+
+        private ThemeRedrawScope BeginThemeRedraw()
+        {
+            var handles = new List<IntPtr>(5);
+            AddRedrawHandle(handles, App.Window);
+            AddRedrawHandle(handles, _sidebar);
+            AddRedrawHandle(handles, _host);
+            AddRedrawHandle(handles, _navTree);
+            AddRedrawHandle(handles, GetCurrentPageHandle());
+            return new ThemeRedrawScope(handles);
+        }
+
+        private static void AddRedrawHandle(List<IntPtr> handles, IntPtr handle)
+        {
+            if (handle != IntPtr.Zero && !handles.Contains(handle))
+            {
+                Win32Native.SetRedraw(handle, false);
+                handles.Add(handle);
+            }
+        }
+
+        private sealed class ThemeRedrawScope : IDisposable
+        {
+            private readonly List<IntPtr> _handles;
+
+            public ThemeRedrawScope(List<IntPtr> handles)
+            {
+                _handles = handles;
+            }
+
+            public void Dispose()
+            {
+                for (int i = _handles.Count - 1; i >= 0; i--)
+                {
+                    IntPtr handle = _handles[i];
+                    Win32Native.SetRedraw(handle, true);
+                    Win32Native.RefreshWindowTree(handle);
+                }
             }
         }
 

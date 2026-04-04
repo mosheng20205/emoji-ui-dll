@@ -121,8 +121,19 @@ namespace EmojiWindowDemo
 
     internal sealed class DemoApp
     {
+        private struct GroupBoxRegistration
+        {
+            public IntPtr Handle;
+            public IntPtr Parent;
+            public int X;
+            public int Y;
+            public int Width;
+            public int Height;
+        }
+
         private readonly Dictionary<int, Action> _buttonActions = new Dictionary<int, Action>();
         private readonly List<Delegate> _pinnedDelegates = new List<Delegate>();
+        private readonly List<GroupBoxRegistration> _groupBoxes = new List<GroupBoxRegistration>();
         private readonly byte[] _fontBytes = EmojiWindowNative.ToUtf8("Microsoft YaHei UI");
 
         public IntPtr Window { get; private set; }
@@ -180,16 +191,19 @@ namespace EmojiWindowDemo
         public IntPtr Label(int x, int y, int width, int height, string text, uint? fg = null, uint? bg = null, int fontSize = 12, int align = 0, bool wrap = false, IntPtr? parent = null)
         {
             byte[] bytes = U(text);
+            IntPtr resolvedParent = parent ?? Window;
+            uint normalizedForeground = NormalizeThemeColor(fg ?? DemoColors.Black);
+            uint normalizedBackground = ResolveLabelBackground(resolvedParent, x, y, width, height, NormalizeThemeColor(bg ?? DemoColors.Transparent));
             return EmojiWindowNative.CreateLabel(
-                parent ?? Window,
+                resolvedParent,
                 x,
                 y,
                 width,
                 height,
                 bytes,
                 bytes.Length,
-                NormalizeThemeColor(fg ?? DemoColors.Black),
-                NormalizeThemeColor(bg ?? DemoColors.Transparent),
+                normalizedForeground,
+                normalizedBackground,
                 _fontBytes,
                 _fontBytes.Length,
                 fontSize,
@@ -282,12 +296,21 @@ namespace EmojiWindowDemo
                 NormalizeThemeColor(resolvedBackground),
                 _fontBytes,
                 _fontBytes.Length,
-                13,
+                14,
                 1,
                 0,
                 0);
             EmojiWindowNative.SetGroupBoxStyle(groupBox, PageCommon.GroupBoxStyleCard);
             EmojiWindowNative.SetGroupBoxTitleColor(groupBox, DemoTheme.Text);
+            _groupBoxes.Add(new GroupBoxRegistration
+            {
+                Handle = groupBox,
+                Parent = parent ?? Window,
+                X = x,
+                Y = y,
+                Width = width,
+                Height = height
+            });
             return groupBox;
         }
 
@@ -387,6 +410,36 @@ namespace EmojiWindowDemo
             if (color == DemoColors.Yellow) return DemoTheme.SurfaceWarning;
             if (color == DemoColors.LightRed) return DemoTheme.SurfaceDanger;
             return color;
+        }
+
+        private uint ResolveLabelBackground(IntPtr parent, int x, int y, int width, int height, uint background)
+        {
+            if (background != DemoTheme.Background)
+            {
+                return background;
+            }
+
+            foreach (GroupBoxRegistration groupBox in _groupBoxes)
+            {
+                if (groupBox.Handle == parent)
+                {
+                    return DemoTheme.Surface;
+                }
+
+                if (groupBox.Parent != parent)
+                {
+                    continue;
+                }
+
+                bool insideHorizontal = x >= groupBox.X + 8 && x + width <= groupBox.X + groupBox.Width - 8;
+                bool insideVertical = y >= groupBox.Y + 8 && y + height <= groupBox.Y + groupBox.Height - 8;
+                if (insideHorizontal && insideVertical)
+                {
+                    return DemoTheme.Surface;
+                }
+            }
+
+            return background;
         }
 
         public void DispatchButton(int buttonId)

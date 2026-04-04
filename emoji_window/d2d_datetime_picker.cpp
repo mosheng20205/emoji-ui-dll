@@ -769,6 +769,8 @@ static void DrawPopup(DtpState* s) {
     const UINT32 popup_muted = ResolveDtpThemeColor(6);
     const UINT32 popup_border_light = ResolveDtpThemeColor(10);
     const bool dark_popup = DtpColorLuma(popup_bg) < 0.45f;
+    const UINT32 popup_surface_hover = dark_popup ? 0xFF2F4669 : 0xFFEAF3FF;
+    const UINT32 popup_border_hover = dark_popup ? 0xFF6AA9FF : 0xFFB3D8FF;
 
     rt->BeginDraw();
     rt->Clear(ColorFromUInt32(popup_bg));
@@ -920,8 +922,18 @@ static void DrawPopup(DtpState* s) {
                 col = DtpAutoContrastText(popup_primary);
             } else if (s->hover_cell == i) {
                 ID2D1SolidColorBrush* hb = nullptr;
-                rt->CreateSolidColorBrush(ColorFromUInt32(popup_surface_primary), &hb);
-                if (hb) { rt->FillRectangle(cell, hb); hb->Release(); }
+                ID2D1SolidColorBrush* hover_border = nullptr;
+                D2D1_ROUNDED_RECT hover_rect = D2D1::RoundedRect(cell, 6.0f, 6.0f);
+                rt->CreateSolidColorBrush(ColorFromUInt32(popup_surface_hover), &hb);
+                rt->CreateSolidColorBrush(ColorFromUInt32(popup_border_hover), &hover_border);
+                if (hb) {
+                    rt->FillRoundedRectangle(hover_rect, hb);
+                    hb->Release();
+                }
+                if (hover_border) {
+                    rt->DrawRoundedRectangle(hover_rect, hover_border, 1.0f);
+                    hover_border->Release();
+                }
             }
             ID2D1SolidColorBrush* tc = nullptr;
             rt->CreateSolidColorBrush(ColorFromUInt32(col), &tc);
@@ -955,8 +967,8 @@ static void DrawPopup(DtpState* s) {
 
                 ID2D1SolidColorBrush* seg_bg = nullptr;
                 ID2D1SolidColorBrush* seg_border = nullptr;
-                UINT32 bg_color = active ? popup_surface_primary : (hovered ? popup_surface : popup_bg);
-                UINT32 border_color = active ? popup_primary : (hovered ? popup_border : popup_border_light);
+                UINT32 bg_color = active ? popup_surface_primary : (hovered ? popup_surface_hover : popup_bg);
+                UINT32 border_color = active ? popup_primary : (hovered ? popup_border_hover : popup_border_light);
                 rt->CreateSolidColorBrush(ColorFromUInt32(bg_color), &seg_bg);
                 rt->CreateSolidColorBrush(ColorFromUInt32(border_color), &seg_border);
                 if (seg_bg) {
@@ -1078,11 +1090,17 @@ static void DrawPopup(DtpState* s) {
                         bool hovered = (item_index == s->time_dropdown_hover);
                         if (selected || hovered) {
                             ID2D1SolidColorBrush* hi = nullptr;
-                            UINT32 hi_color = selected ? popup_surface_primary : popup_surface;
+                            ID2D1SolidColorBrush* hi_border = nullptr;
+                            UINT32 hi_color = selected ? popup_surface_primary : popup_surface_hover;
                             rt->CreateSolidColorBrush(ColorFromUInt32(hi_color), &hi);
+                            rt->CreateSolidColorBrush(ColorFromUInt32(selected ? popup_primary : popup_border_hover), &hi_border);
                             if (hi) {
                                 rt->FillRoundedRectangle(D2D1::RoundedRect(item_rect, 4.0f, 4.0f), hi);
                                 hi->Release();
+                            }
+                            if (hi_border) {
+                                rt->DrawRoundedRectangle(D2D1::RoundedRect(item_rect, 4.0f, 4.0f), hi_border, 1.0f);
+                                hi_border->Release();
                             }
                         }
                         wchar_t item_text[8];

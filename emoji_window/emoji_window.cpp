@@ -12319,14 +12319,11 @@ extern "C" __declspec(dllexport) void __stdcall SetD2DEditBoxText(
 static void SetComboDisplayText(HWND hEdit, const std::wstring& text) {
     if (!hEdit) return;
     if (IsD2DEditBoxWindow(hEdit)) {
-        int len = WideCharToMultiByte(CP_UTF8, 0, text.c_str(), -1, nullptr, 0, nullptr, nullptr);
-        if (len <= 0) {
+        std::string utf8_text = WindowWideToUtf8(text);
+        if (utf8_text.empty() && !text.empty()) {
             SetD2DEditBoxText(hEdit, (const unsigned char*)"", 0);
             return;
         }
-        std::string utf8_text;
-        utf8_text.resize(len - 1);
-        WideCharToMultiByte(CP_UTF8, 0, text.c_str(), -1, &utf8_text[0], len, nullptr, nullptr);
         SetD2DEditBoxText(hEdit, (const unsigned char*)utf8_text.c_str(), (int)utf8_text.length());
         return;
     }
@@ -17905,18 +17902,16 @@ void SelectItem(D2DComboBoxState* state, int index) {
     state->selected_index = index;
 
     // 更新编辑框文本
-    if (index >= 0 && state->edit_hwnd) {
-        std::wstring text = state->items[index];
-        std::string utf8_text;
-        int len = WideCharToMultiByte(CP_UTF8, 0, text.c_str(), -1, NULL, 0, NULL, NULL);
-        if (len > 0) {
-            utf8_text.resize(len - 1);
-            WideCharToMultiByte(CP_UTF8, 0, text.c_str(), -1, &utf8_text[0], len, NULL, NULL);
+    if (state->edit_hwnd) {
+        if (index >= 0) {
+            const std::string utf8_text = WindowWideToUtf8(state->items[index]);
+            SetD2DEditBoxText(
+                state->edit_hwnd,
+                (const unsigned char*)utf8_text.c_str(),
+                (int)utf8_text.length());
+        } else {
+            SetD2DEditBoxText(state->edit_hwnd, (const unsigned char*)"", 0);
         }
-        
-        SetD2DEditBoxText(state->edit_hwnd, 
-            (const unsigned char*)utf8_text.c_str(), 
-            (int)utf8_text.length());
     }
 
     // 触发回调
@@ -19339,7 +19334,7 @@ void DrawDataGridView(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, DataGr
 
             D2D1_RECT_F cell_rect = D2D1::RectF(col_x, row_y, col_x + cw, row_y + row_h);
             bool is_selected_cell = (state->selection_mode == DGSEL_CELL && r == state->selected_row && c == state->selected_col);
-            if (is_selected_cell) {
+            if (is_selected_cell && state->columns[c].type != DGCOL_BUTTON) {
                 brush->SetColor(select_color);
                 rt->FillRectangle(cell_rect, brush);
             }
@@ -19351,6 +19346,7 @@ void DrawDataGridView(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, DataGr
 
             if (cell_style.bg_color &&
                 state->columns[c].type != DGCOL_PROGRESS &&
+                state->columns[c].type != DGCOL_BUTTON &&
                 !is_selected_cell &&
                 !(is_selected_row && state->selection_mode == DGSEL_ROW)) {
                 brush->SetColor(ColorFromUInt32(ResolveThemeColor(cell_style.bg_color)));
@@ -19416,14 +19412,32 @@ void DrawDataGridView(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, DataGr
             case DGCOL_BUTTON: {
                 std::wstring value = DataGrid_GetCellDisplayText(state, r, c);
                 if (value.empty()) value = L"按钮";
-                float bw = min(cw - 16.0f, 88.0f);
-                float bh = row_h - 8.0f;
+                float bw = max(56.0f, cw - 12.0f);
+                float bh = row_h - 10.0f;
                 float bx = col_x + (cw - bw) / 2.0f;
-                float by = row_y + 4.0f;
+                float by = row_y + (row_h - bh) / 2.0f;
                 UINT32 button_bg = cell_style.bg_color ? ResolveThemeColor(cell_style.bg_color) : ThemeColor_Primary();
                 UINT32 button_fg = cell_style.fg_color ? ResolveThemeColor(cell_style.fg_color) : AutoContrastText(button_bg);
+                UINT32 button_border = is_selected_cell
+                    ? ThemeColor_Primary()
+                    : BlendThemeSurface(ThemeColor_BorderLight(), button_bg, dark_theme ? 0.22f : 0.10f);
+                UINT32 button_shadow = dark_theme
+                    ? BlendThemeSurface(ThemeColor_BackgroundLight(), button_bg, 0.16f)
+                    : BlendThemeSurface(ThemeColor_BackgroundLight(), button_bg, 0.08f);
+                D2D1_ROUNDED_RECT button_rect = D2D1::RoundedRect(
+                    D2D1::RectF(bx, by, bx + bw, by + bh),
+                    6.0f,
+                    6.0f
+                );
+                brush->SetColor(ColorFromUInt32(button_shadow));
+                rt->FillRoundedRectangle(
+                    D2D1::RoundedRect(D2D1::RectF(bx, by + 1.0f, bx + bw, by + bh + 1.0f), 6.0f, 6.0f),
+                    brush
+                );
                 brush->SetColor(ColorFromUInt32(button_bg));
-                rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(bx, by, bx + bw, by + bh), 4.0f, 4.0f), brush);
+                rt->FillRoundedRectangle(button_rect, brush);
+                brush->SetColor(ColorFromUInt32(button_border));
+                rt->DrawRoundedRectangle(button_rect, brush, is_selected_cell ? 1.8f : 1.0f);
                 brush->SetColor(ColorFromUInt32(button_fg));
                 IDWriteTextLayout* layout = nullptr;
                 factory->CreateTextLayout(value.c_str(), (UINT32)value.length(), text_format, max(1.0f, bw), max(1.0f, bh), &layout);

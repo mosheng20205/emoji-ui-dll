@@ -128,7 +128,7 @@ namespace EmojiWindowDemo
 
                 byte[] titleBytes = app.U(title);
                 byte[] messageBytes = app.U(message);
-                IntPtr handle = EmojiWindowNative.ShowNotification(app.Window, titleBytes, titleBytes.Length, messageBytes, messageBytes.Length, type, 1, 2500);
+                IntPtr handle = EmojiWindowNative.ShowNotification(app.Window, titleBytes, titleBytes.Length, messageBytes, messageBytes.Length, type, 0, 2500);
                 if (handle != IntPtr.Zero)
                 {
                     EmojiWindowNative.SetNotificationCallback(handle, callback);

@@ -19,8 +19,8 @@ namespace EmojiWindowDemo
             app.Label(56, 216, 220, 20, "可编辑 D2DComboBox", DemoTheme.Text, DemoTheme.Background, 14, PageCommon.AlignLeft, false, page);
             IntPtr editCombo = EmojiWindowNative.CreateD2DComboBox(page, 56, 240, 560, 40, 0, DemoTheme.Text, DemoTheme.Background, 32, font, font.Length, 13, 0, 0, 0);
 
-            string[] readOnlyItems = { "D2D 默认", "D2D 主题", "D2D 高亮", "D2D 扩展" };
-            string[] editItems = { "可编辑默认", "彩色文本", "紧急提示", "高亮条目" };
+            string[] readOnlyItems = { "🫧 D2D 默认", "🎨 D2D 主题", "✨ D2D 高亮", "🧩 D2D 扩展" };
+            string[] editItems = { "✍️ 可编辑默认", "🌈 彩色文本", "🚨 紧急提示", "🔆 高亮条目" };
             foreach (string item in readOnlyItems)
             {
                 byte[] text = app.U(item);
@@ -132,7 +132,7 @@ namespace EmojiWindowDemo
             app.Label(1044, 148, 220, 22, "编辑框项目", DemoTheme.Text, DemoTheme.Background, 14, PageCommon.AlignLeft, false, page);
             app.Button(1044, 182, 116, 34, "新增项目", "+", DemoColors.Green, () =>
             {
-                string value = "新增项目 " + nextItemId++;
+                string value = "🆕 新增项目 " + nextItemId++;
                 byte[] text = app.U(value);
                 EmojiWindowNative.AddD2DComboItem(editCombo, text, text.Length);
                 EmojiWindowNative.SetD2DComboSelectedIndex(editCombo, EmojiWindowNative.GetD2DComboItemCount(editCombo) - 1);
@@ -164,7 +164,7 @@ namespace EmojiWindowDemo
             app.Label(1044, 236, 220, 22, "文本与配色", DemoTheme.Text, DemoTheme.Background, 14, PageCommon.AlignLeft, false, page);
             app.Button(1044, 270, 116, 34, "写入主题", "T", DemoColors.Purple, () =>
             {
-                byte[] text = app.U("D2D 手动输入 / 可编辑");
+                byte[] text = app.U("🫧 D2D 手动输入 / 可编辑");
                 EmojiWindowNative.SetD2DComboText(editCombo, text, text.Length);
                 Refresh("可编辑 D2DComboBox 文本已写入");
             }, page);

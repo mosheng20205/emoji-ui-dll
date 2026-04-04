@@ -363,6 +363,10 @@ namespace EmojiWindowDemo
         [DllImport(Dll, CallingConvention = Cc)] public static extern int GetSwitchState(IntPtr hSwitch);
         [DllImport(Dll, CallingConvention = Cc)] public static extern void SetSwitchState(IntPtr hSwitch, int checkedState);
         [DllImport(Dll, CallingConvention = Cc)] public static extern void SetSwitchText(IntPtr hSwitch, byte[] activeText, int activeTextLen, byte[] inactiveText, int inactiveTextLen);
+        [DllImport(Dll, CallingConvention = Cc)] public static extern void SetSwitchColors(IntPtr hSwitch, uint activeColor, uint inactiveColor);
+        [DllImport(Dll, CallingConvention = Cc)] public static extern void SetSwitchTextColors(IntPtr hSwitch, uint activeTextColor, uint inactiveTextColor);
+        [DllImport(Dll, CallingConvention = Cc)] public static extern int GetSwitchColors(IntPtr hSwitch, out uint activeColor, out uint inactiveColor, out uint activeTextColor, out uint inactiveTextColor);
+        [DllImport(Dll, CallingConvention = Cc)] public static extern void SetSwitchBounds(IntPtr hSwitch, int x, int y, int width, int height);
         [DllImport(Dll, CallingConvention = Cc)] public static extern void SetSwitchCallback(IntPtr hSwitch, SwitchCallback callback);
 
         [DllImport(Dll, CallingConvention = Cc)] public static extern IntPtr CreateTooltip(IntPtr owner, byte[] text, int textLen, int placement, uint bgColor, uint fgColor);
