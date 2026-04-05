@@ -867,6 +867,7 @@ struct WindowState {
     std::wstring titlebar_font_name = L"Segoe UI Emoji";     // 鏍囬瀛椾綋鍚嶇О
     float titlebar_font_size = 13.0f;                        // 鏍囬瀛楀彿锛堝儚绱狅級
     int titlebar_alignment = 0;                              // 标题对齐方式
+    bool in_live_resize = false;                             // 用户拖动调整窗口大小时为真
     EventCallbacks events;                                   // 通用事件回调
 };
 
@@ -1784,6 +1785,10 @@ extern "C" {
     __declspec(dllexport) void __stdcall SetEditBoxBounds(
         HWND hEdit,
         int x, int y, int width, int height
+    );
+    __declspec(dllexport) void __stdcall SetEditBoxBoundsWithParentClientRightMargin(
+        HWND hEdit,
+        int x, int y, int right_margin, int height
     );
 
     // 鍚敤/绂佺敤缂栬緫妗?

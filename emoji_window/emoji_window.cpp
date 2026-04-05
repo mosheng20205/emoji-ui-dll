@@ -1,4 +1,4 @@
-﻿#include "log.h"
+#include "log.h"
 #include "emoji_window.h"
 #include "treeview_window.h"  // WM_EW_TABPAGE_VISIBLE
 #include "submenu_window.h"
@@ -119,6 +119,8 @@ static const wchar_t* CUSTOM_TAB_CONTROL_CLASS = L"EmojiWindowCustomTabControl";
 static inline UINT32 ResolveThemeColor(UINT32 color);
 static UINT32 BlendThemeSurface(UINT32 surface, UINT32 accent, float accent_ratio);
 static std::wstring NormalizeD2DEditText(const std::wstring& text, bool multiline);
+static void AppendEditBoxDebugLog(const char* format, ...);
+static void NotifyWindowResizeCallback(HWND hwnd, const char* source);
 
 // ========== 主题辅助函数 ==========
 // 获取主题颜色，如果主题未初始化则返回默认值
@@ -273,6 +275,34 @@ static void RebuildBrush(HBRUSH& brush, UINT32 color) {
         (resolved >> 8) & 0xFF,
         resolved & 0xFF
     ));
+}
+
+static void NotifyWindowResizeCallback(HWND hwnd, const char* source) {
+    if (!g_window_resize_callback || !hwnd || !IsWindow(hwnd)) {
+        AppendEditBoxDebugLog("ResizeNotify:%s skipped hwnd=%p callback=%p is_window=%d",
+            source ? source : "unknown",
+            hwnd,
+            g_window_resize_callback,
+            (hwnd && IsWindow(hwnd)) ? 1 : 0);
+        return;
+    }
+
+    RECT rc = {};
+    if (!GetClientRect(hwnd, &rc)) {
+        AppendEditBoxDebugLog("ResizeNotify:%s GetClientRect failed hwnd=%p", source ? source : "unknown", hwnd);
+        return;
+    }
+
+    int width = max(0, rc.right - rc.left);
+    int height = max(0, rc.bottom - rc.top);
+    if (width <= 0 || height <= 0) {
+        AppendEditBoxDebugLog("ResizeNotify:%s ignored hwnd=%p client=%dx%d",
+            source ? source : "unknown", hwnd, width, height);
+        return;
+    }
+
+    AppendEditBoxDebugLog("ResizeNotify:%s hwnd=%p client=%dx%d", source ? source : "unknown", hwnd, width, height);
+    g_window_resize_callback(hwnd, width, height);
 }
 
 // 鼠标进入跟踪集合
@@ -2895,13 +2925,49 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
                 UpdateLayout(hwnd);
             }
 
-            if (g_window_resize_callback) {
-                g_window_resize_callback(hwnd, (int)width, (int)height);
+            NotifyWindowResizeCallback(hwnd, "WM_SIZE");
+            if (!state->in_live_resize) {
+                RefreshPriorityChildControls(hwnd);
             }
-            RefreshPriorityChildControls(hwnd);
         }
         return 0;
     }
+
+    case WM_SIZING:
+        AppendEditBoxDebugLog("WindowProc:WM_SIZING hwnd=%p edge=%u", hwnd, (unsigned)wparam);
+        NotifyWindowResizeCallback(hwnd, "WM_SIZING");
+        return TRUE;
+
+    case WM_WINDOWPOSCHANGED:
+        if (state && state->in_live_resize) {
+            WINDOWPOS* pos = reinterpret_cast<WINDOWPOS*>(lparam);
+            AppendEditBoxDebugLog("WindowProc:WM_WINDOWPOSCHANGED hwnd=%p flags=0x%X pos=(%d,%d %dx%d) live=%d",
+                hwnd,
+                pos ? (unsigned)pos->flags : 0u,
+                pos ? pos->x : 0,
+                pos ? pos->y : 0,
+                pos ? pos->cx : 0,
+                pos ? pos->cy : 0,
+                state->in_live_resize ? 1 : 0);
+            NotifyWindowResizeCallback(hwnd, "WM_WINDOWPOSCHANGED");
+        }
+        break;
+
+    case WM_ENTERSIZEMOVE:
+        if (state) {
+            state->in_live_resize = true;
+            AppendEditBoxDebugLog("WindowProc:WM_ENTERSIZEMOVE hwnd=%p", hwnd);
+        }
+        return 0;
+
+    case WM_EXITSIZEMOVE:
+        if (state) {
+            state->in_live_resize = false;
+            AppendEditBoxDebugLog("WindowProc:WM_EXITSIZEMOVE hwnd=%p", hwnd);
+            NotifyWindowResizeCallback(hwnd, "WM_EXITSIZEMOVE");
+            RefreshPriorityChildControls(hwnd);
+        }
+        return 0;
 
     case WM_CTLCOLOREDIT:
     case WM_CTLCOLORSTATIC: {
@@ -6701,6 +6767,50 @@ static D2DEditBoxState* FindD2DEditState(HWND hwnd) {
     return it != g_d2d_editboxes.end() ? it->second : nullptr;
 }
 
+static void AppendEditBoxDebugLog(const char* format, ...) {
+    char line[1024] = {};
+    va_list args;
+    va_start(args, format);
+    vsnprintf(line, sizeof(line), format, args);
+    va_end(args);
+
+    FILE* f = nullptr;
+    fopen_s(&f, "C:\\editbox_debug.log", "a");
+    if (f) {
+        fprintf(f, "%s\n", line);
+        fclose(f);
+    }
+}
+
+static void LogEditBoxSnapshot(const char* tag, HWND hEdit) {
+    if (!hEdit || !IsWindow(hEdit)) {
+        AppendEditBoxDebugLog("%s hwnd=%p invalid-window", tag, hEdit);
+        return;
+    }
+
+    char cls[128] = {};
+    GetClassNameA(hEdit, cls, (int)sizeof(cls));
+
+    RECT rc = {};
+    GetWindowRect(hEdit, &rc);
+
+    HWND parent = GetParent(hEdit);
+    BOOL visible = IsWindowVisible(hEdit);
+
+    AppendEditBoxDebugLog(
+        "%s hwnd=%p parent=%p class=%s visible=%d rect=(%d,%d)-(%d,%d)",
+        tag,
+        hEdit,
+        parent,
+        cls,
+        visible ? 1 : 0,
+        rc.left,
+        rc.top,
+        rc.right,
+        rc.bottom
+    );
+}
+
 // 编辑框子类化处理
 LRESULT CALLBACK EditBoxSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     EditBoxState* state = (EditBoxState*)dwRefData;
@@ -6729,6 +6839,31 @@ LRESULT CALLBACK EditBoxSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
         case WM_SIZE: {
             if (state->vertical_center && !state->multiline) {
                 UpdateEditBoxFormatRect(hwnd);
+            }
+            break;
+        }
+        case WM_SHOWWINDOW: {
+            AppendEditBoxDebugLog("EditBoxProc:WM_SHOWWINDOW hwnd=%p show=%d status=%d", hwnd, wparam ? 1 : 0, (int)lparam);
+            LogEditBoxSnapshot("EditBoxProc:WM_SHOWWINDOW:snapshot", hwnd);
+            break;
+        }
+        case WM_WINDOWPOSCHANGING:
+        case WM_WINDOWPOSCHANGED: {
+            WINDOWPOS* wp = reinterpret_cast<WINDOWPOS*>(lparam);
+            if (wp && (wp->flags & (SWP_HIDEWINDOW | SWP_SHOWWINDOW))) {
+                AppendEditBoxDebugLog(
+                    "EditBoxProc:%s hwnd=%p flags=0x%08X hide=%d show=%d x=%d y=%d w=%d h=%d",
+                    (msg == WM_WINDOWPOSCHANGING) ? "WM_WINDOWPOSCHANGING" : "WM_WINDOWPOSCHANGED",
+                    hwnd,
+                    (unsigned int)wp->flags,
+                    (wp->flags & SWP_HIDEWINDOW) ? 1 : 0,
+                    (wp->flags & SWP_SHOWWINDOW) ? 1 : 0,
+                    wp->x,
+                    wp->y,
+                    wp->cx,
+                    wp->cy
+                );
+                LogEditBoxSnapshot("EditBoxProc:WINDOWPOS:snapshot", hwnd);
             }
             break;
         }
@@ -7062,6 +7197,7 @@ __declspec(dllexport) HWND __stdcall CreateEditBox(
     RebuildBrush(state->bg_brush, bg_color);
     
     g_editboxes[hEdit] = state;
+    LogEditBoxSnapshot("CreateEditBox:created", hEdit);
     
     // 设置字体
     HFONT hFont = CreateCustomFont(state->font);
@@ -7219,26 +7355,72 @@ __declspec(dllexport) void __stdcall SetEditBoxBounds(
     int x, int y, int width, int height
 ) {
     if (!hEdit) return;
-    if (D2DEditBoxState* d2d = FindD2DEditState(hEdit)) {
+
+    int safe_width = width;
+    int safe_height = height;
+
+    auto edit_it = g_editboxes.find(hEdit);
+    D2DEditBoxState* d2d = FindD2DEditState(hEdit);
+
+    RECT current_rect = {};
+    bool has_current_rect = (GetWindowRect(hEdit, &current_rect) != FALSE);
+    int current_w = has_current_rect ? max(1, current_rect.right - current_rect.left) : 1;
+    int current_h = has_current_rect ? max(1, current_rect.bottom - current_rect.top) : 1;
+
+    AppendEditBoxDebugLog("SetEditBoxBounds:input hwnd=%p x=%d y=%d w=%d h=%d current_w=%d current_h=%d", hEdit, x, y, width, height, current_w, current_h);
+
+    // 防抖保护：外部偶发传入 0/1 宽高时，保持当前有效尺寸，避免编辑框被压扁后“消失”。
+    if (safe_width <= 1) {
+        int fallback_w = d2d ? max(1, d2d->width) : current_w;
+        safe_width = max(1, fallback_w);
+        AppendEditBoxDebugLog("SetEditBoxBounds:clamp_width hwnd=%p raw=%d safe=%d", hEdit, width, safe_width);
+    }
+    if (safe_height <= 1) {
+        int fallback_h = d2d ? max(1, d2d->height) : current_h;
+        safe_height = max(1, fallback_h);
+        AppendEditBoxDebugLog("SetEditBoxBounds:clamp_height hwnd=%p raw=%d safe=%d", hEdit, height, safe_height);
+    }
+
+    if (d2d) {
         d2d->x = x;
         d2d->y = y;
-        d2d->width = width;
-        d2d->height = height;
+        d2d->width = safe_width;
+        d2d->height = safe_height;
     }
+
     const int actual_y = AdjustChildControlYForParent(GetParent(hEdit), y);
-    SetWindowPos(hEdit, HWND_TOP, x, actual_y, width, height, SWP_NOACTIVATE);
-    if (FindD2DEditState(hEdit)) {
-        RedrawWindow(hEdit, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE | RDW_FRAME);
-    }
-    auto it = g_editboxes.find(hEdit);
-    if (it != g_editboxes.end() && it->second->vertical_center && !it->second->multiline) {
+    SetWindowPos(hEdit, HWND_TOP, x, actual_y, safe_width, safe_height, SWP_NOACTIVATE);
+    LogEditBoxSnapshot("SetEditBoxBounds:after", hEdit);
+    if (edit_it != g_editboxes.end() && edit_it->second->vertical_center && !edit_it->second->multiline) {
         UpdateEditBoxFormatRect(hEdit);
     }
-    RedrawWindow(hEdit, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE | RDW_FRAME);
+    InvalidateRect(hEdit, NULL, FALSE);
+}
+
+__declspec(dllexport) void __stdcall SetEditBoxBoundsWithParentClientRightMargin(
+    HWND hEdit,
+    int x, int y, int right_margin, int height
+) {
+    if (!hEdit || !IsWindow(hEdit)) return;
+
     HWND parent = GetParent(hEdit);
-    if (parent) {
-        RedrawWindow(parent, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN | RDW_NOERASE);
+    if (!parent || !IsWindow(parent)) {
+        AppendEditBoxDebugLog("SetEditBoxBoundsWithParentClientRightMargin:no_parent hwnd=%p", hEdit);
+        return;
     }
+
+    RECT rc = {};
+    if (!GetClientRect(parent, &rc)) {
+        AppendEditBoxDebugLog("SetEditBoxBoundsWithParentClientRightMargin:GetClientRect_failed hwnd=%p parent=%p", hEdit, parent);
+        return;
+    }
+
+    int client_width = max(0, rc.right - rc.left);
+    int computed_width = client_width - x - right_margin;
+    AppendEditBoxDebugLog(
+        "SetEditBoxBoundsWithParentClientRightMargin hwnd=%p parent=%p client_w=%d x=%d right_margin=%d computed_w=%d h=%d",
+        hEdit, parent, client_width, x, right_margin, computed_width, height);
+    SetEditBoxBounds(hEdit, x, y, computed_width, height);
 }
 
 __declspec(dllexport) void __stdcall EnableEditBox(
@@ -7260,12 +7442,14 @@ __declspec(dllexport) void __stdcall ShowEditBox(
     BOOL show
 ) {
     if (!hEdit) return;
+    AppendEditBoxDebugLog("ShowEditBox:call hwnd=%p show=%d", hEdit, show ? 1 : 0);
     ShowWindow(hEdit, show ? SW_SHOW : SW_HIDE);
     if (show) {
         SetWindowPos(hEdit, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         RedrawWindow(hEdit, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE | RDW_FRAME);
         UpdateWindow(hEdit);
     }
+    LogEditBoxSnapshot("ShowEditBox:after", hEdit);
     HWND parent = GetParent(hEdit);
     if (parent) {
         RedrawWindow(parent, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN | RDW_NOERASE);
@@ -7495,7 +7679,8 @@ extern "C" __declspec(dllexport) HWND __stdcall CreateD2DColorEmojiEditBox(
 );
 
 // 创建彩色Emoji编辑框
-// 这里直接复用 D2D 自绘编辑框，确保 emoji 按彩色字体渲染。
+// 这里应使用系统编辑框（RichEdit）路径，保证与 ShowEditBox/SetEditBoxBounds 等 API 一致。
+// D2D 自绘编辑框请使用 CreateD2DColorEmojiEditBox。
 __declspec(dllexport) HWND __stdcall CreateColorEmojiEditBox(
     HWND hParent,
     int x, int y, int width, int height,
@@ -7516,7 +7701,7 @@ __declspec(dllexport) HWND __stdcall CreateColorEmojiEditBox(
     BOOL has_border,
     BOOL vertical_center
 ) {
-    return CreateD2DColorEmojiEditBox(
+    return CreateEditBox(
         hParent,
         x, y, width, height,
         text_bytes, text_len,
@@ -7524,13 +7709,15 @@ __declspec(dllexport) HWND __stdcall CreateColorEmojiEditBox(
         bg_color,
         font_name_bytes, font_name_len,
         font_size,
-        bold != 0, italic != 0, underline != 0,
+        bold,
+        italic,
+        underline,
         alignment,
-        multiline != 0,
-        readonly != 0,
-        password != 0,
-        has_border != 0,
-        vertical_center != 0
+        multiline,
+        readonly,
+        password,
+        has_border,
+        vertical_center
     );
 }
 
@@ -21645,14 +21832,30 @@ static void RefreshPriorityChildControls(HWND parent) {
     if (!parent || !IsWindow(parent)) return;
 
     EnumChildWindows(parent, [](HWND child, LPARAM) -> BOOL {
-        if (!child || !IsWindow(child) || !IsWindowVisible(child)) return TRUE;
+        if (!child || !IsWindow(child)) return TRUE;
+
+        // 关键修复：RichEdit(如 RICHEDIT50W) 也属于编辑框，必须参与置顶刷新。
+        // 仅按类名匹配 "Edit" 会漏掉 CreateEditBox 使用的 RichEdit，导致被父窗口重绘覆盖后“看起来消失”。
+        const bool is_managed_edit =
+            (g_editboxes.find(child) != g_editboxes.end()) ||
+            (g_d2d_editboxes.find(child) != g_d2d_editboxes.end());
 
         wchar_t class_name[64] = {};
         GetClassNameW(child, class_name, 64);
-        if (_wcsicmp(class_name, L"Edit") != 0 &&
-            _wcsicmp(class_name, L"D2DEditBoxClass") != 0 &&
-            _wcsicmp(class_name, L"EmojiWindowButtonClass") != 0) {
+        const bool is_priority_class =
+            (_wcsicmp(class_name, L"Edit") == 0) ||
+            (_wcsicmp(class_name, L"RICHEDIT50W") == 0) ||
+            (_wcsicmp(class_name, L"RichEdit20W") == 0) ||
+            (_wcsicmp(class_name, L"D2DEditBoxClass") == 0) ||
+            (_wcsicmp(class_name, L"EmojiWindowButtonClass") == 0);
+
+        if (!is_managed_edit && !is_priority_class) {
             return TRUE;
+        }
+
+        // 对受管编辑框做兜底恢复：如果被意外隐藏，立即恢复可见。
+        if (is_managed_edit && !IsWindowVisible(child)) {
+            ShowWindow(child, SW_SHOWNA);
         }
 
         SetWindowPos(

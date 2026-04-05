@@ -91,6 +91,7 @@ EXPORTS
     SetEditBoxFont
     SetEditBoxColor
     SetEditBoxBounds
+    SetEditBoxBoundsWithParentClientRightMargin
     EnableEditBox
     ShowEditBox
     SetEditBoxVerticalCenter
