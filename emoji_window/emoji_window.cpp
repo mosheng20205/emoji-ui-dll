@@ -43,6 +43,10 @@ struct ButtonWindowBindingInfo {
     int button_id = 0;
 };
 static std::map<HWND, ButtonWindowBindingInfo> g_button_window_bindings; // 按钮窗口 -> 绑定信息
+static std::map<int, HWND> g_button_tooltip_bindings; // 按钮ID -> Tooltip句柄
+static std::map<HWND, HWND> g_button_hwnd_tooltips; // 按钮窗口 -> Tooltip句柄
+static std::map<int, HWND> g_builtin_toolbar_button_tooltips; // 工具栏按钮ID -> 内建Tooltip
+static std::map<int, HWND> g_builtin_toolbar_button_hint_labels; // 工具栏按钮ID -> 纯文字提示
 std::map<int, UINT32> g_button_text_colors;
 std::map<int, UINT32> g_button_border_colors;
 std::map<int, UINT32> g_button_hover_bg_colors;
@@ -105,6 +109,12 @@ static void DrawGroupBoxOwnedButtons(ID2D1HwndRenderTarget* rt, IDWriteFactory* 
 static EmojiButton* FindEmojiButton(HWND hParent, int button_id);
 static void SyncEmojiButtonWindow(EmojiButton* button);
 static void RefreshPriorityChildControls(HWND parent);
+static HWND ResolveTooltipTargetWindow(HWND target);
+static void HideOtherButtonTooltips(HWND keep_tooltip);
+static void HideOtherBuiltinToolbarHintLabels(int keep_button_id);
+static std::wstring GetBuiltinToolbarTooltipText(const EmojiButton& button);
+static HWND EnsureBuiltinToolbarTooltip(HWND parent, int button_id, const std::wstring& text);
+static HWND EnsureBuiltinToolbarHintLabel(HWND parent, const EmojiButton& button, const std::wstring& text);
 static const wchar_t* CUSTOM_TAB_CONTROL_CLASS = L"EmojiWindowCustomTabControl";
 static inline UINT32 ResolveThemeColor(UINT32 color);
 static UINT32 BlendThemeSurface(UINT32 surface, UINT32 accent, float accent_ratio);
@@ -11649,16 +11659,30 @@ __declspec(dllexport) void __stdcall BindTooltipToControl(HWND hTooltip, HWND hT
     if (it == g_tooltips.end()) return;
     TooltipState* state = it->second;
     UnbindTooltipTarget(state);
-    if (!hTarget || !IsWindow(hTarget)) return;
-    state->bound_target = hTarget;
-    SetWindowSubclass(hTarget, TooltipTargetProc, (UINT_PTR)state, (DWORD_PTR)state);
+    for (auto hwnd_it = g_button_hwnd_tooltips.begin(); hwnd_it != g_button_hwnd_tooltips.end();) {
+        if (hwnd_it->second == hTooltip) hwnd_it = g_button_hwnd_tooltips.erase(hwnd_it);
+        else ++hwnd_it;
+    }
+    for (auto map_it = g_button_tooltip_bindings.begin(); map_it != g_button_tooltip_bindings.end();) {
+        if (map_it->second == hTooltip) map_it = g_button_tooltip_bindings.erase(map_it);
+        else ++map_it;
+    }
+    const int button_id = (int)(INT_PTR)hTarget;
+    if (button_id > 0 && !IsWindow(hTarget)) {
+        g_button_tooltip_bindings[button_id] = hTooltip;
+    }
+    HWND target_hwnd = ResolveTooltipTargetWindow(hTarget);
+    if (!target_hwnd || !IsWindow(target_hwnd)) return;
+    state->bound_target = target_hwnd;
+    g_button_hwnd_tooltips[target_hwnd] = hTooltip;
+    SetWindowSubclass(target_hwnd, TooltipTargetProc, (UINT_PTR)state, (DWORD_PTR)state);
 }
 
 __declspec(dllexport) void __stdcall ShowTooltipForControl(HWND hTooltip, HWND hTarget) {
     auto it = g_tooltips.find(hTooltip);
     if (it == g_tooltips.end()) return;
     TooltipState* state = it->second;
-    state->target = hTarget;
+    state->target = ResolveTooltipTargetWindow(hTarget);
     state->visible = true;
     RefreshTooltipWindow(hTooltip, state);
     ShowWindow(hTooltip, SW_SHOWNOACTIVATE);
@@ -21470,6 +21494,127 @@ static EmojiButton* FindEmojiButtonByWindow(HWND hwnd, HWND* out_parent = nullpt
     return FindEmojiButton(it->second.state_host, it->second.button_id);
 }
 
+static HWND ResolveTooltipTargetWindow(HWND target) {
+    if (target && IsWindow(target)) return target;
+
+    const int button_id = (int)(INT_PTR)target;
+    if (button_id <= 0) return nullptr;
+
+    for (auto& pair : g_windows) {
+        if (EmojiButton* button = FindEmojiButton(pair.first, button_id)) {
+            if (button->hwnd && IsWindow(button->hwnd)) {
+                return button->hwnd;
+            }
+        }
+    }
+    return nullptr;
+}
+
+static void HideOtherButtonTooltips(HWND keep_tooltip) {
+    std::set<HWND> hidden;
+    for (const auto& pair : g_button_hwnd_tooltips) {
+        HWND tooltip = pair.second;
+        if (!tooltip || tooltip == keep_tooltip || hidden.count(tooltip)) continue;
+        HideTooltip(tooltip);
+        hidden.insert(tooltip);
+    }
+    for (const auto& pair : g_button_tooltip_bindings) {
+        HWND tooltip = pair.second;
+        if (!tooltip || tooltip == keep_tooltip || hidden.count(tooltip)) continue;
+        HideTooltip(tooltip);
+        hidden.insert(tooltip);
+    }
+}
+
+static void HideOtherBuiltinToolbarHintLabels(int keep_button_id) {
+    for (const auto& pair : g_builtin_toolbar_button_hint_labels) {
+        if (pair.first == keep_button_id) continue;
+        if (pair.second && IsWindow(pair.second)) {
+            ShowLabel(pair.second, FALSE);
+        }
+    }
+}
+
+static std::wstring GetBuiltinToolbarTooltipText(const EmojiButton& button) {
+    if (button.width != 32 || button.height != 32) return L"";
+    if (button.text == L"<") return L"后退";
+    if (button.text == L">") return L"前进";
+    if (button.text == L"R") return L"刷新当前标签";
+    if (button.text == L"H") return L"回到主页";
+    return L"";
+}
+
+static HWND EnsureBuiltinToolbarTooltip(HWND parent, int button_id, const std::wstring& text) {
+    auto it = g_builtin_toolbar_button_tooltips.find(button_id);
+    if (it != g_builtin_toolbar_button_tooltips.end() && it->second && IsWindow(it->second)) {
+        return it->second;
+    }
+
+    std::string utf8 = WindowWideToUtf8(text);
+    HWND hTooltip = CreateTooltip(
+        parent,
+        reinterpret_cast<const unsigned char*>(utf8.data()),
+        (int)utf8.size(),
+        POPUP_BOTTOM_START,
+        0xFFF4F6F9,
+        ThemeColor_TextPrimary()
+    );
+    if (!hTooltip) return nullptr;
+    SetTooltipTheme(hTooltip, TOOLTIP_THEME_CUSTOM);
+    SetTooltipPlacement(hTooltip, POPUP_BOTTOM_START);
+    SetTooltipTrigger(hTooltip, TOOLTIP_TRIGGER_HOVER);
+    SetTooltipColors(hTooltip, 0xFFF4F6F9, ThemeColor_TextPrimary(), 0x00000000);
+    g_builtin_toolbar_button_tooltips[button_id] = hTooltip;
+    return hTooltip;
+}
+
+static HWND EnsureBuiltinToolbarHintLabel(HWND parent, const EmojiButton& button, const std::wstring& text) {
+    auto it = g_builtin_toolbar_button_hint_labels.find(button.id);
+    HWND hLabel = (it != g_builtin_toolbar_button_hint_labels.end()) ? it->second : nullptr;
+
+    std::string utf8 = WindowWideToUtf8(text);
+    std::string font_utf8 = WindowWideToUtf8(L"Microsoft YaHei UI");
+    UINT32 fg = ThemeColor_TextPrimary();
+    UINT32 bg = ResolveContainerBackgroundColor(parent, 13);
+
+    int width = max(36, 8 + (int)text.length() * 14);
+    int height = 24;
+    int x = button.x + (button.width - width) / 2;
+    int y = button.y + button.height;
+
+    if (!hLabel || !IsWindow(hLabel)) {
+        hLabel = CreateLabel(
+            parent,
+            x,
+            y,
+            width,
+            height,
+            reinterpret_cast<const unsigned char*>(utf8.data()),
+            (int)utf8.size(),
+            fg,
+            bg,
+            reinterpret_cast<const unsigned char*>(font_utf8.data()),
+            (int)font_utf8.size(),
+            12,
+            FALSE,
+            FALSE,
+            FALSE,
+            ALIGN_CENTER,
+            FALSE
+        );
+        if (!hLabel) return nullptr;
+        g_builtin_toolbar_button_hint_labels[button.id] = hLabel;
+    } else {
+        SetLabelText(hLabel, reinterpret_cast<const unsigned char*>(utf8.data()), (int)utf8.size());
+        SetLabelColor(hLabel, fg, bg);
+        SetLabelBounds(hLabel, x, y, width, height);
+    }
+
+    SetWindowPos(hLabel, HWND_TOP, x, AdjustChildControlYForParent(parent, y), width, height, SWP_NOACTIVATE);
+    ShowLabel(hLabel, TRUE);
+    return hLabel;
+}
+
 static UINT32 ResolveButtonHostBackgroundColor(HWND hwnd) {
     return ResolveContainerBackgroundColor(hwnd, 13);
 }
@@ -21572,6 +21717,23 @@ static LRESULT CALLBACK EmojiButtonWindowProc(HWND hwnd, UINT msg, WPARAM wparam
             button->is_hovered = hovered;
             InvalidateRect(hwnd, nullptr, FALSE);
         }
+        std::wstring builtin_text = GetBuiltinToolbarTooltipText(*button);
+        if (!builtin_text.empty()) {
+            HideOtherButtonTooltips(nullptr);
+            HideOtherBuiltinToolbarHintLabels(button->id);
+            HWND builtin_label = EnsureBuiltinToolbarHintLabel(logical_parent, *button, builtin_text);
+            if (builtin_label) {
+                SetWindowPos(builtin_label, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            }
+        } else if (auto hwnd_tooltip_it = g_button_hwnd_tooltips.find(hwnd); hwnd_tooltip_it != g_button_hwnd_tooltips.end()) {
+            HideOtherBuiltinToolbarHintLabels(0);
+            HideOtherButtonTooltips(hwnd_tooltip_it->second);
+            ShowTooltipForControl(hwnd_tooltip_it->second, hwnd);
+        } else if (auto tooltip_it = g_button_tooltip_bindings.find(button->id); tooltip_it != g_button_tooltip_bindings.end()) {
+            HideOtherBuiltinToolbarHintLabels(0);
+            HideOtherButtonTooltips(tooltip_it->second);
+            ShowTooltipForControl(tooltip_it->second, hwnd);
+        }
         TRACKMOUSEEVENT tme = { sizeof(TRACKMOUSEEVENT) };
         tme.dwFlags = TME_LEAVE;
         tme.hwndTrack = hwnd;
@@ -21583,6 +21745,15 @@ static LRESULT CALLBACK EmojiButtonWindowProc(HWND hwnd, UINT msg, WPARAM wparam
         if (button->is_hovered) {
             button->is_hovered = false;
             InvalidateRect(hwnd, nullptr, FALSE);
+        }
+        if (auto builtin_label_it = g_builtin_toolbar_button_hint_labels.find(button->id); builtin_label_it != g_builtin_toolbar_button_hint_labels.end()) {
+            ShowLabel(builtin_label_it->second, FALSE);
+        } else if (auto builtin_it = g_builtin_toolbar_button_tooltips.find(button->id); builtin_it != g_builtin_toolbar_button_tooltips.end()) {
+            HideTooltip(builtin_it->second);
+        } else if (auto hwnd_tooltip_it = g_button_hwnd_tooltips.find(hwnd); hwnd_tooltip_it != g_button_hwnd_tooltips.end()) {
+            HideTooltip(hwnd_tooltip_it->second);
+        } else if (auto tooltip_it = g_button_tooltip_bindings.find(button->id); tooltip_it != g_button_tooltip_bindings.end()) {
+            HideTooltip(tooltip_it->second);
         }
         return 0;
 
@@ -21645,6 +21816,18 @@ static LRESULT CALLBACK EmojiButtonWindowProc(HWND hwnd, UINT msg, WPARAM wparam
 
     case WM_NCDESTROY:
         KillTimer(hwnd, 1);
+        g_button_tooltip_bindings.erase(button->id);
+        if (auto label_it = g_builtin_toolbar_button_hint_labels.find(button->id); label_it != g_builtin_toolbar_button_hint_labels.end()) {
+            if (label_it->second && IsWindow(label_it->second)) {
+                DestroyWindow(label_it->second);
+            }
+            g_builtin_toolbar_button_hint_labels.erase(label_it);
+        }
+        if (auto builtin_it = g_builtin_toolbar_button_tooltips.find(button->id); builtin_it != g_builtin_toolbar_button_tooltips.end()) {
+            DestroyTooltip(builtin_it->second);
+            g_builtin_toolbar_button_tooltips.erase(builtin_it);
+        }
+        g_button_hwnd_tooltips.erase(hwnd);
         g_button_window_bindings.erase(hwnd);
         return DefWindowProcW(hwnd, msg, wparam, lparam);
     }
