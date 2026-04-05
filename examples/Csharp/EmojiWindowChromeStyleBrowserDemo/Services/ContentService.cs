@@ -68,6 +68,18 @@ namespace EmojiWindowChromeStyleBrowserDemo.Services
             ChromeControlFactory.SetLabelText(state.InfoLine4Label, "Favorites: " + state.Favorites.Count + " saved");
         }
 
+        public static void RefreshThemeSummary(BrowserState state)
+        {
+            if (state.ActiveTab == null)
+            {
+                return;
+            }
+
+            ChromeControlFactory.SetLabelText(
+                state.PageStateLabel,
+                (NavigationService.IsCurrentFavorite(state) ? "Bookmarked" : "Not bookmarked") + "  |  Theme " + (state.DarkThemeEnabled ? "Dark" : "Light"));
+        }
+
         public static void SetStatus(BrowserState state, string text)
         {
             ChromeControlFactory.SetLabelText(state.FooterStatusLabel, text);

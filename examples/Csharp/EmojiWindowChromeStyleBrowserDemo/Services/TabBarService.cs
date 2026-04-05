@@ -57,8 +57,6 @@ namespace EmojiWindowChromeStyleBrowserDemo.Services
                 state.ActiveTabIndex = state.Tabs.Count - 1;
             }
 
-            Layout(state);
-            ApplyStyles(state);
             return tab;
         }
 

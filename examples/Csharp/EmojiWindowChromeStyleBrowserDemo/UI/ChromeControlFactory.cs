@@ -23,11 +23,27 @@ namespace EmojiWindowChromeStyleBrowserDemo.UI
                 background);
         }
 
-        public static IntPtr CreateLabel(BrowserState state, int x, int y, int width, int height, string text, uint foreground, uint background, int fontSize = 12, int alignment = 0)
+        public static int CreateEmojiButton(BrowserState state, string emoji, int x, int y, int width, int height, uint background)
+        {
+            byte[] emojiBytes = EmojiWindowNative.ToUtf8(emoji);
+            return EmojiWindowNative.create_emoji_button_bytes(
+                state.Window,
+                emojiBytes,
+                emojiBytes.Length,
+                state.EmptyBytes,
+                0,
+                x,
+                y,
+                width,
+                height,
+                background);
+        }
+
+        public static IntPtr CreateLabel(BrowserState state, int x, int y, int width, int height, string text, uint foreground, uint background, int fontSize = 12, int alignment = 0, IntPtr? parent = null)
         {
             byte[] textBytes = EmojiWindowNative.ToUtf8(text);
             return EmojiWindowNative.CreateLabel(
-                state.Window,
+                parent ?? state.Window,
                 x,
                 y,
                 width,
@@ -46,14 +62,14 @@ namespace EmojiWindowChromeStyleBrowserDemo.UI
                 0);
         }
 
-        public static IntPtr CreateAddressEditBox(BrowserState state, string text)
+        public static IntPtr CreateAddressEditBox(BrowserState state, string text, IntPtr? parent = null)
         {
             bool dark = state.DarkThemeEnabled;
             byte[] textBytes = EmojiWindowNative.ToUtf8(text);
-            return EmojiWindowNative.CreateColorEmojiEditBox(
-                state.Window,
-                ChromeLayoutMetrics.ToolbarX + ChromeLayoutMetrics.AddressShellX + ChromeLayoutMetrics.AddressEditOffsetX,
-                ChromeLayoutMetrics.ToolbarY + ChromeLayoutMetrics.AddressEditOffsetY,
+            return EmojiWindowNative.CreateD2DColorEmojiEditBox(
+                parent ?? state.Window,
+                ChromeLayoutMetrics.AddressShellX + ChromeLayoutMetrics.AddressEditOffsetX,
+                ChromeLayoutMetrics.AddressEditOffsetY,
                 ChromeLayoutMetrics.GetAddressWidth(state.Width),
                 ChromeLayoutMetrics.AddressBarHeight,
                 textBytes,
@@ -105,6 +121,17 @@ namespace EmojiWindowChromeStyleBrowserDemo.UI
 
             byte[] bytes = EmojiWindowNative.ToUtf8(text);
             EmojiWindowNative.SetButtonText(buttonId, bytes, bytes.Length);
+        }
+
+        public static void SetButtonEmoji(int buttonId, string emoji)
+        {
+            if (buttonId == 0)
+            {
+                return;
+            }
+
+            byte[] bytes = EmojiWindowNative.ToUtf8(emoji);
+            EmojiWindowNative.SetButtonEmoji(buttonId, bytes, bytes.Length);
         }
 
         public static void SetEditText(IntPtr handle, string text)

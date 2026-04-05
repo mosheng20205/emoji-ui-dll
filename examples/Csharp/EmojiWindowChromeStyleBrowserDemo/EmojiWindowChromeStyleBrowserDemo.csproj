@@ -7,10 +7,15 @@
     <LangVersion>latest</LangVersion>
     <Prefer32Bit>false</Prefer32Bit>
     <RootNamespace>EmojiWindowChromeStyleBrowserDemo</RootNamespace>
+    <ApplicationIcon>谷歌.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
     <Compile Include="..\DemoCommon\EmojiWindowNative.cs" Link="DemoCommon\EmojiWindowNative.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="谷歌.ico" />
   </ItemGroup>
 
   <ItemGroup>

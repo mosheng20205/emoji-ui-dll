@@ -30,10 +30,10 @@ namespace EmojiWindowChromeStyleBrowserDemo.Styling
         public const int AddressShellY = 7;
         public const int AddressShellHeight = 34;
         public const int AddressBadgeOffsetX = 10;
-        public const int AddressBadgeOffsetY = 10;
+        public const int AddressBadgeOffsetY = 8;
         public const int AddressBadgeSize = 26;
         public const int AddressEditOffsetX = 42;
-        public const int AddressEditOffsetY = 10;
+        public const int AddressEditOffsetY = 8;
         public const int AddressBarMinWidth = 220;
         public const int AddressBarHeight = 28;
 

@@ -15,34 +15,36 @@ namespace EmojiWindowChromeStyleBrowserDemo.Services
             state.ToolbarPanel = ChromeControlFactory.CreateToolbarPanel(state);
             state.AddressShellLabel = ChromeControlFactory.CreateLabel(
                 state,
-                ChromeLayoutMetrics.ToolbarX + ChromeLayoutMetrics.AddressShellX,
-                ChromeLayoutMetrics.ToolbarY + ChromeLayoutMetrics.AddressShellY,
+                ChromeLayoutMetrics.AddressShellX,
+                ChromeLayoutMetrics.AddressShellY,
                 ChromeLayoutMetrics.GetAddressShellWidth(toolbarWidth),
                 ChromeLayoutMetrics.AddressShellHeight,
                 string.Empty,
                 ChromePalette.AddressShellBackground(dark),
-                ChromePalette.AddressShellBackground(dark));
+                ChromePalette.AddressShellBackground(dark),
+                parent: state.ToolbarPanel);
 
             state.AddressBadgeLabel = ChromeControlFactory.CreateLabel(
                 state,
-                ChromeLayoutMetrics.ToolbarX + ChromeLayoutMetrics.AddressShellX + ChromeLayoutMetrics.AddressBadgeOffsetX,
-                ChromeLayoutMetrics.ToolbarY + ChromeLayoutMetrics.AddressBadgeOffsetY,
+                ChromeLayoutMetrics.AddressShellX + ChromeLayoutMetrics.AddressBadgeOffsetX,
+                ChromeLayoutMetrics.AddressBadgeOffsetY,
                 ChromeLayoutMetrics.AddressBadgeSize,
                 ChromeLayoutMetrics.AddressBadgeSize,
                 "G",
                 ChromePalette.AddressBackground(dark),
                 ChromePalette.AddressBadgeBackground("https://www.google.com/"),
                 12,
-                1);
+                1,
+                state.ToolbarPanel);
 
-            state.BackButtonId = CreateToolbarButton(state, "<", ChromeLayoutMetrics.ToolbarButtonStartX, toolbarWidth);
-            state.ForwardButtonId = CreateToolbarButton(state, ">", ChromeLayoutMetrics.ToolbarButtonStartX + ChromeLayoutMetrics.ToolbarButtonGap, toolbarWidth);
-            state.ReloadButtonId = CreateToolbarButton(state, "R", ChromeLayoutMetrics.ToolbarButtonStartX + (ChromeLayoutMetrics.ToolbarButtonGap * 2), toolbarWidth);
-            state.HomeButtonId = CreateToolbarButton(state, "H", ChromeLayoutMetrics.ToolbarButtonStartX + (ChromeLayoutMetrics.ToolbarButtonGap * 3), toolbarWidth);
-            state.FavoriteButtonId = CreateToolbarButton(state, "*", ChromeLayoutMetrics.GetRightFavoriteX(toolbarWidth), toolbarWidth);
-            state.ThemeButtonId = CreateToolbarButton(state, "D", ChromeLayoutMetrics.GetRightThemeX(toolbarWidth), toolbarWidth);
+            state.BackButtonId = CreateToolbarEmojiButton(state, "⬅️", ChromeLayoutMetrics.ToolbarButtonStartX, toolbarWidth);
+            state.ForwardButtonId = CreateToolbarEmojiButton(state, "➡️", ChromeLayoutMetrics.ToolbarButtonStartX + ChromeLayoutMetrics.ToolbarButtonGap, toolbarWidth);
+            state.ReloadButtonId = CreateToolbarEmojiButton(state, "🔄", ChromeLayoutMetrics.ToolbarButtonStartX + (ChromeLayoutMetrics.ToolbarButtonGap * 2), toolbarWidth);
+            state.HomeButtonId = CreateToolbarEmojiButton(state, "🏠", ChromeLayoutMetrics.ToolbarButtonStartX + (ChromeLayoutMetrics.ToolbarButtonGap * 3), toolbarWidth);
+            state.FavoriteButtonId = CreateToolbarEmojiButton(state, FavoriteGlyph(false), ChromeLayoutMetrics.GetRightFavoriteX(toolbarWidth), toolbarWidth);
+            state.ThemeButtonId = CreateToolbarEmojiButton(state, ThemeGlyph(dark), ChromeLayoutMetrics.GetRightThemeX(toolbarWidth), toolbarWidth);
 
-            state.AddressEdit = ChromeControlFactory.CreateAddressEditBox(state, "https://www.google.com/");
+            state.AddressEdit = ChromeControlFactory.CreateAddressEditBox(state, "https://www.google.com/", state.ToolbarPanel);
             EmojiWindowNative.SetEditBoxKeyCallback(state.AddressEdit, state.EditBoxKeyCallback);
             ApplyTheme(state);
 
@@ -69,20 +71,20 @@ namespace EmojiWindowChromeStyleBrowserDemo.Services
             int shellWidth = ChromeLayoutMetrics.GetAddressShellWidth(toolbarWidth);
             EmojiWindowNative.SetLabelBounds(
                 state.AddressShellLabel,
-                toolbarX + ChromeLayoutMetrics.AddressShellX,
-                toolbarY + ChromeLayoutMetrics.AddressShellY,
+                ChromeLayoutMetrics.AddressShellX,
+                ChromeLayoutMetrics.AddressShellY,
                 shellWidth,
                 ChromeLayoutMetrics.AddressShellHeight);
             EmojiWindowNative.SetLabelBounds(
                 state.AddressBadgeLabel,
-                toolbarX + ChromeLayoutMetrics.AddressShellX + ChromeLayoutMetrics.AddressBadgeOffsetX,
-                toolbarY + ChromeLayoutMetrics.AddressBadgeOffsetY,
+                ChromeLayoutMetrics.AddressShellX + ChromeLayoutMetrics.AddressBadgeOffsetX,
+                ChromeLayoutMetrics.AddressBadgeOffsetY,
                 ChromeLayoutMetrics.AddressBadgeSize,
                 ChromeLayoutMetrics.AddressBadgeSize);
             EmojiWindowNative.SetEditBoxBounds(
                 state.AddressEdit,
-                toolbarX + ChromeLayoutMetrics.AddressShellX + ChromeLayoutMetrics.AddressEditOffsetX,
-                toolbarY + ChromeLayoutMetrics.AddressEditOffsetY,
+                ChromeLayoutMetrics.AddressShellX + ChromeLayoutMetrics.AddressEditOffsetX,
+                ChromeLayoutMetrics.AddressEditOffsetY,
                 Math.Max(140, shellWidth - 52),
                 ChromeLayoutMetrics.AddressBarHeight);
 
@@ -106,8 +108,8 @@ namespace EmojiWindowChromeStyleBrowserDemo.Services
             string url = state.ActiveTab.CurrentUrl;
             ChromeControlFactory.SetEditText(state.AddressEdit, url);
             ChromeControlFactory.SetLabelText(state.AddressBadgeLabel, BrowserText.BadgeFromUrl(url));
-            ChromeControlFactory.SetButtonText(state.FavoriteButtonId, NavigationService.IsCurrentFavorite(state) ? "*" : "*");
-            ChromeControlFactory.SetButtonText(state.ThemeButtonId, state.DarkThemeEnabled ? "L" : "D");
+            ChromeControlFactory.SetButtonEmoji(state.FavoriteButtonId, FavoriteGlyph(NavigationService.IsCurrentFavorite(state)));
+            ChromeControlFactory.SetButtonEmoji(state.ThemeButtonId, ThemeGlyph(state.DarkThemeEnabled));
 
             EmojiWindowNative.SetLabelColor(
                 state.AddressBadgeLabel,
@@ -206,13 +208,15 @@ namespace EmojiWindowChromeStyleBrowserDemo.Services
             ApplyToolbarButtonStyle(state, state.HomeButtonId, false);
             ApplyToolbarButtonStyle(state, state.FavoriteButtonId, NavigationService.IsCurrentFavorite(state));
             ApplyToolbarButtonStyle(state, state.ThemeButtonId, state.DarkThemeEnabled);
+            ChromeControlFactory.SetButtonEmoji(state.FavoriteButtonId, FavoriteGlyph(NavigationService.IsCurrentFavorite(state)));
+            ChromeControlFactory.SetButtonEmoji(state.ThemeButtonId, ThemeGlyph(dark));
         }
 
-        private static int CreateToolbarButton(BrowserState state, string text, int x, int toolbarWidth)
+        private static int CreateToolbarEmojiButton(BrowserState state, string emoji, int x, int toolbarWidth)
         {
-            int buttonId = ChromeControlFactory.CreateTextButton(
+            int buttonId = ChromeControlFactory.CreateEmojiButton(
                 state,
-                text,
+                emoji,
                 ChromeLayoutMetrics.ToolbarX + x,
                 ChromeLayoutMetrics.ToolbarY + ChromeLayoutMetrics.ToolbarInnerTop,
                 ChromeLayoutMetrics.ToolbarButtonSize,
@@ -259,11 +263,25 @@ namespace EmojiWindowChromeStyleBrowserDemo.Services
 
             bool dark = state.DarkThemeEnabled;
             EmojiWindowNative.SetButtonStyle(buttonId, 0);
-            EmojiWindowNative.SetButtonRound(buttonId, 1);
-            EmojiWindowNative.SetButtonBackgroundColor(buttonId, active ? ChromePalette.ToolbarButtonActive(dark) : ChromePalette.ToolbarButtonBackground(dark));
-            EmojiWindowNative.SetButtonTextColor(buttonId, ChromePalette.TextSecondary(dark));
+            EmojiWindowNative.SetButtonRound(buttonId, 4);
+            EmojiWindowNative.SetButtonBackgroundColor(buttonId, active ? ChromePalette.Accent(dark) : ChromePalette.ToolbarButtonBackground(dark));
+            EmojiWindowNative.SetButtonTextColor(buttonId, active ? ChromePalette.AddressBackground(false) : ChromePalette.TextPrimary(dark));
             EmojiWindowNative.SetButtonBorderColor(buttonId, ChromePalette.ToolbarButtonBorder(dark));
-            EmojiWindowNative.SetButtonHoverColors(buttonId, ChromePalette.ToolbarButtonHover(dark), ChromePalette.ToolbarButtonBorder(dark), ChromePalette.TextPrimary(dark));
+            EmojiWindowNative.SetButtonHoverColors(
+                buttonId,
+                active ? ChromePalette.Accent(dark) : ChromePalette.ToolbarButtonHover(dark),
+                ChromePalette.ToolbarButtonBorder(dark),
+                active ? ChromePalette.AddressBackground(false) : ChromePalette.TextPrimary(dark));
+        }
+
+        private static string FavoriteGlyph(bool favorite)
+        {
+            return favorite ? "⭐" : "☆";
+        }
+
+        private static string ThemeGlyph(bool dark)
+        {
+            return dark ? "☀️" : "🌙";
         }
 
         private static void UpdateWindowTitle(BrowserState state)

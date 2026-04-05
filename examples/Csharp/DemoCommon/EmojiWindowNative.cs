@@ -150,9 +150,11 @@ namespace EmojiWindowDemo
         [DllImport(Dll, CallingConvention = Cc)] public static extern int GetWindowTitle(IntPtr hwnd, IntPtr buffer, int bufferSize);
         [DllImport(Dll, CallingConvention = Cc)] public static extern int GetWindowBounds(IntPtr hwnd, out int x, out int y, out int width, out int height);
         [DllImport(Dll, CallingConvention = Cc)] public static extern void SetWindowBounds(IntPtr hwnd, int x, int y, int width, int height);
+        [DllImport(Dll, CallingConvention = Cc)] public static extern void set_window_icon_bytes(IntPtr hwnd, byte[] iconData, int dataLen);
         [DllImport(Dll, CallingConvention = Cc)] public static extern void set_window_title(IntPtr hwnd, byte[] titleUtf8, int titleLen);
         [DllImport(Dll, CallingConvention = Cc)] public static extern void set_window_titlebar_color(IntPtr hwnd, uint color);
         [DllImport(Dll, CallingConvention = Cc)] public static extern int GetWindowVisible(IntPtr hwnd);
+        [DllImport(Dll, CallingConvention = Cc)] public static extern void ShowEmojiWindow(IntPtr hwnd, int visible);
         [DllImport(Dll, CallingConvention = Cc)] public static extern uint GetWindowTitlebarColor(IntPtr hwnd);
         [DllImport(Dll, CallingConvention = Cc)] public static extern int SetTitleBarTextColor(IntPtr hwnd, uint color);
         [DllImport(Dll, CallingConvention = Cc)] public static extern uint GetTitleBarTextColor(IntPtr hwnd);
@@ -214,6 +216,7 @@ namespace EmojiWindowDemo
 
         [DllImport(Dll, CallingConvention = Cc)] public static extern IntPtr CreateEditBox(IntPtr parent, int x, int y, int width, int height, byte[] text, int textLen, uint fgColor, uint bgColor, byte[] fontName, int fontNameLen, int fontSize, int bold, int italic, int underline, int alignment, int multiline, int readOnly, int password, int hasBorder, int verticalCenter);
         [DllImport(Dll, CallingConvention = Cc)] public static extern IntPtr CreateColorEmojiEditBox(IntPtr parent, int x, int y, int width, int height, byte[] text, int textLen, uint fgColor, uint bgColor, byte[] fontName, int fontNameLen, int fontSize, int bold, int italic, int underline, int alignment, int multiline, int readOnly, int password, int hasBorder, int verticalCenter);
+        [DllImport(Dll, CallingConvention = Cc)] public static extern IntPtr CreateD2DColorEmojiEditBox(IntPtr parent, int x, int y, int width, int height, byte[] text, int textLen, uint fgColor, uint bgColor, byte[] fontName, int fontNameLen, int fontSize, int bold, int italic, int underline, int alignment, int multiline, int readOnly, int password, int hasBorder, int verticalCenter);
         [DllImport(Dll, CallingConvention = Cc)] public static extern int GetEditBoxText(IntPtr hEdit, IntPtr buffer, int bufferSize);
         [DllImport(Dll, CallingConvention = Cc)] public static extern void SetEditBoxText(IntPtr hEdit, byte[] text, int textLen);
         [DllImport(Dll, CallingConvention = Cc)] public static extern void SetEditBoxKeyCallback(IntPtr hEdit, EditBoxKeyCallback callback);

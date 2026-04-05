@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
 using EmojiWindowChromeStyleBrowserDemo.Core;
 using EmojiWindowChromeStyleBrowserDemo.Services;
 using EmojiWindowChromeStyleBrowserDemo.Styling;
+using EmojiWindowChromeStyleBrowserDemo.UI;
 using EmojiWindowDemo;
 
 namespace EmojiWindowChromeStyleBrowserDemo
@@ -14,12 +17,14 @@ namespace EmojiWindowChromeStyleBrowserDemo
         {
             SeedFavorites();
             CreateWindow();
+            EmojiWindowNative.ShowEmojiWindow(_state.Window, 0);
             RegisterCallbacks();
             CreateUi();
             AddInitialTab();
             ThemeService.Apply(_state);
             LayoutService.ApplyAll(_state);
             SyncActiveTab();
+            EmojiWindowNative.ShowEmojiWindow(_state.Window, 1);
 
             EmojiWindowNative.set_message_loop_main_window(_state.Window);
             EmojiWindowNative.run_message_loop();
@@ -53,6 +58,27 @@ namespace EmojiWindowChromeStyleBrowserDemo
             {
                 throw new InvalidOperationException("Failed to create browser window.");
             }
+
+            ApplyWindowIcon();
+        }
+
+        private void ApplyWindowIcon()
+        {
+            const string preferredIconPath = @"T:\易语言源码\API创建窗口\emoji_window_cpp\examples\Csharp\谷歌.ico";
+            string iconPath = File.Exists(preferredIconPath)
+                ? preferredIconPath
+                : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "谷歌.ico");
+
+            if (!File.Exists(iconPath))
+            {
+                return;
+            }
+
+            byte[] iconBytes = File.ReadAllBytes(iconPath);
+            if (iconBytes.Length > 0)
+            {
+                EmojiWindowNative.set_window_icon_bytes(_state.Window, iconBytes, iconBytes.Length);
+            }
         }
 
         private void RegisterCallbacks()
@@ -74,7 +100,7 @@ namespace EmojiWindowChromeStyleBrowserDemo
             ToolbarService.CreateSharedControls(_state);
             ContentService.CreateSharedControls(_state);
             FavoriteMenuService.Rebuild(_state);
-            ContentService.SetStatus(_state, "C# 版 Chrome 风格多标签浏览器示例已启动。");
+            ContentService.SetStatus(_state, "C# Chrome style browser demo started.");
         }
 
         private void AddInitialTab()
@@ -93,11 +119,26 @@ namespace EmojiWindowChromeStyleBrowserDemo
         {
             if (buttonId == _state.NewTabButtonId)
             {
-                NavigationService.AddTab(_state, "https://www.google.com/", true);
-                FavoriteMenuService.Rebuild(_state);
-                LayoutService.ApplyAll(_state);
-                SyncActiveTab();
-                ContentService.SetStatus(_state, "已新建标签页。");
+                WindowRedrawScope redrawScope = BeginWindowRedraw();
+                try
+                {
+                    NavigationService.AddTab(_state, "https://www.google.com/", true);
+                    FavoriteMenuService.Rebuild(_state);
+                    LayoutService.ApplyAll(_state);
+                    SyncActiveTab();
+                    ContentService.SetStatus(_state, "New tab created.");
+                }
+                finally
+                {
+                    redrawScope.Dispose();
+                }
+
+                return;
+            }
+
+            if (buttonId == _state.ThemeButtonId)
+            {
+                HandleThemeToggle();
                 return;
             }
 
@@ -113,7 +154,7 @@ namespace EmojiWindowChromeStyleBrowserDemo
             {
                 LayoutService.ApplyAll(_state);
                 SyncActiveTab();
-                ContentService.SetStatus(_state, "已切换到标签：" + (_state.ActiveTabIndex + 1));
+                ContentService.SetStatus(_state, "Switched to tab " + (_state.ActiveTabIndex + 1) + ".");
             }
         }
 
@@ -124,7 +165,7 @@ namespace EmojiWindowChromeStyleBrowserDemo
                 FavoriteMenuService.Rebuild(_state);
                 LayoutService.ApplyAll(_state);
                 SyncActiveTab();
-                ContentService.SetStatus(_state, "已处理收藏菜单动作。");
+                ContentService.SetStatus(_state, "Favorites menu action handled.");
             }
         }
 
@@ -138,7 +179,7 @@ namespace EmojiWindowChromeStyleBrowserDemo
             ToolbarService.CommitAddressBar(_state);
             LayoutService.ApplyAll(_state);
             SyncActiveTab();
-            ContentService.SetStatus(_state, "已更新当前标签地址。");
+            ContentService.SetStatus(_state, "Address updated.");
         }
 
         private void OnWindowResize(IntPtr hwnd, int width, int height)
@@ -159,8 +200,55 @@ namespace EmojiWindowChromeStyleBrowserDemo
             SyncActiveTab();
         }
 
+        private void HandleThemeToggle()
+        {
+            WindowRedrawScope redrawScope = BeginWindowRedraw();
+            try
+            {
+                ThemeService.Toggle(_state);
+                ContentService.RefreshThemeSummary(_state);
+                ContentService.SetStatus(_state, _state.DarkThemeEnabled ? "Switched to dark theme." : "Switched to light theme.");
+            }
+            finally
+            {
+                redrawScope.Dispose();
+            }
+        }
+
+        private WindowRedrawScope BeginWindowRedraw()
+        {
+            return new WindowRedrawScope(Win32Native.CollectWindowTree(_state.Window));
+        }
+
         private void OnWindowClose(IntPtr hwnd)
         {
+        }
+
+        private sealed class WindowRedrawScope : IDisposable
+        {
+            private readonly List<IntPtr> _handles;
+
+            public WindowRedrawScope(List<IntPtr> handles)
+            {
+                _handles = handles ?? new List<IntPtr>();
+                for (int i = 0; i < _handles.Count; i++)
+                {
+                    Win32Native.SetRedraw(_handles[i], false);
+                }
+            }
+
+            public void Dispose()
+            {
+                for (int i = _handles.Count - 1; i >= 0; i--)
+                {
+                    Win32Native.SetRedraw(_handles[i], true);
+                }
+
+                if (_handles.Count > 0)
+                {
+                    Win32Native.RefreshWindowTree(_handles[0]);
+                }
+            }
         }
     }
 }
