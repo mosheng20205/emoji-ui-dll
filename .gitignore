@@ -50,7 +50,7 @@ Thumbs.db
 Desktop.ini
 
 # Claude Code
-.claude/
+.claude
 .worktrees/
 
 # Kiro specs
@@ -87,3 +87,20 @@ designer/package-lock.json
 
 # Designer docs (build-time generated)
 designer/docs/
+
+# Hypothesis (Python property-based testing cache)
+.hypothesis/
+
+# VS Code / Cursor local
+.vscode/
+.cursorrules
+.cursor/
+
+# Local debug screenshots
+/tmp_browser_ui_screen*.png
+
+# Local backup artifacts
+*.mojibake_backup
+
+# Local doc (not tracked)
+examples/易语言代码/易语言代码文档/易语言语法规则.md

@@ -1,0 +1,22 @@
+{
+  "Name": "",
+  "Version": "1.0.0.0",
+  "ProjectType": "WindowsApp",
+  "SourceSet": "src",
+  "Dependencies": [
+    {
+      "Kind": "ELib",
+      "Name": "系统核心支持库",
+      "FileName": "krnln",
+      "Guid": "d09f2340818511d396f6aaf844c7e325",
+      "Version": "5.7"
+    },
+    {
+      "Kind": "ELib",
+      "Name": "特殊功能支持库",
+      "FileName": "spec",
+      "Guid": "A512548E76954B6E92C21055517615B0",
+      "Version": "3.1"
+    }
+  ]
+}

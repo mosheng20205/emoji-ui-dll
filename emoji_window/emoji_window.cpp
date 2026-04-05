@@ -9851,9 +9851,11 @@ void DrawRadioButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, RadioBu
         return;
     }
 
-    int circle_size = 14;
-    int circle_x = state->x + circle_size / 2;
-    int circle_y = state->y + state->height / 2;
+    const float circle_size = 14.0f;
+    const float circle_left = 1.0f;
+    const float circle_radius = circle_size / 2.0f;
+    const float circle_x = circle_left + circle_radius;
+    const float circle_y = (FLOAT)state->height / 2.0f;
     UINT32 current_bg = ResolveThemeColor(state->bg_color);
     UINT32 current_border = border_color;
 
@@ -9870,9 +9872,9 @@ void DrawRadioButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, RadioBu
     rt->CreateSolidColorBrush(ColorFromUInt32(current_bg), &bg_brush);
 
     D2D1_ELLIPSE circle = D2D1::Ellipse(
-        D2D1::Point2F((FLOAT)circle_x, (FLOAT)circle_y),
-        circle_size / 2.0f,
-        circle_size / 2.0f
+        D2D1::Point2F(circle_x, circle_y),
+        circle_radius,
+        circle_radius
     );
     rt->FillEllipse(circle, bg_brush);
     bg_brush->Release();
@@ -9887,9 +9889,9 @@ void DrawRadioButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, RadioBu
         rt->CreateSolidColorBrush(ColorFromUInt32(active_color), &dot_brush);
 
         D2D1_ELLIPSE dot = D2D1::Ellipse(
-            D2D1::Point2F((FLOAT)circle_x, (FLOAT)circle_y),
-            circle_size / 2.0f - 4.0f,
-            circle_size / 2.0f - 4.0f
+            D2D1::Point2F(circle_x, circle_y),
+            circle_radius - 4.0f,
+            circle_radius - 4.0f
         );
         rt->FillEllipse(dot, dot_brush);
         dot_brush->Release();
@@ -9917,10 +9919,10 @@ void DrawRadioButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, RadioBu
         rt->CreateSolidColorBrush(ColorFromUInt32(text_color), &text_brush);
 
         D2D1_RECT_F text_rect = D2D1::RectF(
-            (FLOAT)(circle_x + circle_size / 2 + 8),
-            (FLOAT)state->y,
-            (FLOAT)(state->x + state->width),
-            (FLOAT)(state->y + state->height)
+            circle_left + circle_size + 8.0f,
+            0.0f,
+            (FLOAT)state->width,
+            (FLOAT)state->height
         );
 
         rt->DrawText(
@@ -10257,8 +10259,9 @@ void __stdcall EnableRadioButton(HWND hRadioButton, BOOL enable) {
         }
     }
 
-    EnableWindow(hRadioButton, enable);
-    InvalidateRect(hRadioButton, nullptr, FALSE);
+    // RadioButton 是基于 STATIC 子窗口自绘的。这里不调用 EnableWindow，
+    // 否则 Windows 原生 STATIC 的禁用擦背景流程会把自绘内容覆盖成灰块。
+    RedrawWindow(hRadioButton, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
 }
 
 // 显示/隐藏单选按钮

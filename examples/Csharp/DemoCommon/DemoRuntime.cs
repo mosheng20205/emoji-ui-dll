@@ -121,6 +121,8 @@ namespace EmojiWindowDemo
 
     internal sealed class DemoApp
     {
+        private const int GroupBoxStyleCard = 1;
+
         private struct GroupBoxRegistration
         {
             public IntPtr Handle;
@@ -300,7 +302,7 @@ namespace EmojiWindowDemo
                 1,
                 0,
                 0);
-            EmojiWindowNative.SetGroupBoxStyle(groupBox, PageCommon.GroupBoxStyleCard);
+            EmojiWindowNative.SetGroupBoxStyle(groupBox, GroupBoxStyleCard);
             EmojiWindowNative.SetGroupBoxTitleColor(groupBox, DemoTheme.Text);
             _groupBoxes.Add(new GroupBoxRegistration
             {
