@@ -48,6 +48,7 @@ std::map<int, UINT32> g_button_border_colors;
 std::map<int, UINT32> g_button_hover_bg_colors;
 std::map<int, UINT32> g_button_hover_border_colors;
 std::map<int, UINT32> g_button_hover_text_colors;
+static LONG g_next_button_id = 999;
 std::map<HWND, int> g_checkbox_styles;
 std::map<HWND, UINT32> g_checkbox_check_colors;
 std::map<HWND, int> g_radio_styles;
@@ -103,6 +104,7 @@ static EmojiButton* FindGroupBoxButtonAtPoint(GroupBoxState* gb, int x, int y);
 static void DrawGroupBoxOwnedButtons(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, GroupBoxState* gb);
 static EmojiButton* FindEmojiButton(HWND hParent, int button_id);
 static void SyncEmojiButtonWindow(EmojiButton* button);
+static void RefreshPriorityChildControls(HWND parent);
 static const wchar_t* CUSTOM_TAB_CONTROL_CLASS = L"EmojiWindowCustomTabControl";
 static inline UINT32 ResolveThemeColor(UINT32 color);
 static UINT32 BlendThemeSurface(UINT32 surface, UINT32 accent, float accent_ratio);
@@ -1567,6 +1569,10 @@ int GetTitleBarOffset(HWND hParent) {
     return 0;
 }
 
+static int AdjustChildControlYForParent(HWND hParent, int y) {
+    return y + GetTitleBarOffset(hParent);
+}
+
 // 获取窗口标题栏图标（用于自绘标题栏）
 static HICON GetWindowTitleBarIcon(HWND hwnd) {
     // 1. 尝试获取小图标
@@ -2255,6 +2261,105 @@ static void DrawParentLabel(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, 
 static void ApplyShowGroupBox(HWND hGroupBox, BOOL show);
 static BOOL ApplySelectTab(HWND hTabControl, int index);
 
+static bool IsResizeHitCode(LRESULT hit) {
+    switch (hit) {
+    case HTLEFT:
+    case HTRIGHT:
+    case HTTOP:
+    case HTBOTTOM:
+    case HTTOPLEFT:
+    case HTTOPRIGHT:
+    case HTBOTTOMLEFT:
+    case HTBOTTOMRIGHT:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static bool TryGetCustomFrameResizeHitTest(HWND hwnd, POINT screen_pt, LRESULT* out_hit) {
+    if (!hwnd || !out_hit || !IsWindow(hwnd)) {
+        return false;
+    }
+
+    auto it = g_windows.find(hwnd);
+    if (it == g_windows.end() || !it->second || !it->second->custom_titlebar) {
+        return false;
+    }
+
+    UINT dpi = GetDpiForWindow(hwnd);
+    if (dpi == 0) dpi = 96;
+
+    const int min_resize_border = MulDiv(12, dpi, 96);
+    const int resize_border_x = max(GetSystemMetrics(SM_CXSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER), min_resize_border);
+    const int resize_border_y = max(GetSystemMetrics(SM_CYSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER), min_resize_border);
+
+    POINT pt = screen_pt;
+    ScreenToClient(hwnd, &pt);
+
+    RECT client_rc = {};
+    GetClientRect(hwnd, &client_rc);
+
+    bool on_left = pt.x >= 0 && pt.x < resize_border_x;
+    bool on_right = pt.x < client_rc.right && pt.x >= client_rc.right - resize_border_x;
+    bool on_top = pt.y >= 0 && pt.y < resize_border_y;
+    bool on_bottom = pt.y < client_rc.bottom && pt.y >= client_rc.bottom - resize_border_y;
+
+    if (on_top && on_left) {
+        *out_hit = HTTOPLEFT;
+        return true;
+    }
+    if (on_top && on_right) {
+        *out_hit = HTTOPRIGHT;
+        return true;
+    }
+    if (on_bottom && on_left) {
+        *out_hit = HTBOTTOMLEFT;
+        return true;
+    }
+    if (on_bottom && on_right) {
+        *out_hit = HTBOTTOMRIGHT;
+        return true;
+    }
+    if (on_left) {
+        *out_hit = HTLEFT;
+        return true;
+    }
+    if (on_right) {
+        *out_hit = HTRIGHT;
+        return true;
+    }
+    if (on_top) {
+        *out_hit = HTTOP;
+        return true;
+    }
+    if (on_bottom) {
+        *out_hit = HTBOTTOM;
+        return true;
+    }
+
+    return false;
+}
+
+static LRESULT ResolveChildResizeHitTest(HWND hwnd, LPARAM lparam) {
+    if (!hwnd || !IsWindow(hwnd)) {
+        return HTCLIENT;
+    }
+
+    HWND root = GetAncestor(hwnd, GA_ROOT);
+    if (!root || !IsWindow(root)) {
+        return HTCLIENT;
+    }
+
+    POINT screen_pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
+    LRESULT root_hit = HTNOWHERE;
+    if (TryGetCustomFrameResizeHitTest(root, screen_pt, &root_hit) && IsResizeHitCode(root_hit)) {
+        return HTTRANSPARENT;
+    }
+
+    return HTCLIENT;
+}
+
 // Window procedure
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     auto it = g_windows.find(hwnd);
@@ -2368,23 +2473,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     case WM_NCHITTEST: {
         if (state && state->custom_titlebar) {
             POINT screen_pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
-            RECT win_rc = {};
-            GetWindowRect(hwnd, &win_rc);
-
-            const int resize_border = GetSystemMetrics(SM_CXSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
-            bool on_left = screen_pt.x >= win_rc.left && screen_pt.x < win_rc.left + resize_border;
-            bool on_right = screen_pt.x < win_rc.right && screen_pt.x >= win_rc.right - resize_border;
-            bool on_top = screen_pt.y >= win_rc.top && screen_pt.y < win_rc.top + resize_border;
-            bool on_bottom = screen_pt.y < win_rc.bottom && screen_pt.y >= win_rc.bottom - resize_border;
-
-            if (on_top && on_left) return HTTOPLEFT;
-            if (on_top && on_right) return HTTOPRIGHT;
-            if (on_bottom && on_left) return HTBOTTOMLEFT;
-            if (on_bottom && on_right) return HTBOTTOMRIGHT;
-            if (on_left) return HTLEFT;
-            if (on_right) return HTRIGHT;
-            if (on_top) return HTTOP;
-            if (on_bottom) return HTBOTTOM;
+            LRESULT resize_hit = HTNOWHERE;
+            if (TryGetCustomFrameResizeHitTest(hwnd, screen_pt, &resize_hit)) {
+                return resize_hit;
+            }
 
             POINT pt = screen_pt;
             ScreenToClient(hwnd, &pt);
@@ -2498,13 +2590,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
                 DrawMenuBar(state->render_target, state->dwrite_factory, menu_it->second);
             }
 
-            for (const auto& button : state->buttons) {
-                if (button.hwnd && IsWindow(button.hwnd)) continue;
-                if (!IsButtonOwnedByAnyGroupBox(button.id)) {
-                    DrawButton(state->render_target, state->dwrite_factory, button);
-                }
-            }
-
             for (const auto& pair : g_labels) {
                 LabelState* label = pair.second;
                 if (label && label->parent == hwnd && label->parent_drawn) {
@@ -2512,8 +2597,16 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
                 }
             }
 
+            for (const auto& button : state->buttons) {
+                if (button.hwnd && IsWindow(button.hwnd)) continue;
+                if (!IsButtonOwnedByAnyGroupBox(button.id)) {
+                    DrawButton(state->render_target, state->dwrite_factory, button);
+                }
+            }
+
             state->render_target->EndDraw();
             EndPaint(hwnd, &ps);
+            RefreshPriorityChildControls(hwnd);
         }
         return 0;
     }
@@ -2795,6 +2888,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             if (g_window_resize_callback) {
                 g_window_resize_callback(hwnd, (int)width, (int)height);
             }
+            RefreshPriorityChildControls(hwnd);
         }
         return 0;
     }
@@ -3153,7 +3247,7 @@ int __stdcall create_emoji_button_bytes(
     WindowState* state = it->second;
 
     EmojiButton button;
-    button.id = (int)state->buttons.size() + 1000;
+    button.id = (int)InterlockedIncrement(&g_next_button_id);
     button.emoji = Utf8ToWide(emoji_bytes, emoji_len);
     button.text = Utf8ToWide(text_bytes, text_len);
     button.x = host_pt.x;
@@ -4619,6 +4713,8 @@ static LRESULT CALLBACK TabContentWindowProc(HWND hwnd, UINT msg, WPARAM wparam,
     }
 
     switch (msg) {
+    case WM_NCHITTEST:
+        return ResolveChildResizeHitTest(hwnd, lparam);
     case WM_CREATE: {
         WindowState* new_state = new WindowState();
         new_state->hwnd = hwnd;
@@ -4667,16 +4763,16 @@ static LRESULT CALLBACK TabContentWindowProc(HWND hwnd, UINT msg, WPARAM wparam,
                 ((win_bg >> 16) & 0xFF) / 255.0f,
                 ((win_bg >> 8) & 0xFF) / 255.0f,
                 (win_bg & 0xFF) / 255.0f, 1.0f));
-            for (const auto& button : state->buttons) {
-                if (button.hwnd && IsWindow(button.hwnd)) continue;
-                if (!IsButtonOwnedByAnyGroupBox(button.id)) {
-                    DrawButton(state->render_target, state->dwrite_factory, button);
-                }
-            }
             for (const auto& pair : g_labels) {
                 LabelState* label = pair.second;
                 if (label && label->parent == hwnd && label->parent_drawn) {
                     DrawParentLabel(state->render_target, state->dwrite_factory, label);
+                }
+            }
+            for (const auto& button : state->buttons) {
+                if (button.hwnd && IsWindow(button.hwnd)) continue;
+                if (!IsButtonOwnedByAnyGroupBox(button.id)) {
+                    DrawButton(state->render_target, state->dwrite_factory, button);
                 }
             }
             state->render_target->EndDraw();
@@ -4874,12 +4970,51 @@ static bool GetCustomTabCloseButtonRect(TabControlState* state, int pageIdx, REC
     if (!state || !outRect || !state->closable) return false;
     RECT tabRect = {};
     if (!GetCustomTabItemRect(state, pageIdx, &tabRect)) return false;
-    int closeBtnSize = 18;
+    int closeBtnSize = 20;
     int closeBtnMargin = 6;
     outRect->left = tabRect.right - closeBtnSize - closeBtnMargin;
     outRect->top = tabRect.top + ((tabRect.bottom - tabRect.top) - closeBtnSize) / 2;
     outRect->right = outRect->left + closeBtnSize;
     outRect->bottom = outRect->top + closeBtnSize;
+    return true;
+}
+
+static bool GetCustomTabNewButtonRect(TabControlState* state, RECT* outRect) {
+    if (!state || !outRect || !state->newButtonCallback) return false;
+
+    RECT client = {};
+    GetClientRect(state->hTabControl, &client);
+    int clientWidth = client.right - client.left;
+    if (clientWidth <= 0) return false;
+
+    int headerHeight = GetCustomTabHeaderHeight(state);
+    if (headerHeight <= 0) return false;
+
+    int visibleCount = GetVisibleTabCount(state);
+    int totalWidth = visibleCount * state->tabWidth;
+    int startX = 0;
+    if (totalWidth < clientWidth) {
+        if (state->tabAlignment == 1) startX = (clientWidth - totalWidth) / 2;
+        else if (state->tabAlignment == 2) startX = clientWidth - totalWidth;
+    }
+    startX -= state->scrollOffset;
+
+    int buttonSize = min(28, max(24, headerHeight - 8));
+    int leftMargin = 8;
+    int rightMargin = 10;
+    int x = startX + totalWidth + leftMargin;
+    int maxX = clientWidth - buttonSize - rightMargin;
+    if (visibleCount <= 0) x = leftMargin;
+    if (x > maxX) x = maxX;
+    if (x < leftMargin) x = leftMargin;
+
+    int topBase = (state->tabPosition == 1) ? (client.bottom - headerHeight) : 0;
+    int y = topBase + max(2, (headerHeight - buttonSize) / 2);
+
+    outRect->left = x;
+    outRect->top = y;
+    outRect->right = x + buttonSize;
+    outRect->bottom = y + buttonSize;
     return true;
 }
 
@@ -4895,8 +5030,71 @@ static int HitTestCustomTab(TabControlState* state, POINT pt) {
     return -1;
 }
 
+static int GetCustomTabVisibleViewportWidth(TabControlState* state) {
+    if (!state || !state->hTabControl) return 0;
+
+    RECT client = {};
+    GetClientRect(state->hTabControl, &client);
+    int clientWidth = client.right - client.left;
+    if (clientWidth <= 0) return 0;
+
+    int viewportWidth = clientWidth;
+    if (state->newButtonCallback) {
+        int headerHeight = GetCustomTabHeaderHeight(state);
+        int buttonSize = min(28, max(24, headerHeight - 8));
+        int reservedRight = buttonSize + 18;
+        viewportWidth = max(state->tabWidth, clientWidth - reservedRight);
+    }
+
+    return max(0, viewportWidth);
+}
+
+static void EnsureCustomTabSelectionVisible(TabControlState* state) {
+    if (!state || !state->scrollable) {
+        if (state) state->scrollOffset = 0;
+        return;
+    }
+
+    int visibleCount = GetVisibleTabCount(state);
+    if (visibleCount <= 0) {
+        state->scrollOffset = 0;
+        return;
+    }
+
+    int viewportWidth = GetCustomTabVisibleViewportWidth(state);
+    if (viewportWidth <= 0) {
+        state->scrollOffset = 0;
+        return;
+    }
+
+    int totalWidth = visibleCount * state->tabWidth;
+    int maxScroll = max(0, totalWidth - viewportWidth);
+    int desiredScroll = min(max(state->scrollOffset, 0), maxScroll);
+
+    int visibleIdx = PageIndexToVisibleIndex(state, state->currentIndex);
+    if (visibleIdx < 0) {
+        state->scrollOffset = desiredScroll;
+        return;
+    }
+
+    const int edgePadding = min(16, max(6, state->tabWidth / 8));
+    int tabLeft = visibleIdx * state->tabWidth;
+    int tabRight = tabLeft + state->tabWidth;
+    int viewportLeft = desiredScroll;
+    int viewportRight = desiredScroll + viewportWidth;
+
+    if (tabLeft < viewportLeft + edgePadding) {
+        desiredScroll = max(0, tabLeft - edgePadding);
+    } else if (tabRight > viewportRight - edgePadding) {
+        desiredScroll = min(maxScroll, tabRight - viewportWidth + edgePadding);
+    }
+
+    state->scrollOffset = min(max(desiredScroll, 0), maxScroll);
+}
+
 void UpdateTabLayout(TabControlState* state) {
     if (!state || !state->hTabControl) return;
+    EnsureCustomTabSelectionVisible(state);
 
     RECT rcTab = GetCustomTabContentRect(state);
     int w = rcTab.right - rcTab.left;
@@ -5239,6 +5437,43 @@ static void DrawCustomTabControl(ID2D1DCRenderTarget* rt, TabControlState* state
         }
     }
 
+    RECT newButtonRectWin = {};
+    if (GetCustomTabNewButtonRect(state, &newButtonRectWin)) {
+        D2D1_RECT_F newButtonRect = D2D1::RectF(
+            (FLOAT)newButtonRectWin.left,
+            (FLOAT)newButtonRectWin.top,
+            (FLOAT)newButtonRectWin.right,
+            (FLOAT)newButtonRectWin.bottom
+        );
+        UINT32 newButtonBgArgb = state->hoveredNewButton
+            ? ThemeColor_BackgroundLight()
+            : BlendThemeSurface(stripBgArgb, ThemeColor_Background(), g_current_theme && g_current_theme->dark_mode ? 0.16f : 0.42f);
+        UINT32 newButtonBorderArgb = state->hoveredNewButton ? ThemeColor_BorderBase() : ThemeColor_BorderLight();
+        UINT32 newButtonIconArgb = state->hoveredNewButton ? ThemeColor_TextPrimary() : ThemeColor_TextSecondary();
+
+        ID2D1SolidColorBrush* newButtonBgBrush = nullptr;
+        ID2D1SolidColorBrush* newButtonBorderBrush = nullptr;
+        ID2D1SolidColorBrush* newButtonIconBrush = nullptr;
+        rt->CreateSolidColorBrush(ColorFromUInt32(newButtonBgArgb), &newButtonBgBrush);
+        rt->CreateSolidColorBrush(ColorFromUInt32(newButtonBorderArgb), &newButtonBorderBrush);
+        rt->CreateSolidColorBrush(ColorFromUInt32(newButtonIconArgb), &newButtonIconBrush);
+
+        D2D1_ROUNDED_RECT newButtonRounded = D2D1::RoundedRect(newButtonRect, 8.0f, 8.0f);
+        if (newButtonBgBrush) rt->FillRoundedRectangle(newButtonRounded, newButtonBgBrush);
+        if (newButtonBorderBrush) rt->DrawRoundedRectangle(newButtonRounded, newButtonBorderBrush, 1.0f);
+        if (newButtonIconBrush) {
+            float cx = (newButtonRect.left + newButtonRect.right) * 0.5f;
+            float cy = (newButtonRect.top + newButtonRect.bottom) * 0.5f;
+            float arm = max(4.5f, min(6.0f, (newButtonRect.right - newButtonRect.left) * 0.22f));
+            rt->DrawLine(D2D1::Point2F(cx - arm, cy), D2D1::Point2F(cx + arm, cy), newButtonIconBrush, 1.6f);
+            rt->DrawLine(D2D1::Point2F(cx, cy - arm), D2D1::Point2F(cx, cy + arm), newButtonIconBrush, 1.6f);
+        }
+
+        if (newButtonBgBrush) newButtonBgBrush->Release();
+        if (newButtonBorderBrush) newButtonBorderBrush->Release();
+        if (newButtonIconBrush) newButtonIconBrush->Release();
+    }
+
     fmt->Release();
     if (hostBrush) hostBrush->Release();
     if (stripBrush) stripBrush->Release();
@@ -5255,6 +5490,8 @@ LRESULT CALLBACK CustomTabControlProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     }
 
     switch (msg) {
+    case WM_NCHITTEST:
+        return ResolveChildResizeHitTest(hwnd, lparam);
     case WM_ERASEBKGND:
         return 1;
 
@@ -5267,6 +5504,12 @@ LRESULT CALLBACK CustomTabControlProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
             POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
             int hoveredTab = HitTestCustomTab(state, pt);
             int hoveredClose = -1;
+            bool hoveredNewButton = false;
+            RECT newButtonRect = {};
+            if (GetCustomTabNewButtonRect(state, &newButtonRect) && PtInRect(&newButtonRect, pt)) {
+                hoveredNewButton = true;
+                hoveredTab = -1;
+            }
             if (state->closable && hoveredTab >= 0) {
                 RECT closeRect = {};
                 if (GetCustomTabCloseButtonRect(state, hoveredTab, &closeRect) && PtInRect(&closeRect, pt)) {
@@ -5282,7 +5525,11 @@ LRESULT CALLBACK CustomTabControlProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
                 state->hoveredCloseTabIndex = hoveredClose;
                 redraw = true;
             }
-            if (state->isDragging && state->draggable) {
+            if (hoveredNewButton != state->hoveredNewButton) {
+                state->hoveredNewButton = hoveredNewButton;
+                redraw = true;
+            }
+            if (state->isDragging && state->draggable && !hoveredNewButton) {
                 int target = HitTestCustomTab(state, pt);
                 if (target >= 0) {
                     state->dragTargetIndex = target;
@@ -5303,6 +5550,7 @@ LRESULT CALLBACK CustomTabControlProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         if (state) {
             state->hoveredTabIndex = -1;
             state->hoveredCloseTabIndex = -1;
+            state->hoveredNewButton = false;
             InvalidateRect(hwnd, NULL, FALSE);
         }
         return 0;
@@ -5310,6 +5558,10 @@ LRESULT CALLBACK CustomTabControlProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     case WM_LBUTTONDOWN:
         if (state) {
             POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
+            RECT newButtonRect = {};
+            if (GetCustomTabNewButtonRect(state, &newButtonRect) && PtInRect(&newButtonRect, pt)) {
+                return 0;
+            }
             int pageIdx = HitTestCustomTab(state, pt);
             if (pageIdx >= 0) {
                 RECT closeRect = {};
@@ -5331,7 +5583,13 @@ LRESULT CALLBACK CustomTabControlProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     case WM_LBUTTONUP:
         if (state) {
             POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
+            RECT newButtonRect = {};
+            bool hitNewButton = GetCustomTabNewButtonRect(state, &newButtonRect) && PtInRect(&newButtonRect, pt);
             int pageIdx = HitTestCustomTab(state, pt);
+            if (!state->isDragging && hitNewButton) {
+                if (state->newButtonCallback) state->newButtonCallback(hwnd);
+                return 0;
+            }
             if (state->isDragging && state->draggable) {
                 ReleaseCapture();
                 state->isDragging = false;
@@ -5378,6 +5636,10 @@ LRESULT CALLBACK CustomTabControlProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     case WM_LBUTTONDBLCLK:
         if (state && state->dblClickCallback) {
             POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
+            RECT newButtonRect = {};
+            if (GetCustomTabNewButtonRect(state, &newButtonRect) && PtInRect(&newButtonRect, pt)) {
+                return 0;
+            }
             int pageIdx = HitTestCustomTab(state, pt);
             if (pageIdx >= 0) {
                 state->dblClickCallback(hwnd, pageIdx);
@@ -5573,6 +5835,8 @@ LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam
             UINT32 borderArgb = ThemeColor_BorderLighter();
             UINT32 dividerArgb = ThemeColor_BorderExtraLight();
             bool card_tabs_minimal = false;
+            bool chrome_like_card = false;
+            bool top_round_only = false;
             bool draw_outline = false;
             bool draw_border = false;
             bool draw_indicator = isSelected;
@@ -5604,20 +5868,22 @@ LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam
                 break;
             case TAB_HEADER_STYLE_CARD_PLAIN:
                 stripBgArgb = ThemeColor_BackgroundLight();
-                bgArgb = ThemeColor_Background();
-                borderArgb = ThemeColor_BorderBase();
+                bgArgb = isSelected ? state->selectedBgColor : state->unselectedBgColor;
+                borderArgb = ThemeColor_BorderLight();
                 dividerArgb = ThemeColor_BorderBase();
-                textArgb = isSelected ? state->indicatorColor : ThemeColor_TextSecondary();
+                textArgb = isSelected ? state->selectedTextColor : ThemeColor_TextSecondary();
                 card_tabs_minimal = true;
+                chrome_like_card = true;
                 draw_outline = isSelected;
                 draw_border = isSelected;
                 draw_indicator = false;
                 draw_divider = true;
                 merge_with_content = isSelected;
-                draw_card_tab_edges = true;
-                card_inset_x = 0.0f;
-                card_inset_y = 0.0f;
-                corner_radius = 0.0f;
+                draw_card_tab_edges = false;
+                card_inset_x = isSelected ? 6.0f : 0.0f;
+                card_inset_y = isSelected ? 3.0f : 0.0f;
+                corner_radius = isSelected ? 9.0f : 0.0f;
+                top_round_only = isSelected;
                 break;
             case TAB_HEADER_STYLE_SEGMENTED:
                 stripBgArgb = ThemeColor_BorderExtraLight();
@@ -5681,19 +5947,41 @@ LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam
             }
 
             if (card_tabs_minimal && dividerBrush) {
-                dcRT->DrawLine(
-                    D2D1::Point2F((FLOAT)w - 1.0f, 0.0f),
-                    D2D1::Point2F((FLOAT)w - 1.0f, (FLOAT)h - 1.0f),
-                    dividerBrush,
-                    1.0f
-                );
-                if (visibleTabIdx == 0) {
+                if (chrome_like_card) {
+                    if (!isSelected) {
+                        float separatorTop = 8.0f;
+                        float separatorBottom = (FLOAT)h - 8.0f;
+                        dcRT->DrawLine(
+                            D2D1::Point2F((FLOAT)w - 1.0f, separatorTop),
+                            D2D1::Point2F((FLOAT)w - 1.0f, separatorBottom),
+                            dividerBrush,
+                            1.0f
+                        );
+                        if (visibleTabIdx == 0) {
+                            dcRT->DrawLine(
+                                D2D1::Point2F(0.0f, separatorTop),
+                                D2D1::Point2F(0.0f, separatorBottom),
+                                dividerBrush,
+                                1.0f
+                            );
+                        }
+                    }
+                }
+                else {
                     dcRT->DrawLine(
-                        D2D1::Point2F(0.0f, 0.0f),
-                        D2D1::Point2F(0.0f, (FLOAT)h - 1.0f),
+                        D2D1::Point2F((FLOAT)w - 1.0f, 0.0f),
+                        D2D1::Point2F((FLOAT)w - 1.0f, (FLOAT)h - 1.0f),
                         dividerBrush,
                         1.0f
                     );
+                    if (visibleTabIdx == 0) {
+                        dcRT->DrawLine(
+                            D2D1::Point2F(0.0f, 0.0f),
+                            D2D1::Point2F(0.0f, (FLOAT)h - 1.0f),
+                            dividerBrush,
+                            1.0f
+                        );
+                    }
                 }
             }
 
@@ -5710,8 +5998,43 @@ LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam
                         corner_radius,
                         corner_radius
                     );
-                    if (bgBrush) dcRT->FillRoundedRectangle(rounded, bgBrush);
-                    if (draw_border && borderBrush) dcRT->DrawRoundedRectangle(rounded, borderBrush, border_width);
+                    if (bgBrush) {
+                        dcRT->FillRoundedRectangle(rounded, bgBrush);
+                        if (top_round_only) {
+                            D2D1_RECT_F squareBottomRect = D2D1::RectF(
+                                outlineRect.left,
+                                outlineRect.top + corner_radius,
+                                outlineRect.right + 1.0f,
+                                outlineRect.bottom + 1.0f
+                            );
+                            dcRT->FillRectangle(squareBottomRect, bgBrush);
+                        }
+                    }
+                    if (draw_border && borderBrush) {
+                        dcRT->DrawRoundedRectangle(rounded, borderBrush, border_width);
+                        if (top_round_only && bgBrush) {
+                            D2D1_RECT_F eraseBottomBorderRect = D2D1::RectF(
+                                outlineRect.left + 1.0f,
+                                outlineRect.bottom - 2.0f,
+                                outlineRect.right,
+                                outlineRect.bottom + 1.0f
+                            );
+                            dcRT->FillRectangle(eraseBottomBorderRect, bgBrush);
+                            float sideTop = outlineRect.top + corner_radius * 0.55f;
+                            dcRT->DrawLine(
+                                D2D1::Point2F(outlineRect.left, sideTop),
+                                D2D1::Point2F(outlineRect.left, outlineRect.bottom),
+                                borderBrush,
+                                border_width
+                            );
+                            dcRT->DrawLine(
+                                D2D1::Point2F(outlineRect.right, sideTop),
+                                D2D1::Point2F(outlineRect.right, outlineRect.bottom),
+                                borderBrush,
+                                border_width
+                            );
+                        }
+                    }
                 }
                 else {
                     if (bgBrush) dcRT->FillRectangle(outlineRect, bgBrush);
@@ -5748,7 +6071,7 @@ LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam
                 if (merge_with_content && bgBrush) {
                     D2D1_RECT_F mergeRect = D2D1::RectF(
                         outlineRect.left,
-                        (FLOAT)h - 2.0f,
+                        top_round_only ? (FLOAT)h - 4.0f : (FLOAT)h - 2.0f,
                         outlineRect.right + 1.0f,
                         (FLOAT)h
                     );
@@ -5768,7 +6091,7 @@ LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam
             float textInset = draw_card_tab_edges ? 0.0f : (draw_outline ? 4.0f : 0.0f);
             float textLeft = (float)state->paddingH + card_inset_x + textInset;   // 2.2: 使用 paddingH
             float textRight = (float)(w - state->paddingH) - card_inset_x - textInset;
-            float closeBtnSize = 18.0f;  // 关闭按钮区域大小
+            float closeBtnSize = 20.0f;  // 关闭按钮区域大小
             float closeBtnMargin = 6.0f; // 关闭按钮与文字间距
 
             // 2.5: 图标绘制
@@ -5845,32 +6168,34 @@ LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam
                 // 悬停时绘制红色背景圆角矩形
                 if (isCloseHovered) {
                     ID2D1SolidColorBrush* closeBgBrush = nullptr;
-                    D2D1_COLOR_F closeBgColor = D2D1::ColorF(0xF56C6C);  // Element UI danger 红色
+                    D2D1_COLOR_F closeBgColor = ColorFromUInt32(ThemeColor_Hover(ThemeColor_BackgroundLight()));
                     closeBgColor.a = opacity;
                     dcRT->CreateSolidColorBrush(closeBgColor, &closeBgBrush);
-                    D2D1_ROUNDED_RECT closeRoundedRect = D2D1::RoundedRect(
-                        D2D1::RectF(btnX - 2, btnY - 2, btnX + closeBtnSize + 2, btnY + closeBtnSize + 2),
-                        3.0f, 3.0f);
-                    dcRT->FillRoundedRectangle(closeRoundedRect, closeBgBrush);
+                    D2D1_ELLIPSE closeHoverEllipse = D2D1::Ellipse(
+                        D2D1::Point2F(btnX + closeBtnSize * 0.5f, btnY + closeBtnSize * 0.5f),
+                        closeBtnSize * 0.5f + 1.0f,
+                        closeBtnSize * 0.5f + 1.0f
+                    );
+                    dcRT->FillEllipse(closeHoverEllipse, closeBgBrush);
                     closeBgBrush->Release();
                 }
 
                 // 绘制 × 符号
                 ID2D1SolidColorBrush* closeBrush = nullptr;
                 D2D1_COLOR_F closeColor = isCloseHovered
-                    ? D2D1::ColorF(1.0f, 1.0f, 1.0f, opacity)   // 悬停时白色
-                    : ColorFromUInt32(ThemeColor_TextRegular());  // 默认更明显
+                    ? ColorFromUInt32(ThemeColor_TextPrimary())
+                    : ColorFromUInt32(ThemeColor_TextSecondary());
                 closeColor.a *= opacity;
                 dcRT->CreateSolidColorBrush(closeColor, &closeBrush);
-                float crossMargin = 4.5f;
+                float crossMargin = 5.5f;
                 dcRT->DrawLine(
                     D2D1::Point2F(btnX + crossMargin, btnY + crossMargin),
                     D2D1::Point2F(btnX + closeBtnSize - crossMargin, btnY + closeBtnSize - crossMargin),
-                    closeBrush, 1.5f);
+                    closeBrush, 1.35f);
                 dcRT->DrawLine(
                     D2D1::Point2F(btnX + closeBtnSize - crossMargin, btnY + crossMargin),
                     D2D1::Point2F(btnX + crossMargin, btnY + closeBtnSize - crossMargin),
-                    closeBrush, 1.5f);
+                    closeBrush, 1.35f);
                 closeBrush->Release();
             }
 
@@ -5986,6 +6311,7 @@ HWND __stdcall CreateTabControl(HWND hParent, int x, int y, int width, int heigh
     state->closeCallback = nullptr;
     state->rightClickCallback = nullptr;
     state->dblClickCallback = nullptr;
+    state->newButtonCallback = nullptr;
     state->draggable = false;
 
     // 布局字段默认值
@@ -5997,6 +6323,7 @@ HWND __stdcall CreateTabControl(HWND hParent, int x, int y, int width, int heigh
     // 绘制辅助字段默认值
     state->hoveredCloseTabIndex = -1;
     state->hoveredTabIndex = -1;
+    state->hoveredNewButton = false;
     state->layoutBatchInProgress = false;
 
     // 拖拽状态字段默认值
@@ -6204,6 +6531,10 @@ BOOL __stdcall SelectTab(HWND hTabControl, int index) {
     if (root && PostMessageW(root, WM_EW_SELECT_TAB_DEFERRED, (WPARAM)hTabControl, (LPARAM)(INT_PTR)index)) {
         return TRUE;
     }
+    return ApplySelectTab(hTabControl, index);
+}
+
+BOOL __stdcall SelectTabImmediate(HWND hTabControl, int index) {
     return ApplySelectTab(hTabControl, index);
 }
 
@@ -6433,6 +6764,8 @@ LRESULT CALLBACK LabelSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
     }
     
     switch (msg) {
+        case WM_NCHITTEST:
+            return ResolveChildResizeHitTest(hwnd, lparam);
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
@@ -6650,7 +6983,9 @@ __declspec(dllexport) HWND __stdcall CreateEditBox(
     // 创建编辑框样式
     // 单行+垂直居中时用 ES_MULTILINE+ES_AUTOHSCROLL，使 EM_SETRECTNP 生效（系统单行 EDIT 忽略格式矩形）
     BOOL use_multiline_for_center = (vertical_center && !multiline);
-    DWORD style = WS_CHILD | WS_VISIBLE | WS_TABSTOP;
+    // 顶部工具栏里的地址栏会和背景标签发生重叠，开启 WS_CLIPSIBLINGS
+    // 后让低层 sibling 绘制时自动避开高层编辑框，避免首帧文字被盖掉。
+    DWORD style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_CLIPSIBLINGS;
     if (multiline || use_multiline_for_center) {
         style |= ES_MULTILINE | ES_AUTOHSCROLL;
         if (multiline) {
@@ -6791,12 +7126,21 @@ __declspec(dllexport) void __stdcall SetEditBoxText(
         d2d->selection_end = -1;
         d2d->scroll_offset_x = 0;
         d2d->scroll_offset_y = 0;
-        InvalidateRect(hEdit, NULL, FALSE);
+        RedrawWindow(hEdit, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE | RDW_FRAME);
+        HWND parent = GetParent(hEdit);
+        if (parent) {
+            RedrawWindow(parent, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN | RDW_NOERASE);
+        }
         return;
     }
     
     std::wstring text = Utf8ToWide(text_bytes, text_len);
     SetWindowTextW(hEdit, text.c_str());
+    RedrawWindow(hEdit, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE | RDW_FRAME);
+    HWND parent = GetParent(hEdit);
+    if (parent) {
+        RedrawWindow(parent, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN | RDW_NOERASE);
+    }
 }
 
 __declspec(dllexport) void __stdcall SetEditBoxFont(
@@ -6843,7 +7187,7 @@ __declspec(dllexport) void __stdcall SetEditBoxColor(
     if (D2DEditBoxState* d2d = FindD2DEditState(hEdit)) {
         d2d->fg_color = fg_color;
         d2d->bg_color = bg_color;
-        InvalidateRect(hEdit, NULL, FALSE);
+        RedrawWindow(hEdit, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE | RDW_FRAME);
         return;
     }
 
@@ -6871,10 +7215,19 @@ __declspec(dllexport) void __stdcall SetEditBoxBounds(
         d2d->width = width;
         d2d->height = height;
     }
-    SetWindowPos(hEdit, NULL, x, y, width, height, SWP_NOZORDER);
+    const int actual_y = AdjustChildControlYForParent(GetParent(hEdit), y);
+    SetWindowPos(hEdit, HWND_TOP, x, actual_y, width, height, SWP_NOACTIVATE);
+    if (FindD2DEditState(hEdit)) {
+        RedrawWindow(hEdit, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE | RDW_FRAME);
+    }
     auto it = g_editboxes.find(hEdit);
     if (it != g_editboxes.end() && it->second->vertical_center && !it->second->multiline) {
         UpdateEditBoxFormatRect(hEdit);
+    }
+    RedrawWindow(hEdit, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE | RDW_FRAME);
+    HWND parent = GetParent(hEdit);
+    if (parent) {
+        RedrawWindow(parent, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN | RDW_NOERASE);
     }
 }
 
@@ -6898,8 +7251,17 @@ __declspec(dllexport) void __stdcall ShowEditBox(
 ) {
     if (!hEdit) return;
     ShowWindow(hEdit, show ? SW_SHOW : SW_HIDE);
-    if (FindD2DEditState(hEdit)) {
-        InvalidateRect(hEdit, NULL, FALSE);
+    if (show) {
+        SetWindowPos(hEdit, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        RedrawWindow(hEdit, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE | RDW_FRAME);
+        UpdateWindow(hEdit);
+    }
+    HWND parent = GetParent(hEdit);
+    if (parent) {
+        RedrawWindow(parent, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN | RDW_NOERASE);
+        if (show) {
+            RefreshPriorityChildControls(parent);
+        }
     }
 }
 
@@ -6925,6 +7287,10 @@ __declspec(dllexport) void __stdcall SetEditBoxKeyCallback(
     HWND hEdit,
     EditBoxKeyCallback callback
 ) {
+    if (D2DEditBoxState* d2d = FindD2DEditState(hEdit)) {
+        d2d->key_callback = callback;
+        return;
+    }
     auto it = g_editboxes.find(hEdit);
     if (it == g_editboxes.end()) return;
     it->second->key_callback = callback;
@@ -7189,7 +7555,7 @@ __declspec(dllexport) HWND __stdcall CreateLabel(
         0,
         L"STATIC",
         text.c_str(),
-        WS_CHILD | WS_VISIBLE | SS_OWNERDRAW | SS_NOTIFY,
+        WS_CHILD | WS_VISIBLE | SS_OWNERDRAW | SS_NOTIFY | WS_CLIPSIBLINGS,
         x, y + tb_offset, width, height,
         hParent,
         (HMENU)(INT_PTR)id,
@@ -7323,7 +7689,8 @@ __declspec(dllexport) void __stdcall SetLabelBounds(
     if (state->parent_drawn) {
         InvalidateRect(state->parent, NULL, FALSE);
     } else {
-        SetWindowPos(hLabel, NULL, x, y, width, height, SWP_NOZORDER);
+        const int actual_y = AdjustChildControlYForParent(GetParent(hLabel), y);
+        SetWindowPos(hLabel, NULL, x, actual_y, width, height, SWP_NOZORDER);
         RedrawWindow(hLabel, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
     }
 }
@@ -7699,8 +8066,7 @@ LRESULT CALLBACK CheckBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
 
     switch (msg) {
         case WM_NCHITTEST: {
-            // 确保STATIC控件返回HTCLIENT，允许接收鼠标消息
-            return HTCLIENT;
+            return ResolveChildResizeHitTest(hwnd, lparam);
         }
 
         case WM_PAINT: {
@@ -7977,7 +8343,8 @@ void __stdcall SetCheckBoxBounds(HWND hCheckBox, int x, int y, int width, int he
     
     it->second->width = width;
     it->second->height = height;
-    SetWindowPos(hCheckBox, nullptr, x, y, width, height, SWP_NOZORDER);
+    const int actual_y = AdjustChildControlYForParent(GetParent(hCheckBox), y);
+    SetWindowPos(hCheckBox, nullptr, x, actual_y, width, height, SWP_NOZORDER);
     InvalidateRect(hCheckBox, nullptr, FALSE);
 }
 
@@ -8554,7 +8921,8 @@ __declspec(dllexport) void __stdcall SetProgressBarBounds(
     state->width = width;
     state->height = height;
     
-    SetWindowPos(hProgressBar, NULL, x, y, width, height, SWP_NOZORDER);
+    const int actual_y = AdjustChildControlYForParent(GetParent(hProgressBar), y);
+    SetWindowPos(hProgressBar, NULL, x, actual_y, width, height, SWP_NOZORDER);
     InvalidateRect(hProgressBar, NULL, FALSE);
 }
 
@@ -9172,7 +9540,8 @@ void __stdcall SetPictureBoxBounds(HWND hPictureBox, int x, int y, int width, in
     if (changed && state->events.on_value_changed) {
         state->events.on_value_changed(hPictureBox);
     }
-    SetWindowPos(hPictureBox, nullptr, x, y, width, height, SWP_NOZORDER);
+    const int actual_y = AdjustChildControlYForParent(GetParent(hPictureBox), y);
+    SetWindowPos(hPictureBox, nullptr, x, actual_y, width, height, SWP_NOZORDER);
     InvalidateRect(hPictureBox, nullptr, FALSE);
 }
 
@@ -9380,8 +9749,7 @@ LRESULT CALLBACK RadioButtonProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
 
     switch (msg) {
         case WM_NCHITTEST: {
-            // 确保STATIC控件返回HTCLIENT，允许接收鼠标消息
-            return HTCLIENT;
+            return ResolveChildResizeHitTest(hwnd, lparam);
         }
 
         case WM_PAINT: {
@@ -9720,7 +10088,8 @@ void __stdcall SetRadioButtonBounds(HWND hRadioButton, int x, int y, int width, 
     it->second->y = y;
     it->second->width = width;
     it->second->height = height;
-    SetWindowPos(hRadioButton, nullptr, x, y, width, height, SWP_NOZORDER);
+    const int actual_y = AdjustChildControlYForParent(GetParent(hRadioButton), y);
+    SetWindowPos(hRadioButton, nullptr, x, actual_y, width, height, SWP_NOZORDER);
     InvalidateRect(hRadioButton, nullptr, FALSE);
 }
 
@@ -10073,7 +10442,7 @@ LRESULT CALLBACK SliderProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, U
 
     switch (msg) {
     case WM_NCHITTEST:
-        return HTCLIENT;
+        return ResolveChildResizeHitTest(hwnd, lparam);
     case WM_ERASEBKGND:
         return 1;
     case WM_PAINT: {
@@ -10277,7 +10646,8 @@ __declspec(dllexport) void __stdcall SetSliderBounds(HWND hSlider, int x, int y,
     if (it == g_sliders.end()) return;
     it->second->width = width;
     it->second->height = height;
-    SetWindowPos(hSlider, nullptr, x, y, width, height, SWP_NOZORDER);
+    const int actual_y = AdjustChildControlYForParent(GetParent(hSlider), y);
+    SetWindowPos(hSlider, nullptr, x, actual_y, width, height, SWP_NOZORDER);
     InvalidateRect(hSlider, nullptr, FALSE);
 }
 
@@ -10379,7 +10749,7 @@ LRESULT CALLBACK SwitchProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, U
     HandleCommonEvents(hwnd, msg, wparam, lparam, state ? &state->events : nullptr);
     switch (msg) {
     case WM_NCHITTEST:
-        return HTCLIENT;
+        return ResolveChildResizeHitTest(hwnd, lparam);
     case WM_ERASEBKGND:
         return 1;
     case WM_PAINT: {
@@ -10587,7 +10957,8 @@ __declspec(dllexport) void __stdcall SetSwitchBounds(HWND hSwitch, int x, int y,
     if (it == g_switches.end()) return;
     it->second->width = width;
     it->second->height = height;
-    SetWindowPos(hSwitch, nullptr, x, y, width, height, SWP_NOZORDER);
+    const int actual_y = AdjustChildControlYForParent(GetParent(hSwitch), y);
+    SetWindowPos(hSwitch, nullptr, x, actual_y, width, height, SWP_NOZORDER);
     InvalidateRect(hSwitch, nullptr, FALSE);
 }
 
@@ -11143,6 +11514,8 @@ LRESULT CALLBACK TooltipTargetProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
 LRESULT CALLBACK TooltipProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     TooltipState* state = (TooltipState*)dwRefData;
     switch (msg) {
+    case WM_NCHITTEST:
+        return ResolveChildResizeHitTest(hwnd, lparam);
     case WM_ERASEBKGND:
         return 1;
     case WM_MOUSEACTIVATE:
@@ -11353,6 +11726,8 @@ static POINT NotificationBasePosition(HWND hOwner, int position, int width, int 
 LRESULT CALLBACK NotificationProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     NotificationState* state = (NotificationState*)dwRefData;
     switch (msg) {
+    case WM_NCHITTEST:
+        return ResolveChildResizeHitTest(hwnd, lparam);
     case WM_ERASEBKGND:
         return 1;
     case WM_MOUSEACTIVATE:
@@ -12142,7 +12517,8 @@ void __stdcall SetListBoxBounds(
     state->width = width;
     state->height = height;
     
-    SetWindowPos(hListBox, nullptr, x, y, width, height, 
+    const int actual_y = AdjustChildControlYForParent(GetParent(hListBox), y);
+    SetWindowPos(hListBox, nullptr, x, actual_y, width, height, 
                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW);
     InvalidateRect(hListBox, nullptr, TRUE);
 }
@@ -13174,7 +13550,8 @@ void __stdcall SetComboBoxBounds(HWND hComboBox, int x, int y, int width, int he
     state->width = width;
     state->height = height;
     
-    SetWindowPos(hComboBox, nullptr, x, y, width, height, SWP_NOZORDER);
+    const int actual_y = AdjustChildControlYForParent(GetParent(hComboBox), y);
+    SetWindowPos(hComboBox, nullptr, x, actual_y, width, height, SWP_NOZORDER);
 }
 
 // 获取组合框文�?
@@ -13670,7 +14047,7 @@ HWND __stdcall CreateHotKeyControl(
         0,
         kHotKeyControlClass,
         L"",
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_CLIPSIBLINGS,
         x, y + tb_offset, width, height,
         hParent,
         nullptr,
@@ -13809,7 +14186,8 @@ void __stdcall SetHotKeyControlBounds(
     state->width = width;
     state->height = height;
     
-    SetWindowPos(hHotKey, nullptr, x, y, width, height, SWP_NOZORDER);
+    const int actual_y = AdjustChildControlYForParent(GetParent(hHotKey), y);
+    SetWindowPos(hHotKey, nullptr, x, actual_y, width, height, SWP_NOZORDER);
     InvalidateRect(hHotKey, nullptr, FALSE);
 }
 
@@ -14241,7 +14619,8 @@ void __stdcall SetGroupBoxBounds(
     state->width = width;
     state->height = height;
     
-    SetWindowPos(hGroupBox, nullptr, x, y, width, height, SWP_NOZORDER);
+    const int actual_y = AdjustChildControlYForParent(GetParent(hGroupBox), y);
+    SetWindowPos(hGroupBox, nullptr, x, actual_y, width, height, SWP_NOZORDER);
     
     // 同步移动所有子控件
     for (HWND hChild : state->children) {
@@ -14799,13 +15178,13 @@ LRESULT CALLBACK TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
                 TabCtrl_GetItemRect(hwnd, visibleIdx, &tabRect);
                 int w = tabRect.right - tabRect.left;
                 int h = tabRect.bottom - tabRect.top;
-                float closeBtnSize = 16.0f;
-                float closeBtnMargin = 4.0f;
+                float closeBtnSize = 20.0f;
+                float closeBtnMargin = 6.0f;
                 // 关闭按钮区域（相对于标签页矩形）
                 float btnX = (float)tabRect.left + (float)w - closeBtnSize - closeBtnMargin;
                 float btnY = (float)tabRect.top + ((float)h - closeBtnSize) / 2.0f;
-                if (pt.x >= (int)(btnX - 2) && pt.x <= (int)(btnX + closeBtnSize + 2) &&
-                    pt.y >= (int)(btnY - 2) && pt.y <= (int)(btnY + closeBtnSize + 2)) {
+                if (pt.x >= (int)(btnX - 3) && pt.x <= (int)(btnX + closeBtnSize + 3) &&
+                    pt.y >= (int)(btnY - 3) && pt.y <= (int)(btnY + closeBtnSize + 3)) {
                     newHoveredClose = pageIdx;
                 }
             }
@@ -14863,12 +15242,12 @@ LRESULT CALLBACK TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
                 TabCtrl_GetItemRect(hwnd, visibleIdx, &tabRect);
                 int tw = tabRect.right - tabRect.left;
                 int th = tabRect.bottom - tabRect.top;
-                float closeBtnSize = 16.0f;
-                float closeBtnMargin = 4.0f;
+                float closeBtnSize = 20.0f;
+                float closeBtnMargin = 6.0f;
                 float btnX = (float)tabRect.left + (float)tw - closeBtnSize - closeBtnMargin;
                 float btnY = (float)tabRect.top + ((float)th - closeBtnSize) / 2.0f;
-                if (pt.x >= (int)(btnX - 2) && pt.x <= (int)(btnX + closeBtnSize + 2) &&
-                    pt.y >= (int)(btnY - 2) && pt.y <= (int)(btnY + closeBtnSize + 2)) {
+                if (pt.x >= (int)(btnX - 3) && pt.x <= (int)(btnX + closeBtnSize + 3) &&
+                    pt.y >= (int)(btnY - 3) && pt.y <= (int)(btnY + closeBtnSize + 3)) {
                     clickedCloseBtn = true;
                     // 立即触发关闭回调
                     if (state->closeCallback) {
@@ -15128,6 +15507,17 @@ __declspec(dllexport) int __stdcall SetTabDoubleClickCallback(HWND hTab, TAB_DBL
 
     TabControlState* state = it->second;
     state->dblClickCallback = callback;
+    return 0;
+}
+
+__declspec(dllexport) int __stdcall SetTabNewButtonCallback(HWND hTab, TAB_NEW_BUTTON_CALLBACK callback) {
+    auto it = g_tab_controls.find(hTab);
+    if (it == g_tab_controls.end()) return -1;
+
+    TabControlState* state = it->second;
+    state->newButtonCallback = callback;
+    state->hoveredNewButton = false;
+    InvalidateRect(hTab, NULL, FALSE);
     return 0;
 }
 
@@ -15413,6 +15803,8 @@ LRESULT CALLBACK PanelProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UI
     }
 
     switch (msg) {
+    case WM_NCHITTEST:
+        return ResolveChildResizeHitTest(hwnd, lparam);
     case WM_ERASEBKGND:
         return 1;
 
@@ -15609,6 +16001,11 @@ LRESULT CALLBACK GroupBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
 
     switch (msg) {
         case WM_NCHITTEST: {
+            LRESULT resize_hit = ResolveChildResizeHitTest(hwnd, lparam);
+            if (resize_hit == HTTRANSPARENT) {
+                return HTTRANSPARENT;
+            }
+
             // 将屏幕坐标转换为客户区坐标
             POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
             ScreenToClient(hwnd, &pt);
@@ -17234,7 +17631,7 @@ __declspec(dllexport) HWND __stdcall CreateD2DColorEmojiEditBox(
         ex_style,
         D2D_EDITBOX_CLASS,
         L"",
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_CLIPSIBLINGS,
         x, y + tb_offset, width, height,
         hParent,
         NULL,
@@ -17319,8 +17716,12 @@ __declspec(dllexport) void __stdcall SetD2DEditBoxText(
     state->selection_end = -1;
     state->scroll_offset_x = 0;
     state->scroll_offset_y = 0;
-    
-    InvalidateRect(hEdit, NULL, FALSE);
+
+    RedrawWindow(hEdit, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE | RDW_FRAME);
+    HWND parent = GetParent(hEdit);
+    if (parent) {
+        RedrawWindow(parent, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN | RDW_NOERASE);
+    }
 }
 
 // 设置D2D编辑框按键回调
@@ -17354,6 +17755,14 @@ __declspec(dllexport) void __stdcall ShowD2DEditBox(
 ) {
     if (!hEdit) return;
     ShowWindow(hEdit, show ? SW_SHOW : SW_HIDE);
+    if (show) {
+        RedrawWindow(hEdit, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE | RDW_FRAME);
+        UpdateWindow(hEdit);
+        HWND parent = GetParent(hEdit);
+        if (parent) {
+            RedrawWindow(parent, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN | RDW_NOERASE);
+        }
+    }
 }
 
 // 设置D2D编辑框位置和大小
@@ -17369,7 +17778,9 @@ __declspec(dllexport) void __stdcall SetD2DEditBoxBounds(
         it->second->width = width;
         it->second->height = height;
     }
-    SetWindowPos(hEdit, NULL, x, y, width, height, SWP_NOZORDER);
+    const int actual_y = AdjustChildControlYForParent(GetParent(hEdit), y);
+    SetWindowPos(hEdit, NULL, x, actual_y, width, height, SWP_NOZORDER);
+    RedrawWindow(hEdit, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE | RDW_FRAME);
 }
 
 // 设置D2D编辑框字体
@@ -18411,7 +18822,8 @@ extern "C" __declspec(dllexport) void __stdcall SetD2DComboBoxBounds(
     state->width = width;
     state->height = height;
 
-    SetWindowPos(hComboBox, NULL, x, y, width, height, SWP_NOZORDER);
+    const int actual_y = AdjustChildControlYForParent(GetParent(hComboBox), y);
+    SetWindowPos(hComboBox, NULL, x, actual_y, width, height, SWP_NOZORDER);
 }
 
 extern "C" __declspec(dllexport) void __stdcall SetD2DComboBoxColors(
@@ -20829,7 +21241,8 @@ __declspec(dllexport) void __stdcall DataGrid_SetBounds(HWND hGrid, int x, int y
     if (it == g_datagrids.end()) return;
     it->second->x = x; it->second->y = y;
     it->second->width = width; it->second->height = height;
-    SetWindowPos(hGrid, NULL, x, y, width, height, SWP_NOZORDER);
+    const int actual_y = AdjustChildControlYForParent(GetParent(hGrid), y);
+    SetWindowPos(hGrid, NULL, x, actual_y, width, height, SWP_NOZORDER);
 }
 
 __declspec(dllexport) void __stdcall DataGrid_Refresh(HWND hGrid) {
@@ -21072,14 +21485,44 @@ static void SyncEmojiButtonWindow(EmojiButton* button) {
     if (state_host && callback_parent && state_host != callback_parent) {
         MapWindowPoints(state_host, callback_parent, &child_pt, 1);
     }
-    UINT flags = SWP_NOZORDER | SWP_NOACTIVATE;
+    UINT flags = SWP_NOACTIVATE;
     flags |= button->visible ? SWP_SHOWWINDOW : SWP_HIDEWINDOW;
     SetWindowPos(button->hwnd, nullptr, child_pt.x, child_pt.y, button->width, button->height, flags);
     InvalidateRect(button->hwnd, nullptr, FALSE);
+    UpdateWindow(button->hwnd);
 }
 
 static UINT32 GetButtonHostBackgroundColor(HWND hwnd) {
     return ResolveButtonHostBackgroundColor(hwnd);
+}
+
+static void RefreshPriorityChildControls(HWND parent) {
+    if (!parent || !IsWindow(parent)) return;
+
+    EnumChildWindows(parent, [](HWND child, LPARAM) -> BOOL {
+        if (!child || !IsWindow(child) || !IsWindowVisible(child)) return TRUE;
+
+        wchar_t class_name[64] = {};
+        GetClassNameW(child, class_name, 64);
+        if (_wcsicmp(class_name, L"Edit") != 0 &&
+            _wcsicmp(class_name, L"D2DEditBoxClass") != 0 &&
+            _wcsicmp(class_name, L"EmojiWindowButtonClass") != 0) {
+            return TRUE;
+        }
+
+        SetWindowPos(
+            child,
+            HWND_TOP,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
+        );
+        RedrawWindow(child, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE | RDW_FRAME);
+        UpdateWindow(child);
+        return TRUE;
+    }, 0);
 }
 
 static LRESULT CALLBACK EmojiButtonWindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -21089,6 +21532,8 @@ static LRESULT CALLBACK EmojiButtonWindowProc(HWND hwnd, UINT msg, WPARAM wparam
     if (!button) return DefWindowProcW(hwnd, msg, wparam, lparam);
 
     switch (msg) {
+    case WM_NCHITTEST:
+        return ResolveChildResizeHitTest(hwnd, lparam);
     case WM_ERASEBKGND:
         return 1;
 

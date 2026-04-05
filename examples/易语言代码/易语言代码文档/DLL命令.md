@@ -270,6 +270,10 @@
     .参数 TabControl句柄, 整数型
     .参数 索引, 整数型
 
+.DLL命令 立即切换到Tab, 逻辑型, "emoji_window.dll", "SelectTabImmediate", , , 立即切换到指定Tab（同步应用，适合初始化阶段）
+    .参数 TabControl句柄, 整数型
+    .参数 索引, 整数型
+
 .DLL命令 获取Tab数量, 整数型, "emoji_window.dll", "GetTabCount", , , 获取Tab数量
     .参数 TabControl句柄, 整数型
 
@@ -342,6 +346,11 @@
 .DLL命令 绑定控件菜单, , "emoji_window.dll", "BindControlMenu", , , 绑定控件与弹出菜单（控件右键时自动弹出）
     .参数 控件句柄, 整数型
     .参数 弹出菜单句柄, 整数型
+
+.DLL命令 绑定按钮菜单, , "emoji_window.dll", "BindButtonMenu", , , 给按钮绑定弹出菜单（按钮点击后弹出）
+    .参数 父窗口句柄, 整数型, , 按钮所属父窗口句柄
+    .参数 按钮ID, 整数型, , 按钮ID
+    .参数 弹出菜单句柄, 整数型, , 弹出菜单句柄
 
 .DLL命令 显示上下文菜单, , "emoji_window.dll", "ShowContextMenu", , , 在指定坐标显示右键菜单
     .参数 弹出菜单句柄, 整数型
@@ -2066,6 +2075,10 @@
     .参数 水平内边距, 整数型, , 水平方向内边距（>=0）
     .参数 垂直内边距, 整数型, , 垂直方向内边距（>=0）
 
+.DLL命令 设置Tab头样式, 整数型, "emoji_window.dll", "SetTabHeaderStyle", , , 设置Tab头部样式（成功返回0，失败返回-1）
+    .参数 TabControl句柄, 整数型, , TabControl窗口句柄
+    .参数 样式, 整数型, , 0=默认，1=扁平，2=卡片纯色等
+
 ' ----- 单个标签页控制 -----
 .DLL命令 启用禁用标签页, 整数型, "emoji_window.dll", "EnableTabItem", , , 启用或禁用单个标签页（成功返回0，失败返回-1）
     .参数 TabControl句柄, 整数型, , TabControl窗口句柄
@@ -2117,6 +2130,10 @@
 .DLL命令 设置标签页双击回调, 整数型, "emoji_window.dll", "SetTabDoubleClickCallback", , , 设置标签页双击回调（成功返回0，失败返回-1）
     .参数 TabControl句柄, 整数型, , TabControl窗口句柄
     .参数 回调函数, 子程序指针, , 回调函数指针（参数：TabControl句柄, 索引）
+
+.DLL命令 设置新建标签按钮回调, 整数型, "emoji_window.dll", "SetTabNewButtonCallback", , , 设置Tab头右侧加号按钮回调（成功返回0，失败返回-1）
+    .参数 TabControl句柄, 整数型, , TabControl窗口句柄
+    .参数 回调函数, 子程序指针, , 回调函数指针（参数：TabControl句柄）
 
 ' ----- 布局与位置 -----
 .DLL命令 设置标签栏位置, 整数型, "emoji_window.dll", "SetTabPosition", , , 设置标签栏位置（成功返回0，失败返回-1）

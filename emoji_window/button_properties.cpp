@@ -49,7 +49,7 @@ static void RefreshButtonVisual(EmojiButton* button, HWND parent) {
             MapWindowPoints(parent, actual_parent, &child_pt, 1);
         }
 
-        UINT flags = SWP_NOZORDER | SWP_NOACTIVATE;
+        UINT flags = SWP_NOACTIVATE;
         flags |= button->visible ? SWP_SHOWWINDOW : SWP_HIDEWINDOW;
         SetWindowPos(
             button->hwnd,
@@ -69,6 +69,7 @@ static void RefreshButtonVisual(EmojiButton* button, HWND parent) {
         }
 
         RedrawWindow(button->hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
+        UpdateWindow(button->hwnd);
     }
 
     if (parent && IsWindow(parent)) {

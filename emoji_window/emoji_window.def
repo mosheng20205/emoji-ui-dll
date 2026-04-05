@@ -63,6 +63,7 @@ EXPORTS
     SetTabCallback
     GetCurrentTabIndex
     SelectTab
+    SelectTabImmediate
     GetTabCount
     GetTabContentWindow
     DestroyTabControl
@@ -81,6 +82,7 @@ EXPORTS
     PopupMenuAddItem
     PopupMenuAddSubItem
     BindControlMenu
+    BindButtonMenu
     ShowContextMenu
     SetPopupMenuCallback
     CreateEditBox
@@ -485,6 +487,7 @@ EXPORTS
     SetTabRightClickCallback
     SetTabDraggable
     SetTabDoubleClickCallback
+    SetTabNewButtonCallback
     SetTabPosition
     SetTabAlignment
     SetTabScrollable

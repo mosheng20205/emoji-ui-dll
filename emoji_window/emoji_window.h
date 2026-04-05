@@ -40,6 +40,7 @@ typedef void (__stdcall *TAB_RIGHTCLICK_CALLBACK)(HWND hTabControl, int index, i
 
 // Tab 鍙屽嚮鍥炶皟鍑芥暟绫诲瀷 (stdcall 璋冪敤绾﹀畾)
 typedef void (__stdcall *TAB_DBLCLICK_CALLBACK)(HWND hTabControl, int index);
+typedef void (__stdcall *TAB_NEW_BUTTON_CALLBACK)(HWND hTabControl);
 
 // 绐楀彛澶у皬鏀瑰彉鍥炶皟鍑芥暟绫诲瀷 (stdcall 璋冪敤绾﹀畾)
 typedef void (__stdcall *WindowResizeCallback)(HWND hwnd, int width, int height);
@@ -991,6 +992,7 @@ struct TabControlState {
     TAB_CLOSE_CALLBACK closeCallback;       // 鍏抽棴鍥炶皟锛堥粯璁?nullptr锛?
     TAB_RIGHTCLICK_CALLBACK rightClickCallback; // 鍙抽敭鍥炶皟锛堥粯璁?nullptr锛?
     TAB_DBLCLICK_CALLBACK dblClickCallback;     // 鍙屽嚮鍥炶皟锛堥粯璁?nullptr锛?
+    TAB_NEW_BUTTON_CALLBACK newButtonCallback;  // 新建标签按钮回调
     EventCallbacks events;          // 通用事件回调
     bool draggable;                 // 鏄惁鍙嫋鎷芥帓搴忥紙榛樿 false锛?
 
@@ -1009,6 +1011,7 @@ struct TabControlState {
     // ===== 缁樺埗杈呭姪瀛楁 =====
     int hoveredCloseTabIndex;       // 榧犳爣鎮仠鐨勫叧闂寜閽墍鍦ㄦ爣绛鹃〉绱㈠紩锛?1=鏃狅級
     int hoveredTabIndex;            // 鼠标悬停的标签页索引
+    bool hoveredNewButton;          // 鼠标悬停在新建标签按钮
     bool layoutBatchInProgress;     // Tab 批处理布局中
 };
 
@@ -1341,6 +1344,11 @@ extern "C" {
         int index
     );
 
+    __declspec(dllexport) BOOL __stdcall SelectTabImmediate(
+        HWND hTabControl,
+        int index
+    );
+
     // 鑾峰彇 Tab 鏁伴噺
     __declspec(dllexport) int __stdcall GetTabCount(
         HWND hTabControl
@@ -1534,6 +1542,11 @@ extern "C" {
     __declspec(dllexport) int __stdcall SetTabDoubleClickCallback(
         HWND hTab,
         TAB_DBLCLICK_CALLBACK callback
+    );
+
+    __declspec(dllexport) int __stdcall SetTabNewButtonCallback(
+        HWND hTab,
+        TAB_NEW_BUTTON_CALLBACK callback
     );
 
     // ========== 甯冨眬涓庝綅缃嚱鏁?==========
