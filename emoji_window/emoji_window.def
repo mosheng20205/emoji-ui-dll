@@ -333,6 +333,7 @@ EXPORTS
     DataGrid_AddComboBoxColumn
     DataGrid_AddTagColumn
     DataGrid_AddProgressColumn
+    DataGrid_AddSwitchColumn
     DataGrid_RemoveColumn
     DataGrid_ClearColumns
     DataGrid_GetColumnCount
@@ -353,6 +354,8 @@ EXPORTS
     DataGrid_SetCellProgress
     DataGrid_GetCellProgress
     DataGrid_SetCellStyle
+    DataGrid_SetRowStyle
+    DataGrid_FindText
     DataGrid_GetSelectedRow
     DataGrid_GetSelectedCol
     DataGrid_SetSelectedCell

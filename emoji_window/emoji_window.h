@@ -642,7 +642,8 @@ enum DataGridColumnTypeFixed {
     DGCOL_IMAGE = 4,
     DGCOL_COMBOBOX = 5,
     DGCOL_TAG = 6,
-    DGCOL_PROGRESS = 7
+    DGCOL_PROGRESS = 7,
+    DGCOL_SWITCH = 8
 };
 
 #if 0
@@ -688,13 +689,23 @@ struct DataGridColumn {
     DataGridSortOrder sort_order; // 褰撳墠鎺掑簭鏂瑰悜
     DWRITE_TEXT_ALIGNMENT header_alignment;  // 鍒楀ご瀵归綈鏂瑰紡
     DWRITE_TEXT_ALIGNMENT cell_alignment;    // 鍗曞厓鏍煎榻愭柟寮?
+    UINT32 switch_active_color;             // Switch 打开轨道色
+    UINT32 switch_inactive_color;           // Switch 关闭轨道色
+    UINT32 switch_active_text_color;        // Switch 打开文字色
+    UINT32 switch_inactive_text_color;      // Switch 关闭文字色
+    std::wstring switch_active_text;        // Switch 打开文本
+    std::wstring switch_inactive_text;      // Switch 关闭文本
     
     // 鏋勯€犲嚱鏁帮紝璁剧疆榛樿鍊?
     DataGridColumn() : 
         width(100), min_width(30), type(DGCOL_TEXT), 
         resizable(true), sortable(true), sort_order(DGSORT_NONE),
         header_alignment(DWRITE_TEXT_ALIGNMENT_LEADING),
-        cell_alignment(DWRITE_TEXT_ALIGNMENT_LEADING) {}
+        cell_alignment(DWRITE_TEXT_ALIGNMENT_LEADING),
+        switch_active_color(0),
+        switch_inactive_color(0),
+        switch_active_text_color(0),
+        switch_inactive_text_color(0) {}
 };
 
 // 鍗曞厓鏍兼暟鎹?
@@ -712,6 +723,9 @@ struct DataGridCell {
 struct DataGridRow {
     std::vector<DataGridCell> cells; // 鍗曞厓鏍煎垪琛?
     int height;                      // 琛岄珮锛?=浣跨敤榛樿锛?
+    DataGridCellStyle style;         // 整行默认样式
+
+    DataGridRow() : height(0), style{} {}
 };
 
 // DataGridView 鐘舵€?
@@ -3214,6 +3228,13 @@ extern "C" {
         int width
     );
 
+    __declspec(dllexport) int __stdcall DataGrid_AddSwitchColumn(
+        HWND hGrid,
+        const unsigned char* header_bytes,
+        int header_len,
+        int width
+    );
+
     // 绉婚櫎鍒?
     __declspec(dllexport) void __stdcall DataGrid_RemoveColumn(
         HWND hGrid,
@@ -3348,6 +3369,28 @@ extern "C" {
         UINT32 bg_color,
         BOOL bold,
         BOOL italic
+    );
+
+    __declspec(dllexport) void __stdcall DataGrid_SetRowStyle(
+        HWND hGrid,
+        int row,
+        UINT32 fg_color,
+        UINT32 bg_color,
+        BOOL bold,
+        BOOL italic
+    );
+
+    __declspec(dllexport) BOOL __stdcall DataGrid_FindText(
+        HWND hGrid,
+        const unsigned char* text_bytes,
+        int text_len,
+        int start_row,
+        int start_col,
+        BOOL match_case,
+        BOOL whole_cell,
+        BOOL wrap_around,
+        int* found_row,
+        int* found_col
     );
 
     // --- 閫夋嫨鍜屽鑸?---

@@ -7127,7 +7127,9 @@ __declspec(dllexport) HWND __stdcall CreateEditBox(
     
     // 创建编辑框样式
     // 单行+垂直居中时用 ES_MULTILINE+ES_AUTOHSCROLL，使 EM_SETRECTNP 生效（系统单行 EDIT 忽略格式矩形）
-    BOOL use_multiline_for_center = (vertical_center && !multiline);
+    // Win32 EDIT 的 ES_PASSWORD 与 ES_MULTILINE 不能可靠共存。
+    // 单行垂直居中的多行兼容技巧在密码框场景下必须关闭，否则会显示明文。
+    BOOL use_multiline_for_center = (vertical_center && !multiline && !password);
     // 顶部工具栏里的地址栏会和背景标签发生重叠，开启 WS_CLIPSIBLINGS
     // 后让低层 sibling 绘制时自动避开高层编辑框，避免首帧文字被盖掉。
     DWORD style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_CLIPSIBLINGS;
@@ -19282,9 +19284,87 @@ static std::wstring DataGrid_GetCellDisplayText(DataGridViewState* state, int ro
             cell.text.empty()) {
             return std::to_wstring(DataGrid_ClampProgressValue(cell.progress)) + L"%";
         }
+        if (col >= 0 && col < (int)state->columns.size() &&
+            state->columns[col].type == DGCOL_SWITCH &&
+            cell.text.empty()) {
+            const DataGridColumn& col_def = state->columns[col];
+            return cell.checked
+                ? (col_def.switch_active_text.empty() ? L"开" : col_def.switch_active_text)
+                : (col_def.switch_inactive_text.empty() ? L"关" : col_def.switch_inactive_text);
+        }
         return cell.text;
     }
     return L"";
+}
+
+static std::wstring DataGrid_ToLowerCopy(const std::wstring& value) {
+    std::wstring lowered = value;
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+        [](wchar_t ch) { return (wchar_t)towlower(ch); });
+    return lowered;
+}
+
+static bool DataGrid_CellTextMatches(
+    const std::wstring& haystack,
+    const std::wstring& needle,
+    bool match_case,
+    bool whole_cell
+) {
+    if (needle.empty()) return false;
+
+    const std::wstring haystack_cmp = match_case ? haystack : DataGrid_ToLowerCopy(haystack);
+    const std::wstring needle_cmp = match_case ? needle : DataGrid_ToLowerCopy(needle);
+    if (whole_cell) {
+        return haystack_cmp == needle_cmp;
+    }
+
+    return haystack_cmp.find(needle_cmp) != std::wstring::npos;
+}
+
+static bool DataGrid_FindTextInternal(
+    DataGridViewState* state,
+    const std::wstring& needle,
+    int start_row,
+    int start_col,
+    bool match_case,
+    bool whole_cell,
+    bool wrap_around,
+    int* found_row,
+    int* found_col
+) {
+    if (!state || needle.empty()) return false;
+
+    const int row_count = DataGrid_GetEffectiveRowCount(state);
+    const int col_count = (int)state->columns.size();
+    if (row_count <= 0 || col_count <= 0) return false;
+
+    start_row = max(0, min(start_row, row_count - 1));
+    start_col = max(0, min(start_col, col_count - 1));
+    const int total_cells = row_count * col_count;
+    const int start_index = start_row * col_count + start_col;
+    const int max_steps = wrap_around ? total_cells : (total_cells - start_index);
+    for (int step = 0; step < max_steps; ++step) {
+        int index = start_index + step;
+        if (wrap_around) {
+            index %= total_cells;
+        }
+
+        const int row = index / col_count;
+        const int col = index % col_count;
+        if (!DataGrid_CellTextMatches(
+                DataGrid_GetCellDisplayText(state, row, col),
+                needle,
+                match_case,
+                whole_cell)) {
+            continue;
+        }
+
+        if (found_row) *found_row = row;
+        if (found_col) *found_col = col;
+        return true;
+    }
+
+    return false;
 }
 
 static bool DataGrid_TryParseProgressText(const std::wstring& text, int* value) {
@@ -19965,21 +20045,29 @@ void DrawDataGridView(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, DataGr
                 rt->FillRectangle(cell_rect, brush);
             }
 
+            DataGridCellStyle row_style = {};
+            if (!state->virtual_mode && r < (int)state->rows.size()) {
+                row_style = state->rows[r].style;
+            }
+
             DataGridCellStyle cell_style = {};
             if (!state->virtual_mode && r < (int)state->rows.size() && c < (int)state->rows[r].cells.size()) {
                 cell_style = state->rows[r].cells[c].style;
             }
 
-            if (cell_style.bg_color &&
+            UINT32 effective_bg_color = cell_style.bg_color ? ResolveThemeColor(cell_style.bg_color)
+                : (row_style.bg_color ? ResolveThemeColor(row_style.bg_color) : 0);
+            if (effective_bg_color &&
                 state->columns[c].type != DGCOL_PROGRESS &&
                 state->columns[c].type != DGCOL_BUTTON &&
                 !is_selected_cell &&
                 !(is_selected_row && state->selection_mode == DGSEL_ROW)) {
-                brush->SetColor(ColorFromUInt32(ResolveThemeColor(cell_style.bg_color)));
+                brush->SetColor(ColorFromUInt32(effective_bg_color));
                 rt->FillRectangle(cell_rect, brush);
             }
 
-            UINT32 cell_fg_argb = cell_style.fg_color ? ResolveThemeColor(cell_style.fg_color) : body_fg_argb;
+            UINT32 cell_fg_argb = cell_style.fg_color ? ResolveThemeColor(cell_style.fg_color)
+                : (row_style.fg_color ? ResolveThemeColor(row_style.fg_color) : body_fg_argb);
             D2D1_RECT_F text_rect = D2D1::RectF(col_x + 8, row_y, col_x + cw - 8, row_y + row_h);
             rt->PushAxisAlignedClip(cell_rect, D2D1_ANTIALIAS_MODE_ALIASED);
 
@@ -19990,12 +20078,13 @@ void DrawDataGridView(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, DataGr
                     brush->SetColor(ColorFromUInt32(cell_fg_argb));
                     IDWriteTextFormat* cf = text_format;
                     IDWriteTextFormat* custom_f = nullptr;
-                    if (cell_style.bold || cell_style.italic || state->columns[c].cell_alignment != DWRITE_TEXT_ALIGNMENT_LEADING) {
+                    if (cell_style.bold || cell_style.italic || row_style.bold || row_style.italic ||
+                        state->columns[c].cell_alignment != DWRITE_TEXT_ALIGNMENT_LEADING) {
                         factory->CreateTextFormat(
                             state->font.font_name.empty() ? L"Microsoft YaHei UI" : state->font.font_name.c_str(),
                             nullptr,
-                            cell_style.bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
-                            cell_style.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
+                            (cell_style.bold || row_style.bold) ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
+                            (cell_style.italic || row_style.italic) ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
                             DWRITE_FONT_STRETCH_NORMAL,
                             (float)state->font.font_size,
                             L"zh-CN",
@@ -20032,6 +20121,76 @@ void DrawDataGridView(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, DataGr
                     brush->SetColor(D2D1::ColorF(D2D1::ColorF::White));
                     rt->DrawLine(D2D1::Point2F(bx + 3, by + bs / 2), D2D1::Point2F(bx + bs / 2 - 1, by + bs - 4), brush, 2.0f);
                     rt->DrawLine(D2D1::Point2F(bx + bs / 2 - 1, by + bs - 4), D2D1::Point2F(bx + bs - 3, by + 4), brush, 2.0f);
+                }
+                break;
+            }
+            case DGCOL_SWITCH: {
+                bool checked = DataGrid_GetCellCheckedState(state, r, c);
+                const DataGridColumn& col_def = state->columns[c];
+                UINT32 active = ResolveOptionalColor(col_def.switch_active_color, ThemeColor_Primary());
+                UINT32 inactive = ResolveOptionalColor(col_def.switch_inactive_color, 0xFFC0CCDA);
+                UINT32 track = checked ? active : inactive;
+                if (is_hovered && state->enabled) {
+                    track = checked ? LightenColor(track, 1.03f) : DarkenColor(track, 0.97f);
+                }
+                UINT32 border = checked ? DarkenColor(track, 0.92f) : ThemeColor_BorderBase();
+                UINT32 text_color = checked
+                    ? ResolveOptionalColor(col_def.switch_active_text_color, 0xFFFFFFFF)
+                    : ResolveOptionalColor(col_def.switch_inactive_text_color, ThemeColor_TextSecondary());
+                UINT32 thumb_color = 0xFFFFFFFF;
+                UINT32 thumb_border = checked ? 0x26FFFFFF : ThemeColor_BorderLight();
+
+                if (!state->enabled) {
+                    track = ThemeColor_BorderExtraLight();
+                    border = ThemeColor_BorderLight();
+                    text_color = ThemeColor_TextPlaceholder();
+                    thumb_color = 0xFFF7F8FA;
+                    thumb_border = ThemeColor_BorderLight();
+                }
+
+                float switch_w = min(max(56.0f, cw - 24.0f), 72.0f);
+                float switch_h = min(max(24.0f, row_h - 12.0f), 28.0f);
+                float sx = col_x + (cw - switch_w) / 2.0f;
+                float sy = row_y + (row_h - switch_h) / 2.0f;
+                float radius = switch_h * 0.5f;
+                float thumb_r = radius - 2.5f;
+                float thumb_x = checked ? (sx + switch_w - radius - 2.0f) : (sx + radius + 2.0f);
+                float thumb_y = sy + radius;
+
+                ID2D1SolidColorBrush* local_text_brush = nullptr;
+                brush->SetColor(ColorFromUInt32(track));
+                D2D1_ROUNDED_RECT track_rect = D2D1::RoundedRect(D2D1::RectF(sx, sy, sx + switch_w, sy + switch_h), radius, radius);
+                rt->FillRoundedRectangle(track_rect, brush);
+                brush->SetColor(ColorFromUInt32(border));
+                rt->DrawRoundedRectangle(track_rect, brush, checked ? 1.0f : 1.2f);
+                brush->SetColor(ColorFromUInt32(thumb_color));
+                rt->FillEllipse(D2D1::Ellipse(D2D1::Point2F(thumb_x, thumb_y), thumb_r, thumb_r), brush);
+                brush->SetColor(ColorFromUInt32(thumb_border));
+                rt->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(thumb_x, thumb_y), thumb_r, thumb_r), brush, 1.0f);
+
+                const std::wstring& switch_text = checked ? col_def.switch_active_text : col_def.switch_inactive_text;
+                if (!switch_text.empty() && switch_w >= 52.0f &&
+                    SUCCEEDED(rt->CreateSolidColorBrush(ColorFromUInt32(text_color), &local_text_brush)) && local_text_brush) {
+                    IDWriteTextFormat* switch_format = nullptr;
+                    factory->CreateTextFormat(
+                        state->font.font_name.empty() ? L"Microsoft YaHei UI" : state->font.font_name.c_str(),
+                        nullptr,
+                        checked ? DWRITE_FONT_WEIGHT_SEMI_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
+                        DWRITE_FONT_STYLE_NORMAL,
+                        DWRITE_FONT_STRETCH_NORMAL,
+                        (FLOAT)(state->font.font_size > 0 ? state->font.font_size - 1 : 11),
+                        L"zh-CN",
+                        &switch_format);
+                    if (switch_format) {
+                        switch_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                        switch_format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+                        D2D1_RECT_F switch_text_rect = checked
+                            ? D2D1::RectF(sx + 6.0f, sy, sx + switch_w - radius * 1.65f, sy + switch_h)
+                            : D2D1::RectF(sx + radius * 1.65f, sy, sx + switch_w - 6.0f, sy + switch_h);
+                        rt->DrawText(switch_text.c_str(), (UINT32)switch_text.length(), switch_format, switch_text_rect, local_text_brush, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+                        switch_format->Release();
+                    }
+                    local_text_brush->Release();
                 }
                 break;
             }
@@ -20121,8 +20280,25 @@ void DrawDataGridView(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, DataGr
                 if (!value.empty()) {
                     UINT32 tag_bg = cell_style.bg_color ? ResolveThemeColor(cell_style.bg_color) : ThemeColor_LightBg(ThemeColor_Primary());
                     UINT32 tag_fg = cell_style.fg_color ? ResolveThemeColor(cell_style.fg_color) : ThemeColor_Primary();
-                    float tag_width = min(cw - 16.0f, max(48.0f, (float)value.length() * ((float)state->font.font_size * 0.9f)));
-                    float tag_height = row_h - 10.0f;
+                    float measured_text_width = 0.0f;
+                    IDWriteTextLayout* measure_layout = nullptr;
+                    factory->CreateTextLayout(
+                        value.c_str(),
+                        (UINT32)value.length(),
+                        text_format,
+                        max(1.0f, cw - 24.0f),
+                        max(1.0f, row_h),
+                        &measure_layout);
+                    if (measure_layout) {
+                        DWRITE_TEXT_METRICS metrics = {};
+                        if (SUCCEEDED(measure_layout->GetMetrics(&metrics))) {
+                            measured_text_width = metrics.widthIncludingTrailingWhitespace;
+                        }
+                        measure_layout->Release();
+                    }
+
+                    float tag_width = min(cw - 16.0f, max(54.0f, measured_text_width + 22.0f));
+                    float tag_height = min(max(22.0f, row_h - 14.0f), row_h - 6.0f);
                     float tag_x = col_x + 8.0f;
                     if (state->columns[c].cell_alignment == DWRITE_TEXT_ALIGNMENT_CENTER) tag_x = col_x + (cw - tag_width) / 2.0f;
                     else if (state->columns[c].cell_alignment == DWRITE_TEXT_ALIGNMENT_TRAILING) tag_x = col_x + cw - tag_width - 8.0f;
@@ -20522,7 +20698,8 @@ LRESULT CALLBACK DataGridViewProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
             if (hit_row >= 0) {
                 // Handle checkbox toggle
                 if (hit_col >= 0 && hit_col < (int)state->columns.size() &&
-                    state->columns[hit_col].type == DGCOL_CHECKBOX && !state->virtual_mode) {
+                    (state->columns[hit_col].type == DGCOL_CHECKBOX || state->columns[hit_col].type == DGCOL_SWITCH) &&
+                    !state->virtual_mode) {
                     if (hit_row < (int)state->rows.size() && hit_col < (int)state->rows[hit_row].cells.size()) {
                         state->rows[hit_row].cells[hit_col].checked = !state->rows[hit_row].cells[hit_col].checked;
                         if (state->cell_value_changed_cb) state->cell_value_changed_cb(hwnd, hit_row, hit_col);
@@ -20561,7 +20738,8 @@ LRESULT CALLBACK DataGridViewProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
                 if (state->cell_dblclick_cb) state->cell_dblclick_cb(hwnd, hit_row, hit_col);
 
                 if (!state->virtual_mode && hit_col < (int)state->columns.size()) {
-                    if (state->columns[hit_col].type == DGCOL_CHECKBOX && DataGrid_HasConcreteCell(state, hit_row, hit_col)) {
+                    if ((state->columns[hit_col].type == DGCOL_CHECKBOX || state->columns[hit_col].type == DGCOL_SWITCH) &&
+                        DataGrid_HasConcreteCell(state, hit_row, hit_col)) {
                         state->rows[hit_row].cells[hit_col].checked = !state->rows[hit_row].cells[hit_col].checked;
                         if (state->cell_value_changed_cb) state->cell_value_changed_cb(hwnd, hit_row, hit_col);
                     }
@@ -21003,6 +21181,20 @@ __declspec(dllexport) int __stdcall DataGrid_AddTagColumn(HWND hGrid, const unsi
 __declspec(dllexport) int __stdcall DataGrid_AddProgressColumn(HWND hGrid, const unsigned char* h, int hl, int w) {
     return DataGrid_AddColumn(hGrid, h, hl, w, DGCOL_PROGRESS);
 }
+__declspec(dllexport) int __stdcall DataGrid_AddSwitchColumn(HWND hGrid, const unsigned char* h, int hl, int w) {
+    int index = DataGrid_AddColumn(hGrid, h, hl, w, DGCOL_SWITCH);
+    auto it = g_datagrids.find(hGrid);
+    if (index >= 0 && it != g_datagrids.end() && index < (int)it->second->columns.size()) {
+        DataGridColumn& col = it->second->columns[index];
+        col.switch_active_color = ThemeColor_Primary();
+        col.switch_inactive_color = 0xFFC0CCDA;
+        col.switch_active_text_color = 0xFFFFFFFF;
+        col.switch_inactive_text_color = ThemeColor_TextSecondary();
+        col.switch_active_text = L"开";
+        col.switch_inactive_text = L"关";
+    }
+    return index;
+}
 __declspec(dllexport) void __stdcall DataGrid_RemoveColumn(HWND hGrid, int col_index) {
     auto it = g_datagrids.find(hGrid);
     if (it == g_datagrids.end()) return;
@@ -21241,6 +21433,59 @@ __declspec(dllexport) void __stdcall DataGrid_SetCellStyle(HWND hGrid, int row, 
     InvalidateRect(hGrid, nullptr, TRUE);
 }
 
+__declspec(dllexport) void __stdcall DataGrid_SetRowStyle(HWND hGrid, int row,
+    UINT32 fg_color, UINT32 bg_color, BOOL bold, BOOL italic) {
+    auto it = g_datagrids.find(hGrid);
+    if (it == g_datagrids.end()) return;
+    DataGridViewState* state = it->second;
+    if (state->virtual_mode) return;
+    if (row < 0 || row >= (int)state->rows.size()) return;
+
+    state->rows[row].style.fg_color = fg_color;
+    state->rows[row].style.bg_color = bg_color;
+    state->rows[row].style.bold = (bold != 0);
+    state->rows[row].style.italic = (italic != 0);
+    InvalidateRect(hGrid, nullptr, TRUE);
+}
+
+__declspec(dllexport) BOOL __stdcall DataGrid_FindText(
+    HWND hGrid,
+    const unsigned char* text_bytes,
+    int text_len,
+    int start_row,
+    int start_col,
+    BOOL match_case,
+    BOOL whole_cell,
+    BOOL wrap_around,
+    int* found_row,
+    int* found_col
+) {
+    auto it = g_datagrids.find(hGrid);
+    if (it == g_datagrids.end()) return FALSE;
+
+    DataGridViewState* state = it->second;
+    const std::wstring needle = Utf8ToWide(text_bytes, text_len);
+    if (needle.empty()) return FALSE;
+
+    int row = -1;
+    int col = -1;
+    const bool found = DataGrid_FindTextInternal(
+        state,
+        needle,
+        start_row,
+        start_col,
+        match_case != 0,
+        whole_cell != 0,
+        wrap_around != 0,
+        &row,
+        &col);
+    if (!found) return FALSE;
+
+    if (found_row) *found_row = row;
+    if (found_col) *found_col = col;
+    return TRUE;
+}
+
 // --- Selection ---
 
 __declspec(dllexport) int __stdcall DataGrid_GetSelectedRow(HWND hGrid) {
@@ -21441,8 +21686,16 @@ __declspec(dllexport) void __stdcall DataGrid_SetSelectionChangedCallback(HWND h
 __declspec(dllexport) void __stdcall DataGrid_Enable(HWND hGrid, BOOL enable) {
     auto it = g_datagrids.find(hGrid);
     if (it == g_datagrids.end()) return;
-    it->second->enabled = (enable != 0);
-    EnableWindow(hGrid, enable);
+    DataGridViewState* state = it->second;
+    state->enabled = (enable != 0);
+
+    // DataGridView 是完全自绘控件，交互是否可用已经由内部 enabled 状态控制。
+    // 对外再调用 EnableWindow 会让 HWND 进入系统禁用态，恢复时偶发出现空白不重绘。
+    // 这里保持窗口本身处于可绘制状态，只切换内部交互能力。
+    if (!state->enabled && state->editing) {
+        DataGrid_EndEdit(state, false);
+    }
+
     InvalidateRect(hGrid, nullptr, TRUE);
 }
 
@@ -21484,7 +21737,13 @@ __declspec(dllexport) void __stdcall DataGrid_SetColors(
     state->select_color = select_color;
     state->hover_color = hover_color;
     state->grid_line_color = grid_line_color;
-    InvalidateRect(hGrid, nullptr, TRUE);
+    state->zebra_color = (ColorLuma(bg_color) < 0.45f)
+        ? LightenColor(bg_color, 1.12f)
+        : 0xFFFAFAFA;
+
+    // 主题色切换时要求立刻把选中色、悬停色和整表背景一起重绘出来，
+    // 单纯 InvalidateRect 在某些宿主里会延迟到下一次消息循环后才完全刷新。
+    RedrawWindow(hGrid, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW | RDW_FRAME);
 }
 
 __declspec(dllexport) int __stdcall DataGrid_GetColors(
