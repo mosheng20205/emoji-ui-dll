@@ -3303,9 +3303,12 @@ int __stdcall create_emoji_button_bytes(
         parent_groupbox = gb_state;  // 记录父分组框
         actual_parent = gb_state->parent;  // 使用分组框的父窗口
         
-        // 转换坐标：分组框相对坐标 -> 窗口绝对坐标
+        // 转换坐标：分组框相对坐标 -> 窗口绝对坐标（与其它控件一致：加标题栏偏移）
+        int tb_offset = GetTitleBarOffset(actual_parent);
         actual_x = gb_state->x + x + 10;  // 左边距10px
-        actual_y = gb_state->y + y + 25;  // 标题高度约25px
+        actual_y = gb_state->y + y + 25 + tb_offset;  // 标题高度约25px + 标题栏
+    } else {
+        actual_y = y + GetTitleBarOffset(actual_parent);
     }
     
     HWND state_host = actual_parent;

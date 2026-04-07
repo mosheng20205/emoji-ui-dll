@@ -1586,8 +1586,9 @@ __declspec(dllexport) HWND __stdcall CreateD2DDateTimePicker(
     st->x = x;
     st->y = y;
 
+    int tb_offset = GetTitleBarOffset(hParent);
     HWND hwnd = CreateWindowExW(0, kHostClass, L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-        x, y, width, height, hParent, nullptr, GetModuleHandleW(nullptr), st);
+        x, y + tb_offset, width, height, hParent, nullptr, GetModuleHandleW(nullptr), st);
     if (!hwnd) {
         delete st;
         return nullptr;
@@ -1687,7 +1688,8 @@ __declspec(dllexport) void __stdcall SetD2DDateTimePickerBounds(HWND hPicker, in
     if (it == g_dt_pick.end()) return;
     DtpState* s = it->second;
     s->x = x; s->y = y; s->width = width; s->height = height;
-    SetWindowPos(hPicker, nullptr, x, y, width, height, SWP_NOZORDER);
+    int tb_offset = GetTitleBarOffset(s->parent);
+    SetWindowPos(hPicker, nullptr, x, y + tb_offset, width, height, SWP_NOZORDER);
 }
 
 __declspec(dllexport) void __stdcall SetD2DDateTimePickerColors(

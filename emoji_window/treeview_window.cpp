@@ -25,6 +25,7 @@ static const wchar_t* TREEVIEW_CLASS_NAME = L"CustomTreeViewClass";
 static bool g_class_registered = false;
 
 extern "C" UINT32 __stdcall EW_GetThemeColorByIndex(int color_index);
+extern int GetTitleBarOffset(HWND hParent);
 
 // ============================================================================
 // 辅助函数实现
@@ -859,12 +860,13 @@ HWND __stdcall CreateSimpleTreeView(HWND parent, int x, int y, int width, int he
     DWORD style = WS_CHILD | WS_VISIBLE | WS_BORDER
         | TVS_HASLINES | TVS_HASBUTTONS | TVS_LINESATROOT | TVS_SHOWSELALWAYS;
 
+    int tb_offset = GetTitleBarOffset(parent);
     HWND hTree = CreateWindowExW(
         0,
         WC_TREEVIEWW,
         L"",
         style,
-        x, y, width, height,
+        x, y + tb_offset, width, height,
         parent,
         NULL,
         GetModuleHandle(NULL),
@@ -928,13 +930,14 @@ HWND __stdcall CreateTreeView(
         g_class_registered = true;
     }
     
+    int tb_offset = GetTitleBarOffset(parent);
     // 创建子窗口
     HWND hwnd = CreateWindowExW(
         0,
         TREEVIEW_CLASS_NAME,
         L"",
         WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
-        x, y, width, height,
+        x, y + tb_offset, width, height,
         parent,
         NULL,
         GetModuleHandle(NULL),
