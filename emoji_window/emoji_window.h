@@ -497,6 +497,8 @@ struct ListBoxState {
     int hovered_index;          // 鎮仠椤?(-1琛ㄧず鏃犳偓鍋?
     int scroll_offset;          // 婊氬姩鍋忕Щ閲忥紙鍍忕礌锛?
     int item_height;            // 椤圭洰楂樺害
+    int logical_item_height;    // 96 DPI 閫昏緫琛岄珮
+    int logical_font_size;      // 96 DPI 閫昏緫瀛椾綋澶у皬
     bool multi_select;          // 澶氶€夋ā寮?
     std::vector<int> selected_indices; // 澶氶€夋椂鐨勯€変腑椤?
     bool scrollbar_dragging;    // 婊氬姩鏉℃嫋鍔ㄤ腑

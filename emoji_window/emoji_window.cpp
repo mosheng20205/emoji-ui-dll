@@ -12149,6 +12149,20 @@ static bool GetListBoxScrollbarMetrics(ListBoxState* state, RECT* track_rc, RECT
     return true;
 }
 
+static void SyncListBoxDpiMetrics(ListBoxState* state) {
+    if (!state) return;
+
+    UINT dpi = EW_GetDpiForReference(state->hwnd, state->parent);
+    int logical_item_height = state->logical_item_height > 0 ? state->logical_item_height : 32;
+    int logical_font_size = state->logical_font_size > 0 ? state->logical_font_size : 14;
+
+    state->item_height = (std::max)(1, EW_LogicalToPx(logical_item_height, dpi));
+    state->font.font_size = (std::max)(1, EW_LogicalToPx(logical_font_size, dpi));
+
+    int max_scroll = max(0, (int)state->items.size() * state->item_height - state->height);
+    state->scroll_offset = max(0, min(max_scroll, state->scroll_offset));
+}
+
 static void EnsurePopupDrawingFactories() {
     if (!g_d2d_factory) {
         D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &g_d2d_factory);
@@ -12896,6 +12910,7 @@ __declspec(dllexport) void __stdcall CloseNotification(HWND hNotification) {
 void DrawListBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ListBoxState* state) {
     if (!rt || !factory || !state) return;
 
+    SyncListBoxDpiMetrics(state);
     D2D1_SIZE_F size = rt->GetSize();
 
     // Element UI棰滆壊锛堣В鏋愪富棰橀鑹茬储寮曪級
@@ -13103,6 +13118,7 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
             }
             
             if (rt && g_dwrite_factory) {
+                rt->SetDpi(96.0f, 96.0f);
                 rt->BeginDraw();
                 rt->Clear(ColorFromUInt32(ResolveThemeColor(state->bg_color)));
                 DrawListBox(rt, g_dwrite_factory, state);
@@ -13116,6 +13132,7 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
         
         case WM_LBUTTONDOWN: {
             if (!state->enabled) break;
+            SyncListBoxDpiMetrics(state);
             
             int x = LOWORD(lparam);
             int y = HIWORD(lparam);
@@ -13187,6 +13204,7 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
         
         case WM_MOUSEMOVE: {
             if (!state->enabled) break;
+            SyncListBoxDpiMetrics(state);
             
             if (state->scrollbar_dragging) {
                 RECT track_rc = {};
@@ -13225,6 +13243,9 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
                     state->hovered_index = hovered_index;
                     InvalidateRect(hwnd, nullptr, TRUE);
                 }
+            } else if (state->hovered_index != -1) {
+                state->hovered_index = -1;
+                InvalidateRect(hwnd, nullptr, TRUE);
             }
             
             // 杩借釜榧犳爣绂诲紑浜嬩欢
@@ -13245,6 +13266,7 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
         
         case WM_MOUSEWHEEL: {
             if (!state->enabled) break;
+            SyncListBoxDpiMetrics(state);
             
             int delta = GET_WHEEL_DELTA_WPARAM(wparam);
             int scroll_amount = -delta / 3;  // 婊氬姩閲?
@@ -13260,6 +13282,7 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
         case WM_SIZE: {
             state->width = LOWORD(lparam);
             state->height = HIWORD(lparam);
+            SyncListBoxDpiMetrics(state);
             InvalidateRect(hwnd, nullptr, TRUE);
             return 0;
         }
@@ -13322,7 +13345,8 @@ HWND __stdcall CreateListBox(
     state->selected_index = -1;
     state->hovered_index = -1;
     state->scroll_offset = 0;
-    state->item_height = 32;  // Element UI鏍囧噯琛岄珮
+    state->logical_item_height = 32;  // 96 DPI 閫昏緫琛岄珮
+    state->item_height = EW_LogicalToPx(state->logical_item_height, EW_GetDpiForReference(hParent));
     state->multi_select = (multi_select != 0);
     state->scrollbar_dragging = false;
     state->scrollbar_drag_offset = 0;
@@ -13335,7 +13359,8 @@ HWND __stdcall CreateListBox(
     
     // 榛樿瀛椾綋
     state->font.font_name = L"Microsoft YaHei UI";
-    state->font.font_size = 14;
+    state->logical_font_size = 14;
+    state->font.font_size = EW_LogicalToPx(state->logical_font_size, EW_GetDpiForReference(hParent));
     state->font.bold = false;
     state->font.italic = false;
     state->font.underline = false;
@@ -13546,6 +13571,7 @@ void __stdcall SetListBoxBounds(
     state->width = EW_RectWidthPx(px_rect);
     state->height = EW_RectHeightPx(px_rect);
     EW_StoreLogicalBounds(hListBox, x, y, width, height, true);
+    SyncListBoxDpiMetrics(state);
     SetWindowPos(hListBox, nullptr, px_rect.left, px_rect.top, state->width, state->height,
                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW);
     InvalidateRect(hListBox, nullptr, TRUE);
