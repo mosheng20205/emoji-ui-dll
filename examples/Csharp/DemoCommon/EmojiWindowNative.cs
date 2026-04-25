@@ -438,6 +438,7 @@ namespace EmojiWindowDemo
         [DllImport(Dll, CallingConvention = Cc)] public static extern IntPtr CreatePanel(IntPtr parent, int x, int y, int width, int height, uint bgColor);
         [DllImport(Dll, CallingConvention = Cc)] public static extern void SetPanelBounds(IntPtr hPanel, int x, int y, int width, int height);
         [DllImport(Dll, CallingConvention = Cc)] public static extern int GetPanelBounds(IntPtr hPanel, out int x, out int y, out int width, out int height);
+        [DllImport(Dll, CallingConvention = Cc)] public static extern int GetPanelBoundsPx(IntPtr hPanel, out int x, out int y, out int width, out int height);
         [DllImport(Dll, CallingConvention = Cc)] public static extern void SetPanelBackgroundColor(IntPtr hPanel, uint bgColor);
         [DllImport(Dll, CallingConvention = Cc)] public static extern int GetPanelBackgroundColor(IntPtr hPanel, out uint bgColor);
 

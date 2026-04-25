@@ -3185,7 +3185,23 @@ extern "C" {
         int* height
     );
 
+    __declspec(dllexport) int __stdcall GetPanelBoundsPx(
+        HWND hPanel,
+        int* x,
+        int* y,
+        int* width,
+        int* height
+    );
+
     __declspec(dllexport) int __stdcall GetHostSurfaceBounds(
+        HWND hHostSurface,
+        int* x,
+        int* y,
+        int* width,
+        int* height
+    );
+
+    __declspec(dllexport) int __stdcall GetHostSurfaceBoundsPx(
         HWND hHostSurface,
         int* x,
         int* y,

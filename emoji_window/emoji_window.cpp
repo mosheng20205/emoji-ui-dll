@@ -16051,6 +16051,35 @@ __declspec(dllexport) int __stdcall GetPanelBounds(
     return EW_ReadLogicalBounds(hPanel, x, y, width, height, true);
 }
 
+__declspec(dllexport) int __stdcall GetPanelBoundsPx(
+    HWND hPanel,
+    int* x,
+    int* y,
+    int* width,
+    int* height
+) {
+    if (g_panels.find(hPanel) == g_panels.end()) return -1;
+
+    RECT rc = {};
+    if (!GetWindowRect(hPanel, &rc)) return -1;
+
+    int px_x = rc.left;
+    int px_y = rc.top;
+    HWND parent = GetParent(hPanel);
+    if (parent && IsWindow(parent)) {
+        POINT pt = { rc.left, rc.top };
+        ScreenToClient(parent, &pt);
+        px_x = pt.x;
+        px_y = pt.y;
+    }
+
+    if (x) *x = px_x;
+    if (y) *y = px_y;
+    if (width) *width = rc.right - rc.left;
+    if (height) *height = rc.bottom - rc.top;
+    return 0;
+}
+
 int __stdcall GetHostSurfaceBounds(
     HWND hHostSurface,
     int* x,
@@ -16059,6 +16088,16 @@ int __stdcall GetHostSurfaceBounds(
     int* height
 ) {
     return GetPanelBounds(hHostSurface, x, y, width, height);
+}
+
+int __stdcall GetHostSurfaceBoundsPx(
+    HWND hHostSurface,
+    int* x,
+    int* y,
+    int* width,
+    int* height
+) {
+    return GetPanelBoundsPx(hHostSurface, x, y, width, height);
 }
 
 // 娣诲姞瀛愭帶浠跺埌鍒嗙粍妗?
