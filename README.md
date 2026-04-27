@@ -8,6 +8,50 @@
 
 ---
 
+## 新增能力：通用对话框、文件拖拽、Excel/CSV读取
+
+本 DLL 现在提供一组通用文件能力，适合在 易语言 / C# / Python 等宿主程序中直接调用：
+
+- 通用对话框：`ShowOpenFileDialog`、`ShowSaveFileDialog`、`ShowSelectFolderDialog`、`ShowColorDialog`
+- 本地文件拖拽：`EnableFileDrop`、`SetFileDropCallback`
+- 表格文件读取：`Excel_OpenWorkbook`、`Excel_GetRowCount`、`Excel_GetColumnCount`、`Excel_GetCellText`
+- 表格加载到 DataGridView：`Excel_LoadWorkbookToDataGrid`、`Excel_ReadFileToDataGrid`
+
+路径、标题、筛选器等文本参数仍按项目惯例使用 UTF-8 字节指针 + 长度。打开文件对话框的筛选器格式示例：
+
+```text
+表格文件|*.xlsx;*.xls;*.csv;*.tsv;*.txt|所有文件|*.*
+```
+
+读取能力说明：
+
+- `CSV / TSV / TXT` 由 DLL 直接解析，支持 UTF-8、UTF-8 BOM、UTF-16LE/BE 和系统 ANSI 回退。
+- `XLS / XLSX` 通过本机 Excel COM 自动化读取，因此运行机器需要安装 Microsoft Excel。
+- Excel 读取接口里的 `row`、`col` 均为 1 起始，方便易语言侧调用。
+- `Excel_GetCellText` 和对话框返回值使用两段式缓冲区模式；缓冲区不足时返回负的所需字节数。
+
+Python GUI 测试脚本：
+
+```powershell
+python examples\Python\demo_common_dialog_drag_excel.py
+```
+
+该脚本会创建窗口，演示打开/保存/选目录/选颜色对话框、拖拽本地表格文件、读取 CSV/XLS/XLSX 到 DataGridView，并提供一个自动生成的 CSV 样例用于快速测试。
+
+发布脚本会同时构建 x86/x64：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build_release_dlls.ps1
+```
+
+输出位置：
+
+- `DLL\emoji_window_x86.dll`：易语言默认建议使用的 32 位 DLL
+- `DLL\emoji_window_x64.dll`：64 位宿主程序使用
+- `emoji_window.dll`：发布脚本复制的 x64 根目录 DLL
+
+---
+
 ## 目录说明
 
 | 目录 | 说明 |

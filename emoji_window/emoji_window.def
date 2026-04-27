@@ -57,6 +57,20 @@ EXPORTS
     set_window_title
     show_message_box_bytes
     show_confirm_box_bytes
+    ShowOpenFileDialog
+    ShowSaveFileDialog
+    ShowSelectFolderDialog
+    ShowColorDialog
+    EnableFileDrop
+    SetFileDropCallback
+    Excel_OpenWorkbook
+    Excel_CloseWorkbook
+    Excel_CloseAllWorkbooks
+    Excel_GetRowCount
+    Excel_GetColumnCount
+    Excel_GetCellText
+    Excel_LoadWorkbookToDataGrid
+    Excel_ReadFileToDataGrid
     CreateTabControl
     AddTabItem
     RemoveTabItem

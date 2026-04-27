@@ -123,6 +123,7 @@ namespace EmojiWindowDemo
         [UnmanagedFunctionPointer(Cc)] public delegate void TabNewButtonCallback(IntPtr hTabControl);
         [UnmanagedFunctionPointer(Cc)] public delegate void WindowResizeCallback(IntPtr hwnd, int width, int height);
         [UnmanagedFunctionPointer(Cc)] public delegate void WindowCloseCallback(IntPtr hwnd);
+        [UnmanagedFunctionPointer(Cc)] public delegate void FileDropCallback(IntPtr hwnd, IntPtr filePathBytes, int pathLen, int fileIndex, int fileCount, int x, int y);
         [UnmanagedFunctionPointer(Cc)] public delegate void MenuItemClickCallback(int menuId, int itemId);
         [UnmanagedFunctionPointer(Cc)] public delegate void EditBoxKeyCallback(IntPtr hEdit, int keyCode, int keyDown, int shift, int ctrl, int alt);
         [UnmanagedFunctionPointer(Cc)] public delegate void CheckBoxCallback(IntPtr hCheckBox, int checkedState);
@@ -166,6 +167,12 @@ namespace EmojiWindowDemo
         [DllImport(Dll, CallingConvention = Cc)] public static extern void SetThemeChangedCallback(ThemeChangedCallback callback);
         [DllImport(Dll, CallingConvention = Cc)] public static extern void SetWindowResizeCallback(WindowResizeCallback callback);
         [DllImport(Dll, CallingConvention = Cc)] public static extern void SetWindowCloseCallback(WindowCloseCallback callback);
+        [DllImport(Dll, CallingConvention = Cc)] public static extern int ShowOpenFileDialog(IntPtr owner, byte[] title, int titleLen, byte[] filter, int filterLen, byte[] initialDir, int initialDirLen, int allowMultiSelect, IntPtr buffer, int bufferSize);
+        [DllImport(Dll, CallingConvention = Cc)] public static extern int ShowSaveFileDialog(IntPtr owner, byte[] title, int titleLen, byte[] filter, int filterLen, byte[] initialDir, int initialDirLen, byte[] defaultExt, int defaultExtLen, IntPtr buffer, int bufferSize);
+        [DllImport(Dll, CallingConvention = Cc)] public static extern int ShowSelectFolderDialog(IntPtr owner, byte[] title, int titleLen, byte[] initialDir, int initialDirLen, IntPtr buffer, int bufferSize);
+        [DllImport(Dll, CallingConvention = Cc)] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool ShowColorDialog(IntPtr owner, uint initialColor, out uint selectedColor);
+        [DllImport(Dll, CallingConvention = Cc)] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool EnableFileDrop(IntPtr hwnd, int enable);
+        [DllImport(Dll, CallingConvention = Cc)] public static extern void SetFileDropCallback(IntPtr hwnd, FileDropCallback callback);
 
         [DllImport(Dll, CallingConvention = Cc)] public static extern int create_emoji_button_bytes(IntPtr parent, byte[] emoji, int emojiLen, byte[] text, int textLen, int x, int y, int width, int height, uint bgColor);
         [DllImport(Dll, CallingConvention = Cc)] public static extern void set_button_click_callback(ButtonClickCallback callback);
@@ -519,6 +526,14 @@ namespace EmojiWindowDemo
         [DllImport(Dll, CallingConvention = Cc)] public static extern void DataGrid_SetColumnHeaderAlignment(IntPtr hGrid, int col, int alignment);
         [DllImport(Dll, CallingConvention = Cc)] public static extern void DataGrid_SetColumnCellAlignment(IntPtr hGrid, int col, int alignment);
         [DllImport(Dll, CallingConvention = Cc)] public static extern int DataGrid_ExportCSV(IntPtr hGrid, byte[] filePath, int pathLen);
+        [DllImport(Dll, CallingConvention = Cc)] public static extern int Excel_OpenWorkbook(byte[] filePath, int pathLen, int sheetIndex);
+        [DllImport(Dll, CallingConvention = Cc)] public static extern void Excel_CloseWorkbook(int workbookHandle);
+        [DllImport(Dll, CallingConvention = Cc)] public static extern void Excel_CloseAllWorkbooks();
+        [DllImport(Dll, CallingConvention = Cc)] public static extern int Excel_GetRowCount(int workbookHandle);
+        [DllImport(Dll, CallingConvention = Cc)] public static extern int Excel_GetColumnCount(int workbookHandle);
+        [DllImport(Dll, CallingConvention = Cc)] public static extern int Excel_GetCellText(int workbookHandle, int row, int col, IntPtr buffer, int bufferSize);
+        [DllImport(Dll, CallingConvention = Cc)] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool Excel_LoadWorkbookToDataGrid(int workbookHandle, IntPtr hGrid, int firstRowAsHeader);
+        [DllImport(Dll, CallingConvention = Cc)] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool Excel_ReadFileToDataGrid(byte[] filePath, int pathLen, IntPtr hGrid, int sheetIndex, int firstRowAsHeader);
 
         [DllImport(Dll, CallingConvention = Cc)] public static extern void SetMouseEnterCallback(IntPtr hControl, ValueChangedCallback callback);
         [DllImport(Dll, CallingConvention = Cc)] public static extern void SetMouseLeaveCallback(IntPtr hControl, ValueChangedCallback callback);

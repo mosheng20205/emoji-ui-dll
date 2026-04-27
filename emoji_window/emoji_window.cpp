@@ -6,6 +6,13 @@
 #include <cwctype>
 #include <cmath>
 #include <windowsx.h>  // For GET_X_LPARAM and GET_Y_LPARAM
+#include <commdlg.h>
+#include <shobjidl.h>
+#include <oleauto.h>
+#include <fstream>
+#include <sstream>
+#include <iomanip>
+#include <cstdio>
 #include <set>
 
 // Global variables
@@ -29,6 +36,17 @@ std::map<HWND, ComboBoxState*> g_comboboxes;
 std::map<HWND, HotKeyState*> g_hotkeys;
 std::map<HWND, GroupBoxState*> g_groupboxes;
 std::map<HWND, PanelState*> g_panels;
+static std::map<HWND, FileDropCallback> g_file_drop_callbacks;
+static const UINT_PTR EW_FILE_DROP_SUBCLASS_ID = 0xEFD001;
+struct ExcelWorkbookState {
+    std::wstring source_path;
+    int sheet_index = 1;
+    int row_count = 0;
+    int col_count = 0;
+    std::vector<std::vector<std::wstring>> cells;
+};
+static std::map<int, ExcelWorkbookState> g_excel_workbooks;
+static int g_next_excel_workbook_handle = 1;
 std::map<HWND, DataGridViewState*> g_datagrids;
 std::map<HWND, LogicalBoundsInfo> g_logical_bounds;
 std::map<int, LogicalBoundsInfo> g_button_logical_bounds;
@@ -4558,16 +4576,321 @@ extern "C" __declspec(dllexport) void __stdcall SetWindowBackgroundColor(HWND hw
 // Wide String to UTF-8 (杈呭姪鍑芥暟 - 鐢ㄤ簬绐楀彛灞炴€?
 static std::string WindowWideToUtf8(const std::wstring& wide) {
     if (wide.empty()) return "";
-    
+
     int utf8_len = WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), (int)wide.length(), nullptr, 0, nullptr, nullptr);
     if (utf8_len <= 0) return "";
-    
+
     std::string result(utf8_len, 0);
     WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), (int)wide.length(), &result[0], utf8_len, nullptr, nullptr);
     return result;
 }
 
+static int CopyUtf8ResultToBuffer(const std::wstring& text, unsigned char* buffer, int buffer_size) {
+    std::string utf8 = WindowWideToUtf8(text);
+    int required = (int)utf8.size();
+    if (!buffer || buffer_size <= 0) {
+        return required;
+    }
+    if (buffer_size < required) {
+        return -required;
+    }
+    if (required > 0) {
+        memcpy(buffer, utf8.data(), required);
+    }
+    return required;
+}
+
+static std::wstring BytesToWideOrEmpty(const unsigned char* bytes, int len) {
+    return (bytes && len > 0) ? Utf8ToWide(bytes, len) : L"";
+}
+
+static std::wstring BuildCommonDialogFilter(const unsigned char* filter_bytes, int filter_len) {
+    std::wstring source = BytesToWideOrEmpty(filter_bytes, filter_len);
+    if (source.empty()) {
+        source = L"All Files|*.*";
+    }
+
+    std::wstring result;
+    result.reserve(source.size() + 2);
+    for (wchar_t ch : source) {
+        result.push_back(ch == L'|' ? L'\0' : ch);
+    }
+    if (result.empty() || result.back() != L'\0') {
+        result.push_back(L'\0');
+    }
+    result.push_back(L'\0');
+    return result;
+}
+
+static std::wstring ParseOpenFileNameResult(const wchar_t* file_buffer) {
+    if (!file_buffer || file_buffer[0] == L'\0') {
+        return L"";
+    }
+
+    std::wstring first = file_buffer;
+    const wchar_t* next = file_buffer + first.size() + 1;
+    if (*next == L'\0') {
+        return first;
+    }
+
+    std::wstring result;
+    std::wstring dir = first;
+    while (*next != L'\0') {
+        std::wstring name = next;
+        if (!result.empty()) {
+            result.push_back(L'\n');
+        }
+        result += dir;
+        if (!dir.empty() && dir.back() != L'\\' && dir.back() != L'/') {
+            result.push_back(L'\\');
+        }
+        result += name;
+        next += name.size() + 1;
+    }
+    return result;
+}
+
+static void DispatchFileDrop(HWND hwnd, HDROP drop) {
+    auto cb_it = g_file_drop_callbacks.find(hwnd);
+    FileDropCallback callback = (cb_it != g_file_drop_callbacks.end()) ? cb_it->second : nullptr;
+    if (!callback) {
+        DragFinish(drop);
+        return;
+    }
+
+    POINT pt = {};
+    DragQueryPoint(drop, &pt);
+    UINT count = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
+    for (UINT i = 0; i < count; ++i) {
+        UINT len = DragQueryFileW(drop, i, nullptr, 0);
+        std::vector<wchar_t> path(len + 1, L'\0');
+        if (DragQueryFileW(drop, i, path.data(), len + 1) == 0 && len > 0) {
+            continue;
+        }
+        std::wstring wide_path(path.data());
+        std::string utf8_path = WindowWideToUtf8(wide_path);
+        callback(
+            hwnd,
+            reinterpret_cast<const unsigned char*>(utf8_path.data()),
+            (int)utf8_path.size(),
+            (int)i,
+            (int)count,
+            pt.x,
+            pt.y
+        );
+    }
+    DragFinish(drop);
+}
+
+static LRESULT CALLBACK FileDropSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR, DWORD_PTR) {
+    switch (msg) {
+    case WM_DROPFILES:
+        DispatchFileDrop(hwnd, reinterpret_cast<HDROP>(wparam));
+        return 0;
+    case WM_NCDESTROY:
+        g_file_drop_callbacks.erase(hwnd);
+        DragAcceptFiles(hwnd, FALSE);
+        RemoveWindowSubclass(hwnd, FileDropSubclassProc, EW_FILE_DROP_SUBCLASS_ID);
+        break;
+    }
+    return DefSubclassProc(hwnd, msg, wparam, lparam);
+}
+
+static BOOL SetFileDropEnabledInternal(HWND hwnd, BOOL enable) {
+    if (!hwnd || !IsWindow(hwnd)) {
+        return FALSE;
+    }
+
+    DragAcceptFiles(hwnd, enable ? TRUE : FALSE);
+    if (enable) {
+        return SetWindowSubclass(hwnd, FileDropSubclassProc, EW_FILE_DROP_SUBCLASS_ID, 0) ? TRUE : FALSE;
+    }
+
+    RemoveWindowSubclass(hwnd, FileDropSubclassProc, EW_FILE_DROP_SUBCLASS_ID);
+    return TRUE;
+}
+
 // 鑾峰彇绐楀彛鏍囬 (UTF-8缂栫爜锛屼袱娆¤皟鐢ㄦā寮?
+extern "C" __declspec(dllexport) int __stdcall ShowOpenFileDialog(
+    HWND owner,
+    const unsigned char* title_bytes,
+    int title_len,
+    const unsigned char* filter_bytes,
+    int filter_len,
+    const unsigned char* initial_dir_bytes,
+    int initial_dir_len,
+    BOOL allow_multi_select,
+    unsigned char* buffer,
+    int buffer_size
+) {
+    std::wstring title = BytesToWideOrEmpty(title_bytes, title_len);
+    std::wstring filter = BuildCommonDialogFilter(filter_bytes, filter_len);
+    std::wstring initial_dir = BytesToWideOrEmpty(initial_dir_bytes, initial_dir_len);
+    std::vector<wchar_t> file_buffer(32768, L'\0');
+
+    OPENFILENAMEW ofn = {};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = owner;
+    ofn.lpstrTitle = title.empty() ? nullptr : title.c_str();
+    ofn.lpstrFilter = filter.c_str();
+    ofn.lpstrInitialDir = initial_dir.empty() ? nullptr : initial_dir.c_str();
+    ofn.lpstrFile = file_buffer.data();
+    ofn.nMaxFile = (DWORD)file_buffer.size();
+    ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_FILEMUSTEXIST;
+    if (allow_multi_select) {
+        ofn.Flags |= OFN_ALLOWMULTISELECT;
+    }
+
+    if (!GetOpenFileNameW(&ofn)) {
+        return 0;
+    }
+
+    return CopyUtf8ResultToBuffer(ParseOpenFileNameResult(file_buffer.data()), buffer, buffer_size);
+}
+
+extern "C" __declspec(dllexport) int __stdcall ShowSaveFileDialog(
+    HWND owner,
+    const unsigned char* title_bytes,
+    int title_len,
+    const unsigned char* filter_bytes,
+    int filter_len,
+    const unsigned char* initial_dir_bytes,
+    int initial_dir_len,
+    const unsigned char* default_ext_bytes,
+    int default_ext_len,
+    unsigned char* buffer,
+    int buffer_size
+) {
+    std::wstring title = BytesToWideOrEmpty(title_bytes, title_len);
+    std::wstring filter = BuildCommonDialogFilter(filter_bytes, filter_len);
+    std::wstring initial_dir = BytesToWideOrEmpty(initial_dir_bytes, initial_dir_len);
+    std::wstring default_ext = BytesToWideOrEmpty(default_ext_bytes, default_ext_len);
+    std::vector<wchar_t> file_buffer(32768, L'\0');
+
+    OPENFILENAMEW ofn = {};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = owner;
+    ofn.lpstrTitle = title.empty() ? nullptr : title.c_str();
+    ofn.lpstrFilter = filter.c_str();
+    ofn.lpstrInitialDir = initial_dir.empty() ? nullptr : initial_dir.c_str();
+    ofn.lpstrDefExt = default_ext.empty() ? nullptr : default_ext.c_str();
+    ofn.lpstrFile = file_buffer.data();
+    ofn.nMaxFile = (DWORD)file_buffer.size();
+    ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_OVERWRITEPROMPT;
+
+    if (!GetSaveFileNameW(&ofn)) {
+        return 0;
+    }
+
+    return CopyUtf8ResultToBuffer(file_buffer.data(), buffer, buffer_size);
+}
+
+extern "C" __declspec(dllexport) int __stdcall ShowSelectFolderDialog(
+    HWND owner,
+    const unsigned char* title_bytes,
+    int title_len,
+    const unsigned char* initial_dir_bytes,
+    int initial_dir_len,
+    unsigned char* buffer,
+    int buffer_size
+) {
+    std::wstring title = BytesToWideOrEmpty(title_bytes, title_len);
+    std::wstring initial_dir = BytesToWideOrEmpty(initial_dir_bytes, initial_dir_len);
+
+    HRESULT co_hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    bool should_uninit = (co_hr == S_OK || co_hr == S_FALSE);
+
+    IFileDialog* dialog = nullptr;
+    HRESULT hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog));
+    if (FAILED(hr) || !dialog) {
+        if (should_uninit) CoUninitialize();
+        return -1;
+    }
+
+    DWORD options = 0;
+    if (SUCCEEDED(dialog->GetOptions(&options))) {
+        dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
+    }
+    if (!title.empty()) {
+        dialog->SetTitle(title.c_str());
+    }
+    if (!initial_dir.empty()) {
+        IShellItem* folder = nullptr;
+        if (SUCCEEDED(SHCreateItemFromParsingName(initial_dir.c_str(), nullptr, IID_PPV_ARGS(&folder)))) {
+            dialog->SetFolder(folder);
+            folder->Release();
+        }
+    }
+
+    std::wstring selected_path;
+    hr = dialog->Show(owner);
+    if (SUCCEEDED(hr)) {
+        IShellItem* item = nullptr;
+        if (SUCCEEDED(dialog->GetResult(&item)) && item) {
+            PWSTR path = nullptr;
+            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path)) && path) {
+                selected_path = path;
+                CoTaskMemFree(path);
+            }
+            item->Release();
+        }
+    }
+
+    dialog->Release();
+    if (should_uninit) CoUninitialize();
+    if (selected_path.empty()) {
+        return 0;
+    }
+    return CopyUtf8ResultToBuffer(selected_path, buffer, buffer_size);
+}
+
+extern "C" __declspec(dllexport) BOOL __stdcall ShowColorDialog(HWND owner, UINT32 initial_color, UINT32* selected_color) {
+    if (!selected_color) {
+        return FALSE;
+    }
+
+    static COLORREF custom_colors[16] = {};
+    COLORREF initial = RGB(
+        (initial_color >> 16) & 0xFF,
+        (initial_color >> 8) & 0xFF,
+        initial_color & 0xFF
+    );
+
+    CHOOSECOLORW cc = {};
+    cc.lStructSize = sizeof(cc);
+    cc.hwndOwner = owner;
+    cc.rgbResult = initial;
+    cc.lpCustColors = custom_colors;
+    cc.Flags = CC_FULLOPEN | CC_RGBINIT;
+
+    if (!ChooseColorW(&cc)) {
+        return FALSE;
+    }
+
+    UINT32 alpha = (initial_color & 0xFF000000) ? (initial_color & 0xFF000000) : 0xFF000000;
+    *selected_color = alpha |
+        ((GetRValue(cc.rgbResult) & 0xFF) << 16) |
+        ((GetGValue(cc.rgbResult) & 0xFF) << 8) |
+        (GetBValue(cc.rgbResult) & 0xFF);
+    return TRUE;
+}
+
+extern "C" __declspec(dllexport) BOOL __stdcall EnableFileDrop(HWND hwnd, BOOL enable) {
+    return SetFileDropEnabledInternal(hwnd, enable);
+}
+
+extern "C" __declspec(dllexport) void __stdcall SetFileDropCallback(HWND hwnd, FileDropCallback callback) {
+    if (!hwnd || !IsWindow(hwnd)) {
+        return;
+    }
+    if (callback) {
+        g_file_drop_callbacks[hwnd] = callback;
+        SetFileDropEnabledInternal(hwnd, TRUE);
+    } else {
+        g_file_drop_callbacks.erase(hwnd);
+    }
+}
+
 extern "C" __declspec(dllexport) int __stdcall GetWindowTitle(HWND hwnd, unsigned char* buffer, int buffer_size) {
     if (!hwnd) return -1;
     
@@ -23639,6 +23962,653 @@ __declspec(dllexport) BOOL __stdcall DataGrid_ExportCSV(HWND hGrid, const unsign
 }
 
 } // extern "C" (DataGridView block end)
+
+static bool ReadAllFileBytes(const std::wstring& path, std::vector<unsigned char>* bytes) {
+    if (!bytes) return false;
+    bytes->clear();
+
+    FILE* fp = nullptr;
+    if (_wfopen_s(&fp, path.c_str(), L"rb") != 0 || !fp) {
+        return false;
+    }
+
+    fseek(fp, 0, SEEK_END);
+    long size = ftell(fp);
+    if (size < 0) {
+        fclose(fp);
+        return false;
+    }
+    fseek(fp, 0, SEEK_SET);
+    bytes->resize((size_t)size);
+    if (size > 0) {
+        size_t read = fread(bytes->data(), 1, (size_t)size, fp);
+        if (read != (size_t)size) {
+            fclose(fp);
+            bytes->clear();
+            return false;
+        }
+    }
+    fclose(fp);
+    return true;
+}
+
+static std::wstring DecodeTextFileBytes(const std::vector<unsigned char>& bytes) {
+    if (bytes.empty()) return L"";
+
+    if (bytes.size() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE) {
+        std::wstring text;
+        for (size_t i = 2; i + 1 < bytes.size(); i += 2) {
+            text.push_back((wchar_t)(bytes[i] | (bytes[i + 1] << 8)));
+        }
+        return text;
+    }
+
+    if (bytes.size() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF) {
+        std::wstring text;
+        for (size_t i = 2; i + 1 < bytes.size(); i += 2) {
+            text.push_back((wchar_t)((bytes[i] << 8) | bytes[i + 1]));
+        }
+        return text;
+    }
+
+    int offset = 0;
+    if (bytes.size() >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF) {
+        offset = 3;
+    }
+
+    int byte_count = (int)bytes.size() - offset;
+    if (byte_count <= 0) return L"";
+    const char* data = reinterpret_cast<const char*>(bytes.data() + offset);
+
+    int wide_len = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, data, byte_count, nullptr, 0);
+    UINT codepage = CP_UTF8;
+    DWORD flags = MB_ERR_INVALID_CHARS;
+    if (wide_len <= 0) {
+        codepage = CP_ACP;
+        flags = 0;
+        wide_len = MultiByteToWideChar(codepage, flags, data, byte_count, nullptr, 0);
+    }
+    if (wide_len <= 0) return L"";
+
+    std::wstring result(wide_len, L'\0');
+    MultiByteToWideChar(codepage, flags, data, byte_count, &result[0], wide_len);
+    return result;
+}
+
+static wchar_t DetectDelimitedTextSeparator(const std::wstring& text, const std::wstring& path) {
+    std::wstring lower = path;
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](wchar_t ch) { return (wchar_t)towlower(ch); });
+    if (lower.size() >= 4 && lower.substr(lower.size() - 4) == L".tsv") {
+        return L'\t';
+    }
+
+    int comma_count = 0;
+    int tab_count = 0;
+    for (wchar_t ch : text) {
+        if (ch == L'\r' || ch == L'\n') break;
+        if (ch == L',') ++comma_count;
+        if (ch == L'\t') ++tab_count;
+    }
+    return (tab_count > comma_count) ? L'\t' : L',';
+}
+
+static void NormalizeWorkbookTable(ExcelWorkbookState* workbook) {
+    if (!workbook) return;
+
+    int max_cols = 0;
+    for (const auto& row : workbook->cells) {
+        if ((int)row.size() > max_cols) {
+            max_cols = (int)row.size();
+        }
+    }
+    for (auto& row : workbook->cells) {
+        row.resize(max_cols);
+    }
+    workbook->row_count = (int)workbook->cells.size();
+    workbook->col_count = max_cols;
+}
+
+static bool ParseDelimitedTextToWorkbook(const std::wstring& text, const std::wstring& path, ExcelWorkbookState* workbook) {
+    if (!workbook) return false;
+
+    wchar_t delimiter = DetectDelimitedTextSeparator(text, path);
+    std::vector<std::wstring> row;
+    std::wstring cell;
+    bool in_quotes = false;
+
+    for (size_t i = 0; i < text.size(); ++i) {
+        wchar_t ch = text[i];
+        if (in_quotes) {
+            if (ch == L'"') {
+                if (i + 1 < text.size() && text[i + 1] == L'"') {
+                    cell.push_back(L'"');
+                    ++i;
+                } else {
+                    in_quotes = false;
+                }
+            } else {
+                cell.push_back(ch);
+            }
+            continue;
+        }
+
+        if (ch == L'"') {
+            in_quotes = true;
+        } else if (ch == delimiter) {
+            row.push_back(cell);
+            cell.clear();
+        } else if (ch == L'\r' || ch == L'\n') {
+            row.push_back(cell);
+            cell.clear();
+            workbook->cells.push_back(row);
+            row.clear();
+            if (ch == L'\r' && i + 1 < text.size() && text[i + 1] == L'\n') {
+                ++i;
+            }
+        } else {
+            cell.push_back(ch);
+        }
+    }
+
+    if (!cell.empty() || !row.empty() || (!text.empty() && text.back() == delimiter)) {
+        row.push_back(cell);
+        workbook->cells.push_back(row);
+    }
+
+    NormalizeWorkbookTable(workbook);
+    return true;
+}
+
+static bool ReadDelimitedFileWorkbook(const std::wstring& path, ExcelWorkbookState* workbook) {
+    std::vector<unsigned char> bytes;
+    if (!ReadAllFileBytes(path, &bytes)) {
+        return false;
+    }
+    return ParseDelimitedTextToWorkbook(DecodeTextFileBytes(bytes), path, workbook);
+}
+
+static bool IsDelimitedTablePath(const std::wstring& path) {
+    std::wstring lower = path;
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](wchar_t ch) { return (wchar_t)towlower(ch); });
+    return (lower.size() >= 4 && lower.substr(lower.size() - 4) == L".csv") ||
+        (lower.size() >= 4 && lower.substr(lower.size() - 4) == L".tsv") ||
+        (lower.size() >= 4 && lower.substr(lower.size() - 4) == L".txt");
+}
+
+static std::wstring VariantToWorkbookText(const VARIANT& value) {
+    VARIANT v;
+    VariantInit(&v);
+    if (FAILED(VariantCopyInd(&v, const_cast<VARIANT*>(&value)))) {
+        return L"";
+    }
+
+    std::wstring result;
+    switch (v.vt) {
+    case VT_EMPTY:
+    case VT_NULL:
+        break;
+    case VT_BSTR:
+        if (v.bstrVal) result = v.bstrVal;
+        break;
+    case VT_BOOL:
+        result = (v.boolVal == VARIANT_TRUE) ? L"TRUE" : L"FALSE";
+        break;
+    case VT_I1:
+        result = std::to_wstring(v.cVal);
+        break;
+    case VT_UI1:
+        result = std::to_wstring(v.bVal);
+        break;
+    case VT_I2:
+        result = std::to_wstring(v.iVal);
+        break;
+    case VT_UI2:
+        result = std::to_wstring(v.uiVal);
+        break;
+    case VT_I4:
+    case VT_INT:
+        result = std::to_wstring(v.lVal);
+        break;
+    case VT_UI4:
+    case VT_UINT:
+        result = std::to_wstring(v.ulVal);
+        break;
+    case VT_R4:
+    case VT_R8: {
+        std::wostringstream oss;
+        oss << std::setprecision(15) << (v.vt == VT_R4 ? (double)v.fltVal : v.dblVal);
+        result = oss.str();
+        break;
+    }
+    default: {
+        VARIANT text;
+        VariantInit(&text);
+        if (SUCCEEDED(VariantChangeType(&text, &v, 0, VT_BSTR)) && text.bstrVal) {
+            result = text.bstrVal;
+        }
+        VariantClear(&text);
+        break;
+    }
+    }
+
+    VariantClear(&v);
+    return result;
+}
+
+static HRESULT ExcelInvoke(IDispatch* dispatch, const wchar_t* name, WORD flags, VARIANT* result, VARIANT* args = nullptr, int arg_count = 0) {
+    if (!dispatch || !name) return E_POINTER;
+
+    DISPID dispid = 0;
+    LPOLESTR mutable_name = const_cast<LPOLESTR>(name);
+    HRESULT hr = dispatch->GetIDsOfNames(IID_NULL, &mutable_name, 1, LOCALE_USER_DEFAULT, &dispid);
+    if (FAILED(hr)) return hr;
+
+    std::vector<VARIANT> reversed_args(arg_count);
+    for (int i = 0; i < arg_count; ++i) {
+        VariantInit(&reversed_args[i]);
+        VariantCopy(&reversed_args[i], &args[arg_count - 1 - i]);
+    }
+
+    DISPPARAMS params = {};
+    params.cArgs = arg_count;
+    params.rgvarg = arg_count > 0 ? reversed_args.data() : nullptr;
+
+    DISPID property_put = DISPID_PROPERTYPUT;
+    if (flags & DISPATCH_PROPERTYPUT) {
+        params.rgdispidNamedArgs = &property_put;
+        params.cNamedArgs = 1;
+    }
+
+    if (result) {
+        VariantInit(result);
+    }
+    EXCEPINFO excep = {};
+    UINT arg_error = 0;
+    hr = dispatch->Invoke(dispid, IID_NULL, LOCALE_USER_DEFAULT, flags, &params, result, &excep, &arg_error);
+
+    if (excep.bstrSource) SysFreeString(excep.bstrSource);
+    if (excep.bstrDescription) SysFreeString(excep.bstrDescription);
+    if (excep.bstrHelpFile) SysFreeString(excep.bstrHelpFile);
+
+    for (auto& arg : reversed_args) {
+        VariantClear(&arg);
+    }
+    return hr;
+}
+
+static HRESULT ExcelPutBool(IDispatch* dispatch, const wchar_t* name, bool value) {
+    VARIANT arg;
+    VariantInit(&arg);
+    arg.vt = VT_BOOL;
+    arg.boolVal = value ? VARIANT_TRUE : VARIANT_FALSE;
+    HRESULT hr = ExcelInvoke(dispatch, name, DISPATCH_PROPERTYPUT, nullptr, &arg, 1);
+    VariantClear(&arg);
+    return hr;
+}
+
+static IDispatch* ExcelVariantToDispatch(VARIANT* value) {
+    if (!value) return nullptr;
+    if (value->vt == VT_DISPATCH && value->pdispVal) {
+        IDispatch* dispatch = value->pdispVal;
+        value->vt = VT_EMPTY;
+        return dispatch;
+    }
+    if (value->vt == VT_UNKNOWN && value->punkVal) {
+        IDispatch* dispatch = nullptr;
+        if (SUCCEEDED(value->punkVal->QueryInterface(IID_IDispatch, reinterpret_cast<void**>(&dispatch)))) {
+            VariantClear(value);
+            return dispatch;
+        }
+    }
+    return nullptr;
+}
+
+static IDispatch* ExcelGetDispatch(IDispatch* dispatch, const wchar_t* name, VARIANT* args = nullptr, int arg_count = 0, WORD flags = DISPATCH_PROPERTYGET) {
+    VARIANT result;
+    VariantInit(&result);
+    if (FAILED(ExcelInvoke(dispatch, name, flags, &result, args, arg_count))) {
+        VariantClear(&result);
+        return nullptr;
+    }
+    IDispatch* out = ExcelVariantToDispatch(&result);
+    VariantClear(&result);
+    return out;
+}
+
+static std::wstring SafeArrayElementToText(SAFEARRAY* array, VARTYPE element_type, LONG* indexes) {
+    if (!array || !indexes) return L"";
+
+    if (element_type == VT_VARIANT || element_type == VT_EMPTY) {
+        VARIANT item;
+        VariantInit(&item);
+        if (SUCCEEDED(SafeArrayGetElement(array, indexes, &item))) {
+            std::wstring text = VariantToWorkbookText(item);
+            VariantClear(&item);
+            return text;
+        }
+        return L"";
+    }
+
+    if (element_type == VT_BSTR) {
+        BSTR text = nullptr;
+        if (SUCCEEDED(SafeArrayGetElement(array, indexes, &text))) {
+            std::wstring result = text ? text : L"";
+            SysFreeString(text);
+            return result;
+        }
+        return L"";
+    }
+
+    VARIANT wrapper;
+    VariantInit(&wrapper);
+    wrapper.vt = element_type;
+    if (element_type == VT_R8) {
+        double value = 0.0;
+        if (SUCCEEDED(SafeArrayGetElement(array, indexes, &value))) {
+            wrapper.dblVal = value;
+            std::wstring text = VariantToWorkbookText(wrapper);
+            VariantClear(&wrapper);
+            return text;
+        }
+    } else if (element_type == VT_R4) {
+        float value = 0.0f;
+        if (SUCCEEDED(SafeArrayGetElement(array, indexes, &value))) {
+            wrapper.fltVal = value;
+            std::wstring text = VariantToWorkbookText(wrapper);
+            VariantClear(&wrapper);
+            return text;
+        }
+    } else if (element_type == VT_I4 || element_type == VT_INT) {
+        LONG value = 0;
+        if (SUCCEEDED(SafeArrayGetElement(array, indexes, &value))) {
+            wrapper.lVal = value;
+            std::wstring text = VariantToWorkbookText(wrapper);
+            VariantClear(&wrapper);
+            return text;
+        }
+    }
+    VariantClear(&wrapper);
+    return L"";
+}
+
+static bool FillWorkbookFromExcelValue(VARIANT* value, ExcelWorkbookState* workbook) {
+    if (!value || !workbook) return false;
+
+    VARIANT v;
+    VariantInit(&v);
+    if (FAILED(VariantCopyInd(&v, value))) {
+        return false;
+    }
+
+    if (v.vt & VT_ARRAY) {
+        SAFEARRAY* array = v.parray;
+        UINT dims = SafeArrayGetDim(array);
+        VARTYPE element_type = (VARTYPE)(v.vt & 0x0FFF);
+        if (element_type == VT_EMPTY) {
+            SafeArrayGetVartype(array, &element_type);
+        }
+
+        if (dims >= 2) {
+            LONG row_low = 0, row_high = -1, col_low = 0, col_high = -1;
+            SafeArrayGetLBound(array, 1, &row_low);
+            SafeArrayGetUBound(array, 1, &row_high);
+            SafeArrayGetLBound(array, 2, &col_low);
+            SafeArrayGetUBound(array, 2, &col_high);
+
+            int rows = (int)(row_high - row_low + 1);
+            int cols = (int)(col_high - col_low + 1);
+            if (rows > 0 && cols > 0) {
+                workbook->cells.assign(rows, std::vector<std::wstring>(cols));
+                for (LONG r = row_low; r <= row_high; ++r) {
+                    for (LONG c = col_low; c <= col_high; ++c) {
+                        LONG indexes[2] = { r, c };
+                        workbook->cells[(size_t)(r - row_low)][(size_t)(c - col_low)] = SafeArrayElementToText(array, element_type, indexes);
+                    }
+                }
+            }
+        } else if (dims == 1) {
+            LONG low = 0, high = -1;
+            SafeArrayGetLBound(array, 1, &low);
+            SafeArrayGetUBound(array, 1, &high);
+            int rows = (int)(high - low + 1);
+            if (rows > 0) {
+                workbook->cells.assign(rows, std::vector<std::wstring>(1));
+                for (LONG r = low; r <= high; ++r) {
+                    LONG indexes[1] = { r };
+                    workbook->cells[(size_t)(r - low)][0] = SafeArrayElementToText(array, element_type, indexes);
+                }
+            }
+        }
+    } else {
+        workbook->cells.assign(1, std::vector<std::wstring>(1, VariantToWorkbookText(v)));
+    }
+
+    VariantClear(&v);
+    NormalizeWorkbookTable(workbook);
+    return true;
+}
+
+static bool ReadExcelWorkbookViaCom(const std::wstring& path, int sheet_index, ExcelWorkbookState* workbook) {
+    if (!workbook) return false;
+
+    HRESULT co_hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    bool should_uninit = (co_hr == S_OK || co_hr == S_FALSE);
+
+    CLSID clsid = {};
+    if (FAILED(CLSIDFromProgID(L"Excel.Application", &clsid))) {
+        if (should_uninit) CoUninitialize();
+        return false;
+    }
+
+    IDispatch* excel = nullptr;
+    HRESULT hr = CoCreateInstance(clsid, nullptr, CLSCTX_LOCAL_SERVER, IID_IDispatch, reinterpret_cast<void**>(&excel));
+    if (FAILED(hr) || !excel) {
+        if (should_uninit) CoUninitialize();
+        return false;
+    }
+
+    ExcelPutBool(excel, L"Visible", false);
+    ExcelPutBool(excel, L"DisplayAlerts", false);
+
+    IDispatch* workbooks = ExcelGetDispatch(excel, L"Workbooks");
+    IDispatch* workbook_dispatch = nullptr;
+    IDispatch* sheets = nullptr;
+    IDispatch* sheet = nullptr;
+    IDispatch* used_range = nullptr;
+    bool ok = false;
+
+    if (workbooks) {
+        VARIANT open_arg;
+        VariantInit(&open_arg);
+        open_arg.vt = VT_BSTR;
+        open_arg.bstrVal = SysAllocString(path.c_str());
+        VARIANT open_result;
+        VariantInit(&open_result);
+        if (SUCCEEDED(ExcelInvoke(workbooks, L"Open", DISPATCH_METHOD, &open_result, &open_arg, 1))) {
+            workbook_dispatch = ExcelVariantToDispatch(&open_result);
+        }
+        VariantClear(&open_result);
+        VariantClear(&open_arg);
+    }
+
+    if (workbook_dispatch) {
+        sheets = ExcelGetDispatch(workbook_dispatch, L"Worksheets");
+    }
+    if (sheets) {
+        VARIANT index_arg;
+        VariantInit(&index_arg);
+        index_arg.vt = VT_I4;
+        index_arg.lVal = sheet_index > 0 ? sheet_index : 1;
+        sheet = ExcelGetDispatch(sheets, L"Item", &index_arg, 1);
+        VariantClear(&index_arg);
+    }
+    if (sheet) {
+        used_range = ExcelGetDispatch(sheet, L"UsedRange");
+    }
+    if (used_range) {
+        VARIANT value;
+        VariantInit(&value);
+        if (SUCCEEDED(ExcelInvoke(used_range, L"Value2", DISPATCH_PROPERTYGET, &value))) {
+            ok = FillWorkbookFromExcelValue(&value, workbook);
+        }
+        VariantClear(&value);
+    }
+
+    if (workbook_dispatch) {
+        VARIANT save_changes;
+        VariantInit(&save_changes);
+        save_changes.vt = VT_BOOL;
+        save_changes.boolVal = VARIANT_FALSE;
+        ExcelInvoke(workbook_dispatch, L"Close", DISPATCH_METHOD, nullptr, &save_changes, 1);
+        VariantClear(&save_changes);
+    }
+    ExcelInvoke(excel, L"Quit", DISPATCH_METHOD, nullptr);
+
+    if (used_range) used_range->Release();
+    if (sheet) sheet->Release();
+    if (sheets) sheets->Release();
+    if (workbook_dispatch) workbook_dispatch->Release();
+    if (workbooks) workbooks->Release();
+    excel->Release();
+    if (should_uninit) CoUninitialize();
+    return ok;
+}
+
+static BOOL LoadWorkbookStateToDataGrid(const ExcelWorkbookState& workbook, HWND hGrid, BOOL first_row_as_header) {
+    if (g_datagrids.find(hGrid) == g_datagrids.end()) {
+        return FALSE;
+    }
+
+    DataGrid_ClearColumns(hGrid);
+    DataGrid_ClearRows(hGrid);
+
+    if (workbook.col_count <= 0) {
+        DataGrid_Refresh(hGrid);
+        return TRUE;
+    }
+
+    for (int c = 0; c < workbook.col_count; ++c) {
+        std::wstring header;
+        if (first_row_as_header && workbook.row_count > 0 && c < (int)workbook.cells[0].size() && !workbook.cells[0][c].empty()) {
+            header = workbook.cells[0][c];
+        } else {
+            header = L"Column " + std::to_wstring(c + 1);
+        }
+        std::string header_utf8 = WindowWideToUtf8(header);
+        DataGrid_AddTextColumn(hGrid, reinterpret_cast<const unsigned char*>(header_utf8.data()), (int)header_utf8.size(), 120);
+    }
+
+    int start_row = (first_row_as_header && workbook.row_count > 0) ? 1 : 0;
+    for (int r = start_row; r < workbook.row_count; ++r) {
+        int grid_row = DataGrid_AddRow(hGrid);
+        for (int c = 0; c < workbook.col_count; ++c) {
+            std::wstring cell = (c < (int)workbook.cells[r].size()) ? workbook.cells[r][c] : L"";
+            std::string cell_utf8 = WindowWideToUtf8(cell);
+            DataGrid_SetCellText(hGrid, grid_row, c, reinterpret_cast<const unsigned char*>(cell_utf8.data()), (int)cell_utf8.size());
+        }
+    }
+
+    DataGrid_Refresh(hGrid);
+    return TRUE;
+}
+
+extern "C" __declspec(dllexport) int __stdcall Excel_OpenWorkbook(
+    const unsigned char* file_path_bytes,
+    int path_len,
+    int sheet_index
+) {
+    std::wstring path = BytesToWideOrEmpty(file_path_bytes, path_len);
+    if (path.empty()) {
+        return -1;
+    }
+    if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        return -2;
+    }
+
+    ExcelWorkbookState workbook;
+    workbook.source_path = path;
+    workbook.sheet_index = sheet_index > 0 ? sheet_index : 1;
+
+    bool delimited = IsDelimitedTablePath(path);
+    bool ok = delimited
+        ? ReadDelimitedFileWorkbook(path, &workbook)
+        : ReadExcelWorkbookViaCom(path, workbook.sheet_index, &workbook);
+    if (!ok) {
+        return delimited ? -2 : -3;
+    }
+
+    int handle = g_next_excel_workbook_handle++;
+    if (g_next_excel_workbook_handle <= 0) {
+        g_next_excel_workbook_handle = 1;
+    }
+    g_excel_workbooks[handle] = std::move(workbook);
+    return handle;
+}
+
+extern "C" __declspec(dllexport) void __stdcall Excel_CloseWorkbook(int workbook_handle) {
+    g_excel_workbooks.erase(workbook_handle);
+}
+
+extern "C" __declspec(dllexport) void __stdcall Excel_CloseAllWorkbooks() {
+    g_excel_workbooks.clear();
+}
+
+extern "C" __declspec(dllexport) int __stdcall Excel_GetRowCount(int workbook_handle) {
+    auto it = g_excel_workbooks.find(workbook_handle);
+    return (it != g_excel_workbooks.end()) ? it->second.row_count : -1;
+}
+
+extern "C" __declspec(dllexport) int __stdcall Excel_GetColumnCount(int workbook_handle) {
+    auto it = g_excel_workbooks.find(workbook_handle);
+    return (it != g_excel_workbooks.end()) ? it->second.col_count : -1;
+}
+
+extern "C" __declspec(dllexport) int __stdcall Excel_GetCellText(
+    int workbook_handle,
+    int row,
+    int col,
+    unsigned char* buffer,
+    int buffer_size
+) {
+    auto it = g_excel_workbooks.find(workbook_handle);
+    if (it == g_excel_workbooks.end()) {
+        return -1;
+    }
+    const ExcelWorkbookState& workbook = it->second;
+    if (row <= 0 || col <= 0 || row > workbook.row_count || col > workbook.col_count) {
+        return -1;
+    }
+
+    return CopyUtf8ResultToBuffer(workbook.cells[(size_t)(row - 1)][(size_t)(col - 1)], buffer, buffer_size);
+}
+
+extern "C" __declspec(dllexport) BOOL __stdcall Excel_LoadWorkbookToDataGrid(
+    int workbook_handle,
+    HWND hGrid,
+    BOOL first_row_as_header
+) {
+    auto it = g_excel_workbooks.find(workbook_handle);
+    if (it == g_excel_workbooks.end()) {
+        return FALSE;
+    }
+    return LoadWorkbookStateToDataGrid(it->second, hGrid, first_row_as_header);
+}
+
+extern "C" __declspec(dllexport) BOOL __stdcall Excel_ReadFileToDataGrid(
+    const unsigned char* file_path_bytes,
+    int path_len,
+    HWND hGrid,
+    int sheet_index,
+    BOOL first_row_as_header
+) {
+    int handle = Excel_OpenWorkbook(file_path_bytes, path_len, sheet_index);
+    if (handle <= 0) {
+        return FALSE;
+    }
+    BOOL ok = Excel_LoadWorkbookToDataGrid(handle, hGrid, first_row_as_header);
+    Excel_CloseWorkbook(handle);
+    return ok;
+}
 
 // ========== 閫氱敤浜嬩欢鍥炶皟绯荤粺 (闇€姹?8.1-8.10) ==========
 

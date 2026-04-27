@@ -9,6 +9,7 @@
 #include <wincodec.h>  // WIC (Windows Imaging Component)
 #include <richedit.h>  // RichEdit鎺т欢锛堟敮鎸佸僵鑹瞖moji锛?
 #include <dwmapi.h>    // DWM (Desktop Window Manager) - 鑷畾涔夋爣棰樻爮
+#include <shellapi.h>
 #include <string>
 #include <vector>
 #include <map>
@@ -19,6 +20,10 @@
 #pragma comment(lib, "uxtheme.lib")
 #pragma comment(lib, "windowscodecs.lib")  // WIC搴?
 #pragma comment(lib, "dwmapi.lib")         // DWM搴?
+#pragma comment(lib, "shell32.lib")
+#pragma comment(lib, "comdlg32.lib")
+#pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "oleaut32.lib")
 
 // Button click callback type (stdcall)
 // 鍙傛暟: button_id - 鎸夐挳ID, parent_hwnd - 鐖剁獥鍙ｅ彞鏌?
@@ -49,6 +54,18 @@ typedef void (__stdcall *WindowResizeCallback)(HWND hwnd, int width, int height)
 // 鑷粯绐楀彛鍏抽棴鍥炶皟鍑芥暟绫诲瀷 (stdcall 璋冪敤绾﹀畾)
 // hwnd: 琚叧闂殑绐楀彛鍙ユ焺锛堟鏃?HWND 宸插け鏁堬紝浠呯敤浜庤瘑鍒槸鍝釜绐楀彛锛?
 typedef void (__stdcall *WindowCloseCallback)(HWND hwnd);
+
+// Local file drag/drop callback.
+// file_index is 0-based, row/column APIs for Excel below are 1-based.
+typedef void (__stdcall *FileDropCallback)(
+    HWND hwnd,
+    const unsigned char* file_path_bytes,
+    int path_len,
+    int file_index,
+    int file_count,
+    int x,
+    int y
+);
 
 // 鑿滃崟椤圭偣鍑诲洖璋冨嚱鏁扮被鍨?(stdcall 璋冪敤绾﹀畾)
 // menu_id: 椤剁骇鑿滃崟ID锛堝 #鑿滃崟_涓婚璁剧疆 / #鑿滃崟_娴嬭瘯鑿滃崟锛?
@@ -1355,6 +1372,82 @@ extern "C" {
         const unsigned char* icon_bytes,
         int icon_len,
         MessageBoxCallback callback
+    );
+
+    // ========== Common dialogs / file drop / Excel ==========
+    __declspec(dllexport) int __stdcall ShowOpenFileDialog(
+        HWND owner,
+        const unsigned char* title_bytes,
+        int title_len,
+        const unsigned char* filter_bytes,
+        int filter_len,
+        const unsigned char* initial_dir_bytes,
+        int initial_dir_len,
+        BOOL allow_multi_select,
+        unsigned char* buffer,
+        int buffer_size
+    );
+
+    __declspec(dllexport) int __stdcall ShowSaveFileDialog(
+        HWND owner,
+        const unsigned char* title_bytes,
+        int title_len,
+        const unsigned char* filter_bytes,
+        int filter_len,
+        const unsigned char* initial_dir_bytes,
+        int initial_dir_len,
+        const unsigned char* default_ext_bytes,
+        int default_ext_len,
+        unsigned char* buffer,
+        int buffer_size
+    );
+
+    __declspec(dllexport) int __stdcall ShowSelectFolderDialog(
+        HWND owner,
+        const unsigned char* title_bytes,
+        int title_len,
+        const unsigned char* initial_dir_bytes,
+        int initial_dir_len,
+        unsigned char* buffer,
+        int buffer_size
+    );
+
+    __declspec(dllexport) BOOL __stdcall ShowColorDialog(
+        HWND owner,
+        UINT32 initial_color,
+        UINT32* selected_color
+    );
+
+    __declspec(dllexport) BOOL __stdcall EnableFileDrop(HWND hwnd, BOOL enable);
+    __declspec(dllexport) void __stdcall SetFileDropCallback(HWND hwnd, FileDropCallback callback);
+
+    __declspec(dllexport) int __stdcall Excel_OpenWorkbook(
+        const unsigned char* file_path_bytes,
+        int path_len,
+        int sheet_index
+    );
+    __declspec(dllexport) void __stdcall Excel_CloseWorkbook(int workbook_handle);
+    __declspec(dllexport) void __stdcall Excel_CloseAllWorkbooks();
+    __declspec(dllexport) int __stdcall Excel_GetRowCount(int workbook_handle);
+    __declspec(dllexport) int __stdcall Excel_GetColumnCount(int workbook_handle);
+    __declspec(dllexport) int __stdcall Excel_GetCellText(
+        int workbook_handle,
+        int row,
+        int col,
+        unsigned char* buffer,
+        int buffer_size
+    );
+    __declspec(dllexport) BOOL __stdcall Excel_LoadWorkbookToDataGrid(
+        int workbook_handle,
+        HWND hGrid,
+        BOOL first_row_as_header
+    );
+    __declspec(dllexport) BOOL __stdcall Excel_ReadFileToDataGrid(
+        const unsigned char* file_path_bytes,
+        int path_len,
+        HWND hGrid,
+        int sheet_index,
+        BOOL first_row_as_header
     );
 
     // ========== TabControl 鍔熻兘 ==========

@@ -140,6 +140,48 @@ class EmojiWindow:
             c_void_p, c_char_p, c_int, c_char_p, c_int, c_char_p, c_int
         ]
         self.dll.show_message_box_bytes.restype = None
+
+        # 通用对话框 / 文件拖拽 / Excel读取
+        self.FileDropCallback = WINFUNCTYPE(
+            None, c_void_p, c_void_p, c_int, c_int, c_int, c_int, c_int
+        )
+        self.dll.ShowOpenFileDialog.argtypes = [
+            c_void_p, c_char_p, c_int, c_char_p, c_int,
+            c_char_p, c_int, c_int, c_void_p, c_int
+        ]
+        self.dll.ShowOpenFileDialog.restype = c_int
+        self.dll.ShowSaveFileDialog.argtypes = [
+            c_void_p, c_char_p, c_int, c_char_p, c_int,
+            c_char_p, c_int, c_char_p, c_int, c_void_p, c_int
+        ]
+        self.dll.ShowSaveFileDialog.restype = c_int
+        self.dll.ShowSelectFolderDialog.argtypes = [
+            c_void_p, c_char_p, c_int, c_char_p, c_int, c_void_p, c_int
+        ]
+        self.dll.ShowSelectFolderDialog.restype = c_int
+        self.dll.ShowColorDialog.argtypes = [c_void_p, c_uint, POINTER(c_uint)]
+        self.dll.ShowColorDialog.restype = c_int
+        self.dll.EnableFileDrop.argtypes = [c_void_p, c_int]
+        self.dll.EnableFileDrop.restype = c_int
+        self.dll.SetFileDropCallback.argtypes = [c_void_p, self.FileDropCallback]
+        self.dll.SetFileDropCallback.restype = None
+
+        self.dll.Excel_OpenWorkbook.argtypes = [c_char_p, c_int, c_int]
+        self.dll.Excel_OpenWorkbook.restype = c_int
+        self.dll.Excel_CloseWorkbook.argtypes = [c_int]
+        self.dll.Excel_CloseWorkbook.restype = None
+        self.dll.Excel_CloseAllWorkbooks.argtypes = []
+        self.dll.Excel_CloseAllWorkbooks.restype = None
+        self.dll.Excel_GetRowCount.argtypes = [c_int]
+        self.dll.Excel_GetRowCount.restype = c_int
+        self.dll.Excel_GetColumnCount.argtypes = [c_int]
+        self.dll.Excel_GetColumnCount.restype = c_int
+        self.dll.Excel_GetCellText.argtypes = [c_int, c_int, c_int, c_void_p, c_int]
+        self.dll.Excel_GetCellText.restype = c_int
+        self.dll.Excel_LoadWorkbookToDataGrid.argtypes = [c_int, c_void_p, c_int]
+        self.dll.Excel_LoadWorkbookToDataGrid.restype = c_int
+        self.dll.Excel_ReadFileToDataGrid.argtypes = [c_char_p, c_int, c_void_p, c_int, c_int]
+        self.dll.Excel_ReadFileToDataGrid.restype = c_int
     
     @staticmethod
     def str_to_utf8(text):
