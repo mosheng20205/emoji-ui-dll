@@ -20,7 +20,7 @@ std::map<HWND, WindowState*> g_windows;
 std::map<HWND, MsgBoxState*> g_msgboxes;
 std::map<HWND, TabControlState*> g_tab_controls;
 std::map<HWND, EditBoxState*> g_editboxes;
-std::map<HWND, D2DEditBoxState*> g_d2d_editboxes;  // D2D鑷畾涔夌粯鍒剁紪杈戞
+std::map<HWND, D2DEditBoxState*> g_d2d_editboxes;  // D2D自定义绘制编辑框
 std::map<HWND, LabelState*> g_labels;
 std::map<HWND, CheckBoxState*> g_checkboxes;
 std::map<HWND, ProgressBarState*> g_progressbars;
@@ -30,7 +30,7 @@ std::map<HWND, SliderState*> g_sliders;
 std::map<HWND, SwitchState*> g_switches;
 std::map<HWND, TooltipState*> g_tooltips;
 std::map<HWND, NotificationState*> g_notifications;
-std::map<int, std::vector<HWND>> g_radio_groups;  // 鍒嗙粍绠＄悊
+std::map<int, std::vector<HWND>> g_radio_groups;  // 分组管理
 std::map<HWND, ListBoxState*> g_listboxes;
 std::map<HWND, ComboBoxState*> g_comboboxes;
 std::map<HWND, HotKeyState*> g_hotkeys;
@@ -55,18 +55,18 @@ static std::map<HWND, SIZE> g_layout_control_preferred_sizes;
 static std::map<std::pair<HWND, int>, SIZE> g_layout_button_preferred_sizes;
 std::map<HWND, MenuBarState*> g_menubars;
 std::map<HWND, PopupMenuState*> g_popup_menus;
-std::map<HWND, HWND> g_control_popup_menu_bindings;  // 鎺т欢 鈫?寮瑰嚭鑿滃崟缁戝畾
-std::map<HWND, std::map<int, HWND>> g_button_popup_menu_bindings; // 鐖剁獥鍙ｆ寜閽甀D 鈫?寮瑰嚭鑿滃崟缁戝畾
+std::map<HWND, HWND> g_control_popup_menu_bindings;  // 控件 -> 弹出菜单绑定
+std::map<HWND, std::map<int, HWND>> g_button_popup_menu_bindings; // 父窗口按钮ID -> 弹出菜单绑定
 struct ButtonWindowBindingInfo {
     HWND state_host = nullptr;
     HWND callback_parent = nullptr;
     int button_id = 0;
 };
-static std::map<HWND, ButtonWindowBindingInfo> g_button_window_bindings; // 鎸夐挳绐楀彛 -> 缁戝畾淇℃伅
-static std::map<int, HWND> g_button_tooltip_bindings; // 鎸夐挳ID -> Tooltip鍙ユ焺
-static std::map<HWND, HWND> g_button_hwnd_tooltips; // 鎸夐挳绐楀彛 -> Tooltip鍙ユ焺
-static std::map<int, HWND> g_builtin_toolbar_button_tooltips; // 宸ュ叿鏍忔寜閽甀D -> 鍐呭缓Tooltip
-static std::map<int, HWND> g_builtin_toolbar_button_hint_labels; // 宸ュ叿鏍忔寜閽甀D -> 绾枃瀛楁彁绀?
+static std::map<HWND, ButtonWindowBindingInfo> g_button_window_bindings; // 按钮窗口 -> 绑定信息
+static std::map<int, HWND> g_button_tooltip_bindings; // 按钮ID -> Tooltip句柄
+static std::map<HWND, HWND> g_button_hwnd_tooltips; // 按钮窗口 -> Tooltip句柄
+static std::map<int, HWND> g_builtin_toolbar_button_tooltips; // 工具栏按钮ID -> 内建Tooltip
+static std::map<int, HWND> g_builtin_toolbar_button_hint_labels; // 工具栏按钮ID -> 纯文字提示
 std::map<int, UINT32> g_button_text_colors;
 std::map<int, UINT32> g_button_border_colors;
 std::map<int, UINT32> g_button_hover_bg_colors;
@@ -90,7 +90,7 @@ static const UINT WM_EW_REDRAW_MAIN_WINDOW = WM_APP + 0x345;
 static const UINT WM_EW_COMPLETE_RESTORE = WM_APP + 0x346;
 static bool g_process_dpi_awareness_initialized = false;
 
-// ========== 涓婚绯荤粺鍏ㄥ眬鍙橀噺 ==========
+// ========== 主题系统全局变量 ==========
 Theme g_light_theme;
 Theme g_dark_theme;
 Theme* g_current_theme = nullptr;
@@ -98,12 +98,12 @@ ThemeChangedCallback g_theme_changed_callback = nullptr;
 static bool g_themes_initialized = false;
 ID2D1Factory* g_d2d_factory = nullptr;
 IDWriteFactory* g_dwrite_factory = nullptr;
-IWICImagingFactory* g_wic_factory = nullptr;  // WIC宸ュ巶
-int g_next_control_id = 10000;  // 鎺т欢ID璧峰鍊?
-// 鏍囪 run_message_loop 鏄惁姝ｅ湪杩愯
-// 鍙湁鍦?DLL 鑷繁鐨勬秷鎭惊鐜噷鎵嶅簲璇?PostQuitMessage锛?
-// 浠庢槗璇█ _绐楀彛1_灏嗚閿€姣?璋冪敤 destroy_window 鏃朵笉鑳?PostQuitMessage锛?
-// 鍚﹀垯鏄撹瑷€鑷繁鐨勬秷鎭惊鐜細琚鏉€銆?
+IWICImagingFactory* g_wic_factory = nullptr;  // WIC工厂
+int g_next_control_id = 10000;  // 控件ID起始值
+// 标记 run_message_loop 是否正在运行
+// 只有在 DLL 自己的消息循环里才应调用 PostQuitMessage
+// 从易语言 _窗口1_将被销毁事件中调用 destroy_window 时不应 PostQuitMessage
+// 否则易语言自己的消息循环会被误杀
 static bool g_own_message_loop_running = false;
 static HWND g_message_loop_main_window = nullptr;
 
@@ -516,8 +516,8 @@ static void ReapplyStoredLogicalBoundsForRoot(HWND root) {
     }
 }
 
-// ========== 涓婚杈呭姪鍑芥暟 ==========
-// 鑾峰彇涓婚棰滆壊锛屽鏋滀富棰樻湭鍒濆鍖栧垯杩斿洖榛樿鍊?
+// ========== 主题辅助函数 ==========
+// 获取主题颜色，如果主题未初始化则返回默认值
 static inline UINT32 ThemeColor_Primary() {
     if (g_current_theme) return g_current_theme->colors.primary;
     return 0xFF409EFF;
@@ -578,7 +578,7 @@ static inline UINT32 ThemeColor_Info() {
     if (g_current_theme) return g_current_theme->colors.info;
     return 0xFF909399;
 }
-// 鏍规嵁鍩鸿壊鐢熸垚鎮仠鑹诧紙鍙樹寒20%锛?
+// 根据基色生成悬停色（变亮20%）
 static inline UINT32 ThemeColor_Hover(UINT32 base) {
     int a = (base >> 24) & 0xFF;
     int r = (base >> 16) & 0xFF;
@@ -589,7 +589,7 @@ static inline UINT32 ThemeColor_Hover(UINT32 base) {
     b = min(255, b + (255 - b) * 20 / 100);
     return (a << 24) | (r << 16) | (g << 8) | b;
 }
-// 鏍规嵁鍩鸿壊鐢熸垚鎸変笅鑹诧紙鍙樻殫10%锛?
+// 根据基色生成按下色（变暗10%）
 static inline UINT32 ThemeColor_Pressed(UINT32 base) {
     int a = (base >> 24) & 0xFF;
     int r = (base >> 16) & 0xFF;
@@ -600,7 +600,7 @@ static inline UINT32 ThemeColor_Pressed(UINT32 base) {
     b = max(0, b * 90 / 100);
     return (a << 24) | (r << 16) | (g << 8) | b;
 }
-// 鏍规嵁鍩鸿壊鐢熸垚娴呰壊鑳屾櫙锛堟祬鑹蹭富棰樼敤鑳屾櫙鑹茶交娣峰悎锛屾繁鑹蹭富棰樼敤鏆楅潰杞绘煋鑹诧級
+// 根据基色生成浅色背景（浅色主题用背景色轻混合，深色主题用暗面轻染色）
 static inline UINT32 ThemeColor_LightBg(UINT32 base) {
     EnsureThemesInitialized();
     UINT32 resolved = ResolveThemeColor(base);
@@ -618,9 +618,9 @@ static inline float ThemeSize_BorderWidth() {
     return 1.0f;
 }
 
-// ========== 涓婚棰滆壊绱㈠紩瑙ｆ瀽 ==========
-// 鏄撹瑷€渚т紶鍏ョ殑棰滆壊鍊煎鏋滄槸 0~14锛岃〃绀轰富棰橀鑹茬储寮曪紝闇€瑕佸湪娓叉煋鏃跺姩鎬佽В鏋愪负褰撳墠涓婚棰滆壊
-// 绱㈠紩: 0=primary, 1=success, 2=warning, 3=danger, 4=info,
+// ========== 主题颜色索引解析 ==========
+// 易语言侧传入的颜色值如果是 0~14，表示主题颜色索引，需要在渲染时动态解析为当前主题颜色
+// 索引: 0=primary, 1=success, 2=warning, 3=danger, 4=info,
 //       5=text_primary, 6=text_regular, 7=text_secondary, 8=text_placeholder,
 //       9=border_base, 10=border_light, 11=border_lighter, 12=border_extra_light,
 //       13=background, 14=background_light,
@@ -700,7 +700,7 @@ static void NotifyWindowResizeCallback(HWND hwnd, const char* source) {
     g_window_resize_callback(hwnd, width, height);
 }
 
-// 榧犳爣杩涘叆璺熻釜闆嗗悎
+// 鼠标进入跟踪集合
 static std::set<HWND> g_mouse_tracking_set;
 
 static PopupMenuState* LookupPopupMenuState(HWND hPopupMenu) {
@@ -1185,7 +1185,7 @@ static bool TryShowBoundPopupMenu(HWND hwnd, int x, int y, bool is_screen_coords
     return true;
 }
 
-// 閫氱敤浜嬩欢娑堟伅澶勭悊杈呭姪鍑芥暟锛堝墠鍚戝０鏄?瀹氫箟锛?
+// 通用事件消息处理辅助函数
 static bool HandleCommonEvents(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, EventCallbacks* ec) {
     if (!ec) return false;
 
@@ -1337,7 +1337,7 @@ std::wstring Utf8ToWide(const unsigned char* bytes, int len) {
 // UINT32 color to D2D1_COLOR_F
 D2D1_COLOR_F ColorFromUInt32(UINT32 color) {
     float a = ((color >> 24) & 0xFF) / 255.0f;
-    // 濡傛灉alpha涓?锛岄粯璁や负涓嶉€忔槑锛堝吋瀹规槗璇█RGB棰滆壊甯搁噺娌℃湁alpha閫氶亾锛?
+    // 如果 alpha 为 0，默认为不透明（兼容易语言 RGB 颜色常量没有 alpha 通道）
     if (a == 0.0f) a = 1.0f;
     return D2D1::ColorF(
         ((color >> 16) & 0xFF) / 255.0f,
@@ -1869,12 +1869,12 @@ static std::vector<std::wstring> SplitLines(const std::wstring& text) {
     return result;
 }
 
-// ========== 鑷畾涔夋爣棰樻爮杈呭姪鍑芥暟 ==========
+// ========== 自定义标题栏辅助函数 ==========
 
 struct WindowCreateInit {
     std::wstring title;
     UINT32 titlebar_color = 0;
-    UINT32 client_bg_color = 0;   // 瀹㈡埛鍖鸿儗鏅壊锛?=绾櫧(ThemeColor_Background)
+    UINT32 client_bg_color = 0;   // 客户区背景色，0=主题色(ThemeColor_Background)
     bool custom_titlebar = true;
 };
 
@@ -2143,7 +2143,7 @@ static void ApplyWindowChromeAppearance(WindowState* state) {
     DwmSetWindowAttribute(state->hwnd, DWMWA_TEXT_COLOR, &text, sizeof(text));
 }
 
-// 鑾峰彇鐖剁獥鍙ｇ殑鏍囬鏍忓亸绉婚噺锛堝鏋滄湁鑷畾涔夋爣棰樻爮锛?
+// 获取父窗口的标题栏偏移量（如果有自定义标题栏）
 int GetTitleBarOffset(HWND hParent) {
     auto it = g_windows.find(hParent);
     if (it != g_windows.end() && it->second->custom_titlebar) {
@@ -2204,28 +2204,28 @@ static bool ResolveChildLogicalPlacement(
     return true;
 }
 
-// 鑾峰彇绐楀彛鏍囬鏍忓浘鏍囷紙鐢ㄤ簬鑷粯鏍囬鏍忥級
+// 获取窗口标题栏图标（用于自绘标题栏）
 static HICON GetWindowTitleBarIcon(HWND hwnd) {
-    // 1. 灏濊瘯鑾峰彇灏忓浘鏍?
+    // 1. 尝试获取小图标
     HICON icon = (HICON)SendMessage(hwnd, WM_GETICON, ICON_SMALL, 0);
     if (icon) return icon;
 
-    // 2. 灏濊瘯鑾峰彇澶у浘鏍?
+    // 2. 尝试获取大图标
     icon = (HICON)SendMessage(hwnd, WM_GETICON, ICON_BIG, 0);
     if (icon) return icon;
 
-    // 3. 灏濊瘯鑾峰彇绐楀彛绫诲皬鍥炬爣
+    // 3. 尝试获取窗口类小图标
     icon = (HICON)GetClassLongPtr(hwnd, GCLP_HICONSM);
     if (icon) return icon;
 
-    // 4. 灏濊瘯鑾峰彇绐楀彛绫诲ぇ鍥炬爣
+    // 4. 尝试获取窗口类大图标
     icon = (HICON)GetClassLongPtr(hwnd, GCLP_HICON);
     if (icon) return icon;
 
     return nullptr;
 }
 
-// 缁樺埗鑷畾涔夋爣棰樻爮锛圖2D褰╄壊emoji鏀寔锛?
+// 绘制自定义标题栏（D2D 彩色Emoji支持）
 void DrawWindowTitleBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, WindowState* state) {
     if (!state->custom_titlebar) return;
 
@@ -2241,7 +2241,7 @@ void DrawWindowTitleBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, Wind
     float glyph_half_min = 7.5f * dpi_scale;
     float glyph_line_width = (std::max)(2.0f, 1.5f * dpi_scale);
 
-    // 1. 鏍囬鏍忚儗鏅壊
+    // 1. 标题栏背景色
     UINT32 bg = state->titlebar_color;
     if (bg == 0) bg = ThemeColor_BackgroundLight();
     if (((bg >> 24) & 0xFF) == 0) bg |= 0xFF000000;
@@ -2296,7 +2296,7 @@ void DrawWindowTitleBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, Wind
     UINT32 close_icon_fg = (state->hovered_titlebar_button == TITLEBAR_BUTTON_CLOSE) ? 0xFFFFFFFF : titlebar_fg;
     rt->CreateSolidColorBrush(ColorFromUInt32(close_icon_fg), &close_brush);
 
-    // 鏈€灏忓寲鍥炬爣
+    // 最小化图标
     float min_cx = ((FLOAT)min_rect.left + (FLOAT)min_rect.right) * 0.5f;
     float min_cy = ((FLOAT)min_rect.top + (FLOAT)min_rect.bottom) * 0.5f + 2.0f * dpi_scale;
     rt->DrawLine(
@@ -2305,7 +2305,7 @@ void DrawWindowTitleBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, Wind
         icon_brush,
         glyph_line_width);
 
-    // 鏈€澶у寲/杩樺師鍥炬爣
+    // 最大化/还原图标
     bool is_zoomed = IsWindowMaximizedCustom(state);
     float max_cx = ((FLOAT)max_rect.left + (FLOAT)max_rect.right) * 0.5f;
     float max_cy = ((FLOAT)max_rect.top + (FLOAT)max_rect.bottom) * 0.5f;
@@ -2325,7 +2325,7 @@ void DrawWindowTitleBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, Wind
             glyph_line_width);
     }
 
-    // 鍏抽棴鍥炬爣
+    // 关闭图标
     float close_cx = ((FLOAT)close_rect.left + (FLOAT)close_rect.right) * 0.5f;
     float close_cy = ((FLOAT)close_rect.top + (FLOAT)close_rect.bottom) * 0.5f;
     rt->DrawLine(
@@ -2342,7 +2342,7 @@ void DrawWindowTitleBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, Wind
     close_brush->Release();
     icon_brush->Release();
 
-    // 1.6 缁樺埗绐楀彛鍥炬爣锛堝鏋滃瓨鍦級
+    // 1.6 绘制窗口图标（如果存在）
     HICON htitle_icon = GetWindowTitleBarIcon(state->hwnd);
     float text_left = 10.0f;
     if (htitle_icon) {
@@ -2367,7 +2367,7 @@ void DrawWindowTitleBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, Wind
         }
     }
 
-    // 2. 鏍囬鏂囨湰锛堝僵鑹瞖moji锛?
+    // 2. 标题文本（彩色Emoji）
     if (!state->title.empty()) {
         IDWriteTextFormat* fmt = nullptr;
         factory->CreateTextFormat(
@@ -2380,21 +2380,21 @@ void DrawWindowTitleBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, Wind
             L"zh-CN",
             &fmt);
         if (fmt) {
-            // 瀵归綈鏂瑰紡鏄犲皠锛?鈫扡EADING锛?鈫扖ENTER锛?鈫扵RAILING
+            // 对齐方式映射：0->LEADING，1->CENTER，2->TRAILING
             DWRITE_TEXT_ALIGNMENT dw_align = DWRITE_TEXT_ALIGNMENT_LEADING;
             if (state->titlebar_alignment == 1) dw_align = DWRITE_TEXT_ALIGNMENT_CENTER;
             else if (state->titlebar_alignment == 2) dw_align = DWRITE_TEXT_ALIGNMENT_TRAILING;
             fmt->SetTextAlignment(dw_align);
             fmt->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
-            // 鏂囧瓧棰滆壊锛? 璺熼殢涓婚锛岄潪 0 浣跨敤鑷畾涔夊€?
+            // 文字颜色：0 跟随主题，非 0 使用自定义颜色
             UINT32 fg = (state->titlebar_text_color != 0)
                 ? ResolveThemeColor(state->titlebar_text_color)
                 : titlebar_fg;
             ID2D1SolidColorBrush* text_brush = nullptr;
             rt->CreateSolidColorBrush(ColorFromUInt32(fg), &text_brush);
 
-            // 宸︿晶淇濈暀鍥炬爣鍜岄棿璺濓紝鍙充晶鐣?36px缁欐爣棰樻爮鎸夐挳
+            // 左侧保留图标和间距，右侧留 36px 给标题栏按钮
             D2D1_RECT_F text_rect = D2D1::RectF(text_left, 0, (FLOAT)min_rect.left - 18.0f * dpi_scale, tb_h);
             rt->DrawText(
                 state->title.c_str(),
@@ -2410,7 +2410,7 @@ void DrawWindowTitleBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, Wind
     }
 }
 
-// 缁樺埗鑿滃崟鏍?
+// 绘制菜单栏
 void DrawMenuBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, MenuBarState* menubar) {
     if (!menubar || !menubar->visible || menubar->items.empty()) return;
     
@@ -2439,7 +2439,7 @@ void DrawMenuBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, MenuBarStat
     if (menu_w < 0.0f) menu_w = 0.0f;
     float menu_h = menubar->height > 0 ? (float)menubar->height : 30.0f;
     
-    // 缁樺埗鑿滃崟鏍忚儗鏅?
+    // 绘制菜单栏背景
     UINT32 bg = menubar->bg_color ? menubar->bg_color : ThemeColor_Background();
     ID2D1SolidColorBrush* bg_brush = nullptr;
     rt->CreateSolidColorBrush(D2D1::ColorF(
@@ -2450,7 +2450,7 @@ void DrawMenuBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, MenuBarStat
     rt->FillRectangle(D2D1::RectF(sx(menu_x), sx(menu_y), sx(menu_x + menu_w), sx(menu_y + menu_h)), bg_brush);
     bg_brush->Release();
     
-    // 鍒涘缓鏂囨湰鏍煎紡
+    // 创建文本格式
     IDWriteTextFormat* fmt = nullptr;
     factory->CreateTextFormat(
         menubar->font.font_name.empty() ? L"Segoe UI Emoji" : menubar->font.font_name.c_str(),
@@ -2467,12 +2467,12 @@ void DrawMenuBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, MenuBarStat
     fmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
     fmt->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     
-    // 缁樺埗鑿滃崟椤?
+    // 绘制菜单项
     float x = menu_x + 10.0f;
     for (size_t i = 0; i < menubar->items.size(); i++) {
         MenuItem& item = menubar->items[i];
         
-        // 璁＄畻鏂囨湰瀹藉害
+        // 计算文本宽度
         IDWriteTextLayout* layout = nullptr;
         factory->CreateTextLayout(
             item.text.c_str(),
@@ -2486,9 +2486,9 @@ void DrawMenuBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, MenuBarStat
         
         DWRITE_TEXT_METRICS metrics;
         layout->GetMetrics(&metrics);
-        float item_width = (metrics.width / draw_scale) + 20.0f; // 宸﹀彸鍚?0px padding
+        float item_width = (metrics.width / draw_scale) + 20.0f; // 左右各 10px padding
         
-        // 淇濆瓨杈圭晫鐢ㄤ簬鍛戒腑娴嬭瘯
+        // 保存边界用于命中测试
         item.bounds = D2D1::RectF(x, menu_y, x + item_width, menu_y + menu_h);
         D2D1_RECT_F draw_bounds = D2D1::RectF(
             sx(item.bounds.left),
@@ -2496,7 +2496,7 @@ void DrawMenuBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, MenuBarStat
             sx(item.bounds.right),
             sx(item.bounds.bottom));
         
-        // 缁樺埗鎮仠/婵€娲昏儗鏅?
+        // 悬停背景/激活背景
         if ((int)i == menubar->hovered_index || (int)i == menubar->opened_index) {
             UINT32 hover_bg = ThemeColor_BackgroundLight();
             ID2D1SolidColorBrush* hover_brush = nullptr;
@@ -2509,7 +2509,7 @@ void DrawMenuBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, MenuBarStat
             hover_brush->Release();
         }
         
-        // 缁樺埗鏂囨湰
+        // 绘制文本
         UINT32 fg = item.enabled ? (menubar->fg_color ? menubar->fg_color : ThemeColor_TextPrimary()) : ThemeColor_TextPlaceholder();
         ID2D1SolidColorBrush* text_brush = nullptr;
         rt->CreateSolidColorBrush(D2D1::ColorF(
@@ -2540,7 +2540,7 @@ void DrawMenuBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, MenuBarStat
     fmt->Release();
 }
 
-// 缁樺埗寮瑰嚭鑿滃崟
+// 绘制弹出菜单
 void DrawPopupMenu(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, PopupMenuState* popup) {
     if (!popup || popup->items.empty()) {
         char debug_msg[256];
@@ -2587,7 +2587,7 @@ void DrawPopupMenu(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, PopupMenu
     rt->FillRoundedRectangle(panel_rect, panel_brush);
     rt->DrawRoundedRectangle(panel_rect, border_brush, sx(1.0f));
 
-    // 鍒涘缓鏂囨湰鏍煎紡锛岄粯璁よ蛋 Segoe UI Emoji 浠ュ惎鐢ㄥ僵鑹?emoji锛屼腑鏂囦氦缁?DirectWrite 鍥為€€
+    // 创建文本格式，默认走 Segoe UI Emoji 以启用彩色Emoji，中文交给 DirectWrite 回退
     IDWriteTextFormat* fmt = nullptr;
     factory->CreateTextFormat(
         popup->font.font_name.empty() ? L"Segoe UI Emoji" : popup->font.font_name.c_str(),
@@ -2605,14 +2605,14 @@ void DrawPopupMenu(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, PopupMenu
     fmt->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     fmt->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
     
-    // 鍨傜洿甯冨眬鑿滃崟椤?
+    // 垂直布局菜单项
     float y = sx(6.0f);
     
     for (size_t i = 0; i < popup->items.size(); i++) {
         MenuItem& item = popup->items[i];
         
         if (item.separator) {
-            // 缁樺埗鍒嗛殧绗?
+            // 绘制分隔线
             float sep_y = y + separator_height / 2.0f;
             ID2D1SolidColorBrush* sep_brush = nullptr;
             rt->CreateSolidColorBrush(ColorFromUInt32(ThemeColor_BorderExtraLight()), &sep_brush);
@@ -2626,17 +2626,17 @@ void DrawPopupMenu(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, PopupMenu
             item.bounds = D2D1::RectF(0, y, (float)popup->width, y + separator_height);
             y += separator_height;
         } else {
-            // 淇濆瓨杈圭晫
+            // 保存边界
             item.bounds = D2D1::RectF(item_inset_x, y, (float)popup->width - item_inset_x, y + item_height);
             
-            // 缁樺埗鎮仠鑳屾櫙
+            // 绘制悬停背景
             if ((int)i == popup->hovered_index) {
                 rt->FillRoundedRectangle(
                     D2D1::RoundedRect(item.bounds, hover_radius, hover_radius),
                     hover_brush);
             }
             
-            // 缁樺埗鏂囨湰
+            // 绘制文本
             UINT32 fg = item.enabled ? panel_fg : ThemeColor_TextPlaceholder();
             ID2D1SolidColorBrush* text_brush = nullptr;
             rt->CreateSolidColorBrush(ColorFromUInt32(fg), &text_brush);
@@ -2665,7 +2665,7 @@ void DrawPopupMenu(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, PopupMenu
 
             text_brush->Release();
             
-            // 濡傛灉鏈夊瓙鑿滃崟,缁樺埗绠ご
+            // 如果有子菜单,绘制箭头
             if (!item.sub_items.empty()) {
                 D2D1_RECT_F arrow_rect = D2D1::RectF(item.bounds.right - sx(18.0f), y + item_height / 2.0f - sx(4.0f), item.bounds.right - sx(10.0f), y + item_height / 2.0f + sx(4.0f));
                 ID2D1SolidColorBrush* arrow_brush = nullptr;
@@ -3058,7 +3058,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         break;
     }
 
-    // DWM鑷畾涔夋爣棰樻爮锛氳DWM浼樺厛澶勭悊绯荤粺鎸夐挳锛堟渶灏忓寲/鏈€澶у寲/鍏抽棴锛?
+    // DWM自定义标题栏：让DWM优先处理系统按钮（最小化/最大化/关闭）
     if (state && HandleCommonEvents(hwnd, msg, wparam, lparam, &state->events)) {
         return 0;
     }
@@ -3090,7 +3090,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         if (!hTree || !IsWindow(hTree)) {
             return 0;
         }
-        // 鍐嶆姇閫掍竴甯э紝閬垮厤鏈秷鎭鐞嗘湯灏句粛鍦ㄦ湰杞?WindowProc 鏍堜笂鍚屾杩涘叆鏄撹瑷€锛堥儴鍒嗙幆澧冧笅浠嶄細宕╋級
+        // 再投递一帧，避免本消息处理末尾仍在本 WindowProc 栈上同步进入易语言（部分环境下仍会崩）
         if (!PostMessageW(hwnd, WM_EW_TV_NODE_SELECTED_INVOKE, (WPARAM)hTree, (LPARAM)(INT_PTR)node_id)) {
             TreeViewOnNodeSelectedDeferred(hTree, node_id);
             WriteLog("WindowProc: TreeViewOnNodeSelectedDeferred returned (PostMessage INVOKE failed), hTree=%p, node_id=%d", hTree, node_id);
@@ -3147,7 +3147,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     }
 
     case WM_NCCALCSIZE: {
-        // 鑷畾涔夋爣棰樻爮锛氱Щ闄ょ郴缁熸爣棰樻爮锛岃瀹㈡埛鍖哄崰婊℃暣涓獥鍙?
+        // 自定义标题栏：移除系统标题栏，让客户区占满整个窗口
         if (state && state->custom_titlebar) {
             return 0;
         }
@@ -3182,7 +3182,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             TitleBarButtonType btn = HitTestTitleBarButtonFlexible(state, pt.x, pt.y);
             if (btn != TITLEBAR_BUTTON_NONE) return HTCLIENT;
 
-            // 鏍囬鏍忓尯鍩?鈫?HTCAPTION锛堟敮鎸佹嫋鎷界Щ鍔ㄧ獥鍙ｏ級
+            // 标题栏区域返回 HTCAPTION（支持拖拽移动窗口）
             if (pt.y < state->titlebar_height) {
                 return HTCAPTION;
             }
@@ -3299,7 +3299,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             BeginPaint(hwnd, &ps);
 
             state->render_target->BeginDraw();
-            // 瀹㈡埛鍖鸿儗鏅壊锛?=绾櫧(ThemeColor_Background)锛岄潪0=鐢ㄦ埛鎸囧畾鑹诧紱涓庢爣绛?澶嶉€夋/鍗曢€夋搴曡壊涓€鑷?
+            // 客户区背景色：0=主题色(ThemeColor_Background)，非 0=用户指定色
             UINT32 win_bg = ResolveThemeColor((state->client_bg_color != 0) ? state->client_bg_color : ThemeColor_Background());
             state->render_target->Clear(D2D1::ColorF(
                 ((win_bg >> 16) & 0xFF) / 255.0f,
@@ -3307,10 +3307,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
                 (win_bg & 0xFF) / 255.0f,
                 1.0f));
 
-            // 缁樺埗鑷畾涔夋爣棰樻爮锛堝僵鑹瞖moji锛?
+            // 绘制自定义标题栏（彩色Emoji支持）
             DrawWindowTitleBar(state->render_target, state->dwrite_factory, state);
 
-            // 缁樺埗鑿滃崟鏍?
+            // 绘制菜单栏
             auto menu_it = g_menubars.find(hwnd);
             if (menu_it != g_menubars.end()) {
                 DrawMenuBar(state->render_target, state->dwrite_factory, menu_it->second);
@@ -3388,14 +3388,14 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
                 return 0;
             }
 
-            // 椤舵爮鑿滃崟 bounds 涓?DIP锛圖2D 缁樺埗锛夛紝榧犳爣涓哄儚绱狅紝闇€鎹㈢畻涓?DIP 鍐嶅懡涓?
+            // 顶栏菜单 bounds 为 DIP（D2D 绘制），鼠标为像素，需要换算为 DIP 再命中
             UINT dpi = GetDpiForWindow(hwnd);
             if (dpi == 0) dpi = 96;
             float scale = 96.0f / (float)dpi;
             float fx = (float)x * scale;
             float fy = (float)y * scale;
 
-            // 妫€鏌ヨ彍鍗曟爮鐐瑰嚮
+            // 检查菜单栏点击
             auto menu_it = g_menubars.find(hwnd);
             WriteLog("WM_LBUTTONDOWN: g_menubars.size()=%zu", g_menubars.size());
             if (menu_it != g_menubars.end()) {
@@ -3413,7 +3413,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
                                 item.id, item.enabled, item.sub_items.size());
                         if (item.enabled) {
                             if (!item.sub_items.empty()) {
-                                // 椤堕儴鑿滃崟缁熶竴澶嶇敤绋冲畾鐨?PopupMenu 瀹炵幇
+                                // 顶部菜单统一复用稳定的 PopupMenu 实现
                                 float scaleToPx = (float)dpi / 96.0f;
                                 POINT pt = {
                                     (LONG)(bounds.left * scaleToPx),
@@ -3423,13 +3423,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
                                 menubar->opened_index = (int)i;
                                 ShowMenuBarPopup(menubar, item, pt.x, pt.y);
                             } else {
-                                // 娌℃湁瀛愯彍鍗曪紝鐩存帴瑙﹀彂鍥炶皟锛堥《绾ц彍鍗曟湰韬鐐瑰嚮锛?
+                                // 没有子菜单，直接触发回调（顶级菜单本身被点击）
                                 WriteLog("WM_LBUTTONDOWN: calling callback, menubar->callback=%p, item.id=%d", menubar->callback, item.id);
                                 DestroyMenuBarPopup(menubar);
                                 menubar->opened_index = -1;
                                 menubar->opened_menu_id = 0;
                                 if (menubar->callback) {
-                                    // 鍥炶皟鍙傛暟锛歮enu_id=椤剁骇鑿滃崟ID锛宨tem_id=椤剁骇鑿滃崟ID
+                                    // 回调参数：menu_id=顶级菜单ID，item_id=顶级菜单ID
                                     menubar->callback(item.id, item.id);
                                     WriteLog("WM_LBUTTONDOWN: callback called successfully");
                                 } else {
@@ -3532,14 +3532,14 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             int y = HIWORD(lparam);
             bool needs_redraw = false;
 
-            // 椤舵爮鑿滃崟 bounds 涓?DIP锛岄紶鏍囦负鍍忕礌锛屾崲绠椾负 DIP 鍐嶆偓鍋滃懡涓?
+            // 顶栏菜单 bounds 为 DIP，鼠标为像素，换算为 DIP 再悬停命中
             UINT dpi = GetDpiForWindow(hwnd);
             if (dpi == 0) dpi = 96;
             float scale = 96.0f / (float)dpi;
             float fx = (float)x * scale;
             float fy = (float)y * scale;
 
-            // 妫€鏌ヨ彍鍗曟爮鎮仠
+            // 检查菜单栏悬停
             auto menu_it = g_menubars.find(hwnd);
             if (menu_it != g_menubars.end()) {
                 MenuBarState* menubar = menu_it->second;
@@ -3612,13 +3612,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     }
 
     case WM_SYSKEYDOWN: {
-        // 澶勭悊Alt閿縺娲昏彍鍗曟爮
+        // 处理Alt键激活菜单栏
         if (wparam == VK_MENU) {
             auto menu_it = g_menubars.find(hwnd);
             if (menu_it != g_menubars.end()) {
                 MenuBarState* menubar = menu_it->second;
                 if (!menubar->items.empty()) {
-                    // 婵€娲荤涓€涓彍鍗曢」
+                    // 激活第一个菜单项
                     menubar->hovered_index = 0;
                     InvalidateRect(hwnd, nullptr, FALSE);
                     return 0;
@@ -3633,10 +3633,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         if (menu_it != g_menubars.end()) {
             MenuBarState* menubar = menu_it->second;
             
-            // 濡傛灉鑿滃崟鏍忔湁婵€娲婚」,澶勭悊鏂瑰悜閿?
+            // 如果菜单栏有激活项，处理方向键
             if (menubar->hovered_index >= 0) {
                 if (wparam == VK_LEFT) {
-                    // 鍚戝乏鍒囨崲
+                    // 向左切换
                     menubar->hovered_index--;
                     if (menubar->hovered_index < 0) {
                         menubar->hovered_index = (int)menubar->items.size() - 1;
@@ -3645,7 +3645,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
                     return 0;
                 }
                 else if (wparam == VK_RIGHT) {
-                    // 鍚戝彸鍒囨崲
+                    // 向右切换
                     menubar->hovered_index++;
                     if (menubar->hovered_index >= (int)menubar->items.size()) {
                         menubar->hovered_index = 0;
@@ -3654,7 +3654,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
                     return 0;
                 }
                 else if (wparam == VK_RETURN || wparam == VK_SPACE) {
-                    // 瑙﹀彂褰撳墠閫変腑椤?
+                    // 触发当前选中项
                     if (menubar->hovered_index >= 0 && menubar->hovered_index < (int)menubar->items.size()) {
                         MenuItem& item = menubar->items[menubar->hovered_index];
                         if (item.enabled && menubar->callback) {
@@ -3664,20 +3664,20 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
                     return 0;
                 }
                 else if (wparam == VK_ESCAPE) {
-                    // 鍙栨秷鑿滃崟婵€娲?
+                    // 取消菜单激活
                     menubar->hovered_index = -1;
                     InvalidateRect(hwnd, nullptr, FALSE);
                     return 0;
                 }
             }
             
-            // Shift+F10 鎴?VK_APPS 瑙﹀彂鍙抽敭鑿滃崟
+            // Shift+F10 或 VK_APPS 触发右键菜单
             if (wparam == VK_F10 && (GetKeyState(VK_SHIFT) & 0x8000)) {
-                // TODO: 鏄剧ず鍙抽敭鑿滃崟
+                // TODO: 显示右键菜单
                 return 0;
             }
             if (wparam == VK_APPS) {
-                // TODO: 鏄剧ず鍙抽敭鑿滃崟
+                // TODO: 显示右键菜单
                 return 0;
             }
         }
@@ -3711,7 +3711,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
                 return 0;
             }
 
-            // 鑷姩瑙﹀彂甯冨眬绠＄悊鍣ㄦ洿鏂?
+            // 自动触发布局管理器更新
             auto lm_it = g_layout_managers.find(hwnd);
             if (lm_it != g_layout_managers.end()) {
                 UpdateLayout(hwnd);
@@ -3835,7 +3835,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     }
 
     case WM_DESTROY: {
-        // 娓呯悊 WindowState 璧勬簮锛坮ender_target 绛夛級
+        // 清理 WindowState 资源（render_target 等）
         auto destroy_it = g_windows.find(hwnd);
         if (destroy_it != g_windows.end()) {
             WindowState* destroy_state = destroy_it->second;
@@ -3847,18 +3847,18 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         }
         g_button_popup_menu_bindings.erase(hwnd);
 
-        // 娉ㄦ剰锛氬瓙缂栬緫妗嗗拰鏍囩鐨勬竻鐞嗙敱鍚勮嚜鐨?SubclassProc 鍦?WM_NCDESTROY 涓鐞嗭紝
-        // 涓嶅湪姝ゅ娓呯悊锛岄伩鍏?double-free锛圖estroyWindow 閿€姣佸瓙绐楀彛鏃朵細瑙﹀彂 WM_NCDESTROY锛?
+        // 注意：子编辑框和标签的清理由各自的 SubclassProc / WM_NCDESTROY 中处理，
+        // 不在此处清理，避免 double-free（DestroyWindow 销毁子窗口时会触发 WM_NCDESTROY）
 
-        // 椤跺眰绐楀彛鍏抽棴鏃讹細鍏堣Е鍙戠敤鎴峰洖璋冿紝鍐嶅喅瀹氭槸鍚﹂€€鍑烘秷鎭惊鐜?
+        // 顶层窗口关闭时：先触发用户回调，再决定是否退出消息循环
         LONG style = GetWindowLong(hwnd, GWL_STYLE);
         if (!(style & WS_CHILD)) {
-            // 瑙﹀彂绐楀彛鍏抽棴鍥炶皟锛岄€氱煡鏄撹瑷€渚э紙濡傞噸缃獥鍙ｅ彞鏌勫彉閲忥級
+            // 触发窗口关闭回调，通知易语言侧（如重置窗口句柄变量）
             if (g_window_close_callback) {
                 g_window_close_callback(hwnd);
             }
-            // 浠呭湪 run_message_loop 杩愯鏃舵墠 PostQuitMessage锛?
-            // 閬垮厤浠庢槗璇█ _绐楀彛1_灏嗚閿€姣?璋冪敤鏃惰鏉€鏄撹瑷€娑堟伅寰幆
+            // 仅在 run_message_loop 运行时才 PostQuitMessage
+            // 避免在易语言窗口销毁事件中误退出易语言消息循环
             if (g_own_message_loop_running) {
                 if (g_message_loop_main_window) {
                     if (hwnd == g_message_loop_main_window) {
@@ -3877,7 +3877,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 }
 
 // Create window
-// x, y: 绐楀彛浣嶇疆锛堝儚绱狅級锛屼紶 -1 琛ㄧず浣跨敤绯荤粺榛樿浣嶇疆 CW_USEDEFAULT
+// x, y: 窗口位置（像素），传 -1 表示使用系统默认位置 CW_USEDEFAULT
 HWND __stdcall create_window(const char* title, int x, int y, int width, int height) {
     static bool com_initialized = false;
     if (!com_initialized) {
@@ -3885,7 +3885,7 @@ HWND __stdcall create_window(const char* title, int x, int y, int width, int hei
         com_initialized = true;
     }
 
-    // 鍔犺浇RichEdit搴擄紙鏀寔褰╄壊emoji锛?
+    // 加载 RichEdit 库（支持彩色Emoji）
     static bool richedit_loaded = false;
     if (!richedit_loaded) {
         LoadLibraryW(L"Msftedit.dll");  // RichEdit 4.1
@@ -3970,7 +3970,7 @@ HWND __stdcall create_window(const char* title, int x, int y, int width, int hei
             &render_target
         );
         if (SUCCEEDED(hr) && render_target) {
-            // 浣跨敤绐楀彛褰撳墠 DPI 浣滀负娓叉煋 DPI锛屼繚璇佸潗鏍囦笌瀹㈡埛鍖哄儚绱犱竴鑷?
+            // 使用 96 DPI 渲染坐标系，保证 D2D 坐标与客户区像素一致
             render_target->SetDpi(96.0f, 96.0f);
         }
     }
@@ -3982,9 +3982,9 @@ HWND __stdcall create_window(const char* title, int x, int y, int width, int hei
     state->render_target = render_target;
     state->dwrite_factory = g_dwrite_factory;
 
-    // DWM鎵╁睍瀹㈡埛鍖哄埌鏍囬鏍忓尯鍩?
+    // DWM 扩展客户区到标题栏区域
 
-    // Windows 11+ 鍦嗚绐楀彛锛堜笌璁捐鍣ㄤ竴鑷达級
+    // Windows 11+ 圆角窗口（与设计器一致）
     #ifndef DWMWA_WINDOW_CORNER_PREFERENCE
     #define DWMWA_WINDOW_CORNER_PREFERENCE 33
     #endif
@@ -4001,7 +4001,7 @@ HWND __stdcall create_window(const char* title, int x, int y, int width, int hei
     ApplyWindowChromeAppearance(state);
     ApplyMainWindowRegion(state);
 
-    // 纭繚绯荤粺绐楀彛鏂囨湰瀛樺湪锛屼换鍔℃爮/Alt+Tab 涔熻兘鏄剧ず鏍囬
+    // 确保系统窗口文本存在，任务栏/Alt+Tab 也能显示标题
     SetWindowTextW(hwnd, wtitle.c_str());
 
     ShowWindow(hwnd, SW_SHOW);
@@ -4027,12 +4027,12 @@ HWND __stdcall create_window(const char* title, int x, int y, int width, int hei
 
 // Create window (UTF-8 bytes version) - supports emoji in title
 HWND __stdcall create_window_bytes(const unsigned char* title_bytes, int title_len, int x, int y, int width, int height) {
-    // 鍚戝悗鍏煎锛歵itlebar_color=0 璺熼殢涓婚锛宑lient_bg_color=0 绾櫧
+    // 向后兼容：titlebar_color=0 跟随主题，client_bg_color=0 纯白
     return create_window_bytes_ex(title_bytes, title_len, x, y, width, height, 0, 0);
 }
 
 // Create window with custom titlebar and client background color (UTF-8 bytes version)
-// x, y: 绐楀彛浣嶇疆锛堝儚绱狅級锛屼紶 -1 琛ㄧず浣跨敤绯荤粺榛樿浣嶇疆 CW_USEDEFAULT
+// x, y: 窗口位置（像素），传 -1 表示使用系统默认位置 CW_USEDEFAULT
 HWND __stdcall create_window_bytes_ex(const unsigned char* title_bytes, int title_len, int x, int y, int width, int height, UINT32 titlebar_color, UINT32 client_bg_color) {
     EnsureProcessDpiAwareness();
 
@@ -4142,9 +4142,9 @@ HWND __stdcall create_window_bytes_ex(const unsigned char* title_bytes, int titl
     state->render_target = render_target;
     state->dwrite_factory = g_dwrite_factory;
 
-    // DWM鎵╁睍瀹㈡埛鍖哄埌鏍囬鏍忓尯鍩?
+    // DWM 扩展客户区到标题栏区域
 
-    // Windows 11+ 鍦嗚绐楀彛锛堜笌璁捐鍣ㄤ竴鑷达級
+    // Windows 11+ 圆角窗口（与设计器一致）
     #ifndef DWMWA_WINDOW_CORNER_PREFERENCE
     #define DWMWA_WINDOW_CORNER_PREFERENCE 33
     #endif
@@ -4158,7 +4158,7 @@ HWND __stdcall create_window_bytes_ex(const unsigned char* title_bytes, int titl
     ApplyWindowChromeAppearance(state);
     ApplyMainWindowRegion(state);
 
-    // 纭繚绯荤粺绐楀彛鏂囨湰瀛樺湪锛屼换鍔℃爮/Alt+Tab 涔熻兘鏄剧ず鏍囬
+    // 确保系统窗口文本存在，任务栏/Alt+Tab 也能显示标题
     SetWindowTextW(hwnd, wtitle.c_str());
 
     ShowWindow(hwnd, SW_SHOW);
@@ -4291,14 +4291,14 @@ int __stdcall create_emoji_button_bytes(
         SyncEmojiButtonWindow(&created);
     }
     
-    // 濡傛灉鎸夐挳灞炰簬鍒嗙粍妗嗭紝璁板綍鎸夐挳ID
+    // 如果按钮属于分组框，记录按钮ID
     if (parent_groupbox) {
         parent_groupbox->button_ids.push_back(created.id);
         InvalidateRect(parent_groupbox->hwnd, nullptr, FALSE);
         UpdateWindow(parent_groupbox->hwnd);
     }
 
-    // 绔嬪嵆瑙﹀彂閲嶇粯骞舵洿鏂帮紝纭繚鎸夐挳绔嬪嵆鏄剧ず
+    // 立即触发重绘并更新，确保按钮立即显示
     InvalidateRect(actual_parent, nullptr, FALSE);
     UpdateWindow(actual_parent);
 
@@ -4321,7 +4321,7 @@ static HWND ResolveButtonStateHostWindow(HWND hwnd) {
     return nullptr;
 }
 
-// 鍚敤鎸夐挳
+// 启用按钮
 void __stdcall EnableButton(HWND parent_hwnd, int button_id, BOOL enable) {
     HWND state_host = ResolveButtonStateHostWindow(parent_hwnd);
     if (!state_host) return;
@@ -4343,7 +4343,7 @@ void __stdcall EnableButton(HWND parent_hwnd, int button_id, BOOL enable) {
     }
 }
 
-// 绂佺敤鎸夐挳
+// 禁用按钮
 void __stdcall DisableButton(HWND parent_hwnd, int button_id) {
     EnableButton(parent_hwnd, button_id, FALSE);
 }
@@ -4358,7 +4358,7 @@ void __stdcall SetWindowResizeCallback(WindowResizeCallback callback) {
 }
 
 // Set window close callback
-// 褰撹嚜缁橀《灞傜獥鍙ｈ鍏抽棴锛圵M_DESTROY锛夋椂瑙﹀彂锛屾槗璇█渚у彲鍦ㄦ閲嶇疆鍙ユ焺鍙橀噺
+// 当自绘顶层窗口被关闭（WM_DESTROY）时触发，易语言侧可在此重置句柄变量
 void __stdcall SetWindowCloseCallback(WindowCloseCallback callback) {
     g_window_close_callback = callback;
 }
@@ -4373,8 +4373,8 @@ int __stdcall run_message_loop() {
     }
     g_own_message_loop_running = false;
 
-    // 娑堟伅寰幆閫€鍑哄悗锛堟敹鍒?WM_QUIT锛夛紝娓呯悊鎵€鏈夋畫鐣欑殑 DLL 绐楀彛鍜屾帶浠?
-    // 杩欑‘淇濆嵆浣挎槗璇█ _灏嗚閿€姣?浜嬩欢鏈Е鍙戯紝DLL 绐楀彛涔熻兘琚纭攢姣?
+    // 消息循环退出后（收到 WM_QUIT），清理所有残留的 DLL 窗口和控件
+    // 这确保即使易语言“将被销毁”事件未触发，DLL 窗口也能被正确销毁
     {
         std::vector<HWND> remaining_tabs;
         for (auto& pair : g_tab_controls) {
@@ -4428,9 +4428,9 @@ int __stdcall run_message_loop() {
 }
 
 // Destroy window
-// 娉ㄦ剰锛氭鍑芥暟涓嶈皟鐢?PostQuitMessage銆?
-// PostQuitMessage 鐢?WM_DESTROY 璐熻矗锛屼笖浠呭湪 run_message_loop 杩愯鏃舵墠鍙戦€侊紝
-// 閬垮厤鍦ㄦ槗璇█ _绐楀彛1_灏嗚閿€姣?浜嬩欢涓鏉€鏄撹瑷€娑堟伅寰幆銆?
+// 注意：此函数不调用 PostQuitMessage
+// PostQuitMessage 由 WM_DESTROY 负责，且仅在 run_message_loop 运行时才发送，
+// 避免在易语言窗口销毁事件中误退出易语言消息循环
 void __stdcall destroy_window(HWND hwnd) {
     if (!hwnd || !IsWindow(hwnd)) return;
 
@@ -4445,7 +4445,7 @@ void __stdcall destroy_window(HWND hwnd) {
     }
 
     DestroyWindow(hwnd);
-    // WM_DESTROY 宸插鐞?PostQuitMessage锛屾澶勪笉鍐嶉噸澶嶈皟鐢?
+    // WM_DESTROY 已处理 PostQuitMessage，此处不再重复调用
 }
 
 // Set window icon
@@ -4463,7 +4463,7 @@ void __stdcall set_window_icon(HWND hwnd, const char* icon_path) {
     }
 }
 
-// .ico 鏂囦欢鏍煎紡缁撴瀯锛堢敤浜庝粠鍐呭瓨鍔犺浇锛?
+// .ico 文件格式结构（用于从内存加载）
 #pragma pack(push, 1)
 struct IcoDirEntry {
     BYTE bWidth;
@@ -4477,13 +4477,13 @@ struct IcoDirEntry {
 };
 #pragma pack(pop)
 
-// 浠庡瓧鑺傞泦璁剧疆绐楀彛鍥炬爣锛堟敮鎸?.ico 鏂囦欢鏍煎紡锛屾槗璇█鍙彃鍏ュ浘鐗囪祫婧愬悗浼犲叆瀛楄妭闆嗭級
+// 从字节集设置窗口图标（支持 .ico 文件格式，易语言可插入图片资源后传入字节集）
 void __stdcall set_window_icon_bytes(HWND hwnd, const unsigned char* icon_data, int data_len) {
     if (!hwnd || !icon_data || data_len < 6) return;
 
     HICON hIcon = nullptr;
 
-    // 瑙ｆ瀽 .ico 鏂囦欢鏍煎紡锛欼CONDIR(6瀛楄妭) + ICONDIRENTRY(16瀛楄妭)*N
+    // 解析 .ico 文件格式：ICONDIR(6字节) + ICONDIRENTRY(16字节)*N
     if (data_len >= 6 + 16) {
         WORD idCount = *(const WORD*)(icon_data + 4);
         if (idCount > 0 && data_len >= 6 + 16) {
@@ -4506,7 +4506,7 @@ void __stdcall set_window_icon_bytes(HWND hwnd, const unsigned char* icon_data, 
         }
     }
 
-    // 鑻?CreateIconFromResourceEx 澶辫触锛堝 PNG 鍥炬爣锛夛紝灏濊瘯涓存椂鏂囦欢鏂瑰紡
+    // 若 CreateIconFromResourceEx 失败（如 PNG 图标），尝试临时文件方式
     if (!hIcon) {
         wchar_t tempPath[MAX_PATH], tempFile[MAX_PATH];
         if (GetTempPathW(MAX_PATH, tempPath) && GetTempFileNameW(tempPath, L"ico", 0, tempFile)) {
@@ -4543,7 +4543,7 @@ void __stdcall set_window_title(HWND hwnd, const char* title_utf8, int title_len
     // Set window title
     SetWindowTextW(hwnd, wtitle.c_str());
 
-    // 鏇存柊WindowState涓殑title鐢ㄤ簬D2D褰╄壊emoji缁樺埗
+    // 更新WindowState中的title用于D2D彩色emoji绘制
     auto it = g_windows.find(hwnd);
     if (it != g_windows.end()) {
         it->second->title = wtitle;
@@ -4551,7 +4551,7 @@ void __stdcall set_window_title(HWND hwnd, const char* title_utf8, int title_len
     }
 }
 
-// 璁剧疆绐楀彛鏍囬鏍忛鑹?
+// 设置窗口标题栏颜色
 void __stdcall set_window_titlebar_color(HWND hwnd, UINT32 color) {
     if (!hwnd) return;
     auto it = g_windows.find(hwnd);
@@ -4561,7 +4561,7 @@ void __stdcall set_window_titlebar_color(HWND hwnd, UINT32 color) {
     }
 }
 
-// 璁剧疆绐楀彛瀹㈡埛鍖鸿儗鏅壊锛圓RGB锛?=浣跨敤 ThemeColor_Background 绾櫧锛?
+// 设置窗口客户区背景色（ARGB，0=使用 ThemeColor_Background）
 extern "C" __declspec(dllexport) void __stdcall SetWindowBackgroundColor(HWND hwnd, UINT32 color) {
     if (!hwnd) return;
     auto it = g_windows.find(hwnd);
@@ -4571,9 +4571,9 @@ extern "C" __declspec(dllexport) void __stdcall SetWindowBackgroundColor(HWND hw
     }
 }
 
-// ========== 绐楀彛灞炴€у懡浠?==========
+// ========== 窗口属性命令 ==========
 
-// Wide String to UTF-8 (杈呭姪鍑芥暟 - 鐢ㄤ簬绐楀彛灞炴€?
+// Wide String to UTF-8（辅助函数 - 用于窗口属性）
 static std::string WindowWideToUtf8(const std::wstring& wide) {
     if (wide.empty()) return "";
 
@@ -4710,7 +4710,7 @@ static BOOL SetFileDropEnabledInternal(HWND hwnd, BOOL enable) {
     return TRUE;
 }
 
-// 鑾峰彇绐楀彛鏍囬 (UTF-8缂栫爜锛屼袱娆¤皟鐢ㄦā寮?
+// 显示打开文件对话框（UTF-8，两次调用模式）
 extern "C" __declspec(dllexport) int __stdcall ShowOpenFileDialog(
     HWND owner,
     const unsigned char* title_bytes,
@@ -4894,10 +4894,10 @@ extern "C" __declspec(dllexport) void __stdcall SetFileDropCallback(HWND hwnd, F
 extern "C" __declspec(dllexport) int __stdcall GetWindowTitle(HWND hwnd, unsigned char* buffer, int buffer_size) {
     if (!hwnd) return -1;
     
-    // 浣跨敤GetWindowTextW鑾峰彇绐楀彛鏍囬
+    // 使用GetWindowTextW获取窗口标题
     int title_len = GetWindowTextLengthW(hwnd);
     if (title_len <= 0) {
-        // 绐楀彛鏍囬涓虹┖
+        // 窗口标题为空
         if (buffer == nullptr) {
             return 0;
         }
@@ -4906,47 +4906,47 @@ extern "C" __declspec(dllexport) int __stdcall GetWindowTitle(HWND hwnd, unsigne
     
     std::wstring wtitle(title_len + 1, 0);
     GetWindowTextW(hwnd, &wtitle[0], title_len + 1);
-    wtitle.resize(title_len);  // 绉婚櫎澶氫綑鐨刵ull瀛楃
+    wtitle.resize(title_len);  // 移除多余的null字符
     
-    // 杞崲涓篣TF-8
+    // 转换为UTF-8
     std::string utf8_title = WindowWideToUtf8(wtitle);
     
-    // 绗竴娆¤皟鐢細杩斿洖鎵€闇€闀垮害
+    // 第一次调用：返回所需长度
     if (buffer == nullptr) {
         return (int)utf8_title.size();
     }
     
-    // 绗簩娆¤皟鐢細澶嶅埗鏁版嵁
+    // 第二次调用：复制数据
     if (buffer_size < (int)utf8_title.size()) return -1;
     memcpy(buffer, utf8_title.c_str(), utf8_title.size());
     return (int)utf8_title.size();
 }
 
-// 鑾峰彇绐楀彛浣嶇疆鍜屽ぇ灏?
+// 获取窗口位置和大小
 extern "C" __declspec(dllexport) int __stdcall GetWindowBounds(HWND hwnd, int* x, int* y, int* width, int* height) {
     if (!hwnd) return -1;
     if (!x || !y || !width || !height) return -1;
     return EW_ReadLogicalBounds(hwnd, x, y, width, height, false);
     
-    // 楠岃瘉杈撳嚭鍙傛暟
+    // 验证输出参数
     if (!x || !y || !width || !height) return -1;
     
-    // 浣跨敤GetWindowRect鑾峰彇绐楀彛浣嶇疆鍜屽ぇ灏?
+    // 用 GetWindowRect 获取窗口位置和大小
     RECT rect;
     if (!GetWindowRect(hwnd, &rect)) {
-        return -1;  // 鑾峰彇澶辫触
+        return -1;  // 获取失败
     }
     
-    // 杩斿洖绐楀彛浣嶇疆鍜屽ぇ灏?
+    // 返回窗口位置和大小
     *x = rect.left;
     *y = rect.top;
     *width = rect.right - rect.left;
     *height = rect.bottom - rect.top;
     
-    return 0;  // 鎴愬姛
+    return 0;  // 成功
 }
 
-// 璁剧疆绐楀彛浣嶇疆鍜屽ぇ灏?
+// 设置窗口位置和大小
 extern "C" __declspec(dllexport) void __stdcall SetWindowBounds(HWND hwnd, int x, int y, int width, int height) {
     if (!hwnd) return;
     if (width <= 0 || height <= 0) return;
@@ -4978,47 +4978,47 @@ extern "C" __declspec(dllexport) void __stdcall SetWindowBounds(HWND hwnd, int x
         SWP_NOZORDER | SWP_NOACTIVATE);
     return;
     
-    // 楠岃瘉鍙傛暟
+    // 验证参数
     if (width <= 0 || height <= 0) return;
     
-    // 浣跨敤MoveWindow璁剧疆绐楀彛浣嶇疆鍜屽ぇ灏?
-    // SWP_NOZORDER: 淇濇寔绐楀彛Z椤哄簭
-    // SWP_NOACTIVATE: 涓嶆縺娲荤獥鍙?
+    // 使用 SetWindowPos 设置窗口位置和大小
+    // SWP_NOZORDER: 保持窗口Z顺序
+    // SWP_NOACTIVATE: 不激活窗口
     SetWindowPos(hwnd, nullptr, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
-// 鑾峰彇绐楀彛鍙鐘舵€?
+// 获取窗口可视状态
 extern "C" __declspec(dllexport) int __stdcall GetWindowVisible(HWND hwnd) {
     if (!hwnd) return -1;
     
-    // 浣跨敤IsWindowVisible妫€鏌ョ獥鍙ｆ槸鍚﹀彲瑙?
+    // 用 IsWindowVisible 检查窗口是否可见
     return IsWindowVisible(hwnd) ? 1 : 0;
 }
 
-// 鏄剧ず鎴栭殣钘忕獥鍙?
+// 设置菜单栏回调
 extern "C" __declspec(dllexport) void __stdcall ShowEmojiWindow(HWND hwnd, int visible) {
     if (!hwnd) return;
     
-    // 浣跨敤ShowWindow璁剧疆绐楀彛鍙鐘舵€?
-    // visible涓?鏃舵樉绀虹獥鍙ｏ紝涓?鏃堕殣钘忕獥鍙?
+    // 使用 ShowWindow 设置窗口可视状态
+    // visible=1 时显示窗口，0 时隐藏窗口
     ShowWindow(hwnd, visible ? SW_SHOW : SW_HIDE);
 }
 
-// 鑾峰彇绐楀彛鏍囬鏍忛鑹?(RGB鏍煎紡)
+// 获取窗口标题栏颜色（RGB 格式）
 extern "C" __declspec(dllexport) UINT32 __stdcall GetWindowTitlebarColor(HWND hwnd) {
     if (!hwnd) return 0;
     
-    // 鏌ユ壘绐楀彛鐘舵€?
+    // 查找窗口状态
     auto it = g_windows.find(hwnd);
     if (it == g_windows.end()) {
-        return 0;  // 绐楀彛涓嶅瓨鍦紝杩斿洖0
+        return 0;  // 窗口不存在，返回0
     }
     
-    // 杩斿洖鏍囬鏍忛鑹?(RGB鏍煎紡锛屽幓鎺塧lpha閫氶亾)
+    // 返回标题栏颜色（RGB 格式，去掉 alpha 通道）
     return it->second->titlebar_color & 0x00FFFFFF;
 }
 
-// 璁剧疆鏍囬鏍忔枃瀛楅鑹?
+// 更新菜单栏子项文本
 extern "C" __declspec(dllexport) int __stdcall GetCustomTitleBarHeight(HWND hwnd) {
     auto it = g_windows.find(hwnd);
     if (it == g_windows.end() || !it->second || !it->second->custom_titlebar) return 0;
@@ -5034,7 +5034,7 @@ extern "C" __declspec(dllexport) int __stdcall SetTitleBarTextColor(HWND hwnd, U
     return 1;
 }
 
-// 鑾峰彇鏍囬鏍忔枃瀛楅鑹?
+// 获取标题栏文字颜色
 extern "C" __declspec(dllexport) UINT32 __stdcall GetTitleBarTextColor(HWND hwnd) {
     auto it = g_windows.find(hwnd);
     if (it == g_windows.end()) return 0;
@@ -5042,7 +5042,7 @@ extern "C" __declspec(dllexport) UINT32 __stdcall GetTitleBarTextColor(HWND hwnd
     return it->second->titlebar_text_color;
 }
 
-// 璁剧疆鏍囬鏍忓瓧浣撳拰瀛楀彿
+// 设置标题栏字体和字号
 extern "C" __declspec(dllexport) int __stdcall SetTitleBarFont(HWND hwnd, const unsigned char* fontName, int fontNameLen, float fontSize) {
     if (!fontName || fontNameLen <= 0 || fontSize <= 0) return 0;
 
@@ -5055,7 +5055,7 @@ extern "C" __declspec(dllexport) int __stdcall SetTitleBarFont(HWND hwnd, const 
     return 1;
 }
 
-// 璁剧疆鏍囬鏍忔枃瀛楀榻愭柟寮?
+// 设置标题栏文字对齐方式
 extern "C" __declspec(dllexport) int __stdcall SetTitleBarAlignment(HWND hwnd, int alignment) {
     if (alignment < 0 || alignment > 2) return 0;
 
@@ -5371,26 +5371,26 @@ LRESULT CALLBACK MsgBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     return DefWindowProc(hwnd, msg, wparam, lparam);
 }
 
-// ========== 寮瑰嚭鑿滃崟绐楀彛杩囩▼ ==========
+// ========== 弹出菜单窗口过程 ==========
 LRESULT CALLBACK PopupMenuProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     PopupMenuState* state = nullptr;
     
     if (msg == WM_CREATE) {
-        // 浠?CREATESTRUCT 涓幏鍙?lpParam锛堝嵆 state 鎸囬拡锛?
+        // 从 CREATESTRUCT 中获取 lpParam（即 state 指针）
         CREATESTRUCT* cs = (CREATESTRUCT*)lparam;
         state = (PopupMenuState*)cs->lpCreateParams;
         
-        // 灏?state 瀛樺偍鍒扮獥鍙ｆ暟鎹腑
+        // 将 state 存储到窗口数据中
         SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)state);
         
-        // 鍚屾椂娣诲姞鍒板叏灞€鏄犲皠
+        // 同时添加到全局映射
         if (state) {
             state->hwnd = hwnd;
             state->visible = true;
             g_popup_menus[hwnd] = state;
         }
     } else {
-        // 浠庣獥鍙ｆ暟鎹腑鑾峰彇 state
+        // 从窗口数据中获取 state
         state = (PopupMenuState*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
     }
 
@@ -5403,7 +5403,7 @@ LRESULT CALLBACK PopupMenuProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam
             fclose(log);
         }
         
-        // 鍒濆鍖朌2D娓叉煋鐩爣
+        // 初始化D2D渲染目标
         if (state && !state->render_target) {
             RECT rc;
             GetClientRect(hwnd, &rc);
@@ -5454,7 +5454,7 @@ LRESULT CALLBACK PopupMenuProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam
             state->render_target->SetDpi(96.0f, 96.0f);
             state->render_target->BeginDraw();
             
-            // 娓呴櫎鑳屾櫙
+            // 清除背景
             UINT32 bg = ResolveOptionalColor(state->bg_color, ThemeColor_Background());
             state->render_target->Clear(D2D1::ColorF(
                 ((bg >> 16) & 0xFF) / 255.0f,
@@ -5462,7 +5462,7 @@ LRESULT CALLBACK PopupMenuProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam
                 (bg & 0xFF) / 255.0f,
                 1.0f));
             
-            // 缁樺埗鑿滃崟椤?
+            // 绘制菜单
             DrawPopupMenu(state->render_target, state->dwrite_factory, state);
             
             state->render_target->EndDraw();
@@ -5552,15 +5552,15 @@ LRESULT CALLBACK PopupMenuProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam
     case WM_KEYDOWN: {
         if (state) {
             if (wparam == VK_UP) {
-                // 鍚戜笂鍒囨崲
+                // 向上切换
                 int old_index = state->hovered_index;
                 do {
                     state->hovered_index--;
                     if (state->hovered_index < 0) {
                         state->hovered_index = (int)state->items.size() - 1;
                     }
-                    // 璺宠繃鍒嗛殧绗?
-                    if (state->hovered_index == old_index) break; // 闃叉姝诲惊鐜?
+                    // 跳过分隔符
+                    if (state->hovered_index == old_index) break; // 防止死循环
                 } while (state->hovered_index >= 0 && 
                          state->hovered_index < (int)state->items.size() &&
                          state->items[state->hovered_index].separator);
@@ -5569,15 +5569,15 @@ LRESULT CALLBACK PopupMenuProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam
                 return 0;
             }
             else if (wparam == VK_DOWN) {
-                // 鍚戜笅鍒囨崲
+                // 向下切换
                 int old_index = state->hovered_index;
                 do {
                     state->hovered_index++;
                     if (state->hovered_index >= (int)state->items.size()) {
                         state->hovered_index = 0;
                     }
-                    // 璺宠繃鍒嗛殧绗?
-                    if (state->hovered_index == old_index) break; // 闃叉姝诲惊鐜?
+                    // 跳过分隔符
+                    if (state->hovered_index == old_index) break; // 防止死循环
                 } while (state->hovered_index >= 0 && 
                          state->hovered_index < (int)state->items.size() &&
                          state->items[state->hovered_index].separator);
@@ -5586,7 +5586,7 @@ LRESULT CALLBACK PopupMenuProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam
                 return 0;
             }
             else if (wparam == VK_RETURN || wparam == VK_SPACE) {
-                // 瑙﹀彂褰撳墠閫変腑椤?
+                // 触发当前选中项
                 if (state->hovered_index >= 0 && state->hovered_index < (int)state->items.size()) {
                     ActivatePopupMenuItem(state, hwnd, state->hovered_index);
                 }
@@ -5602,7 +5602,7 @@ LRESULT CALLBACK PopupMenuProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam
                 }
             }
             else if (wparam == VK_ESCAPE) {
-                // 鍏抽棴鑿滃崟
+                // 关闭菜单
                 DestroyWindow(hwnd);
                 return 0;
             }
@@ -5611,7 +5611,7 @@ LRESULT CALLBACK PopupMenuProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam
     }
 
     case WM_KILLFOCUS: {
-        // 涓嶅啀渚濊禆鐒︾偣鍒囨崲鑷姩鍏抽棴锛岄伩鍏嶄富绐楀彛鍚冨埌鐐瑰嚮鏃舵妸 popup 鎻愬墠閿€姣併€?
+        // 不再依赖焦点切换自动关闭，避免主窗口吃到点击时把 popup 提前销毁
         return 0;
     }
 
@@ -5622,7 +5622,7 @@ LRESULT CALLBACK PopupMenuProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam
         break;
 
     case WM_DESTROY: {
-        // 娓呯悊璧勬簮
+        // 清理资源
         if (GetCapture() == hwnd) {
             ReleaseCapture();
         }
@@ -5946,9 +5946,9 @@ void __stdcall show_confirm_box_bytes(
 }
 
 
-// ========== TabControl 瀹炵幇 ==========
+// ========== TabControl 实现 ==========
 
-// 浠呭埛鏂板綋鍓嶅彲瑙佸瓙鏍戯紝閬垮厤鍦ㄥ祵濂?Tab 涓妸闈炲綋鍓嶉〉涔熷己鍒?Show 鍑烘潵銆?
+// 仅刷新当前可见子树，避免在嵌套 Tab 中把非当前页也强制 Show 出来
 static void RefreshVisibleTabWindowTree(HWND hwnd) {
     if (!hwnd || !IsWindow(hwnd)) return;
 
@@ -6025,7 +6025,7 @@ static void DrawGroupBoxOwnedButtons(ID2D1HwndRenderTarget* rt, IDWriteFactory* 
     }
 }
 
-// Tab 鍐呭绐楀彛杩囩▼锛氭敮鎸?D2D 娓叉煋鍜?Emoji 鎸夐挳
+// Tab 内容窗口过程：支持 D2D 渲染和 Emoji 按钮
 static const wchar_t* TAB_CONTENT_D2D_CLASS = L"TabContentD2DClass";
 
 static bool IsTabLayoutBatchingForPage(HWND hwnd) {
@@ -6242,8 +6242,8 @@ static LRESULT CALLBACK TabContentWindowProc(HWND hwnd, UINT msg, WPARAM wparam,
     return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
-// 鏇存柊 Tab 甯冨眬锛堟樉绀?闅愯棌鍐呭绐楀彛锛?
-// 鎵€鏈夊唴瀹圭獥鍙ｄ繚鎸佸湪鍚屼竴浣嶇疆鍙犲姞锛屼粎鐢?ShowWindow 鎺у埗鍙鎬?
+// 更新 Tab 布局（显示/隐藏内容窗口）
+// 所有内容窗口保持在同一位置叠加，仅用 ShowWindow 控制可见性
 static int GetCustomTabHeaderStyle(TabControlState* state) {
     if (!state) return TAB_HEADER_STYLE_LINE;
     auto it = g_tab_header_styles.find(state->hTabControl);
@@ -6510,8 +6510,8 @@ void UpdateTabLayout(TabControlState* state) {
     }
 }
 
-// ========== TabControl 鍥炬爣瑙ｇ爜杈呭姪鍑芥暟 ==========
-// 浠?PNG 瀛楄妭鏁版嵁瑙ｇ爜涓?D2D1Bitmap锛堢敤浜庢爣绛鹃〉鍥炬爣缁樺埗锛?
+// ========== TabControl 图标解码辅助函数 ==========
+// 将 PNG 字节数据解码为 D2D1Bitmap（用于标签页图标绘制）
 static ID2D1Bitmap* CreateBitmapFromPNGData(ID2D1RenderTarget* rt, const std::vector<unsigned char>& pngData) {
     if (!rt || pngData.empty() || !EnsureWicFactoryInitialized()) return nullptr;
 
@@ -7093,9 +7093,9 @@ LRESULT CALLBACK CustomTabControlProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
-// 鐖剁獥鍙ｅ瓙绫诲寲杩囩▼锛堝鐞?TabControl 鐨勯€氱煡娑堟伅锛?
+// TabControl 父窗口子类过程
 LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
-    // dwRefData 瀛樺偍鐨勬槸 TabControl 鐨勫彞鏌?
+    // dwRefData 保存 TabControl 句柄
     HWND hTabControl = (HWND)dwRefData;
 
     auto it = g_tab_controls.find(hTabControl);
@@ -7109,41 +7109,41 @@ LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam
     case WM_NOTIFY: {
         NMHDR* pnmhdr = (NMHDR*)lparam;
 
-        // 妫€鏌ユ槸鍚︽槸鏉ヨ嚜杩欎釜 TabControl 鐨勯€氱煡
+        // 检查是否是来自这个 TabControl 的通知
         if (pnmhdr->hwndFrom == hTabControl) {
-            // 鈹€鈹€ 2.7: TCN_SELCHANGING 涓嫤鎴鐢ㄦ爣绛鹃〉 鈹€鈹€
+            // ── 2.7: TCN_SELCHANGING 中拦截禁用标签页 ──
             if (pnmhdr->code == TCN_SELCHANGING) {
-                // 鑾峰彇鍗冲皢鍒囨崲鍒扮殑鐩爣鏍囩椤电储寮?
-                // TCN_SELCHANGING 鏃讹紝TabCtrl_GetCurSel 杩斿洖鐨勬槸褰撳墠閫変腑椤碉紙鍗冲皢绂诲紑鐨勯〉锛?
-                // 鎴戜滑闇€瑕侀€氳繃榧犳爣浣嶇疆鎴栭敭鐩樻潵鍒ゆ柇鐩爣椤?
-                // 浣?Win32 Tab Control 鍦?TCN_SELCHANGING 鏃朵笉鐩存帴鎻愪緵鐩爣绱㈠紩
-                // 浣跨敤 TCM_HITTEST 鑾峰彇榧犳爣鐐瑰嚮鐨勭洰鏍囨爣绛鹃〉
+                // 这里不能直接使用当前选中索引
+                // TCN_SELCHANGING 时 TabCtrl_GetCurSel 仍然是当前已选中的标签页，
+                // 而不是即将切换到的目标页
+                // 需要结合 Win32 Tab Control 的命中测试来判断目标页
+                // 使用 TCM_HITTEST 获取鼠标点击的目标标签页
                 POINT pt;
                 GetCursorPos(&pt);
                 ScreenToClient(hTabControl, &pt);
                 TCHITTESTINFO hti = {};
                 hti.pt = pt;
                 int targetVisibleIdx = TabCtrl_HitTest(hTabControl, &hti);
-                // 灏?Win32 鍙绱㈠紩鏄犲皠鍒?pages 鏁扮粍绱㈠紩
+                // 将 Win32 可见索引转换为 pages 索引
                 int targetIdx = VisibleIndexToPageIndex(state, targetVisibleIdx);
                 if (targetIdx >= 0 && targetIdx < (int)state->pages.size()) {
                     if (!state->pages[targetIdx].enabled) {
-                        // 鐩爣鏍囩椤佃绂佺敤锛岃繑鍥?TRUE 闃绘鍒囨崲
+                        // 禁用标签页时返回 TRUE 阻止切换
                         SetWindowLongPtr(hwnd, DWLP_MSGRESULT, TRUE);
                         return TRUE;
                     }
                 }
             }
             else if (pnmhdr->code == TCN_SELCHANGE) {
-                // Tab 鍒囨崲浜嬩欢
+                // Tab 切换事件
                 int newVisibleIndex = TabCtrl_GetCurSel(hTabControl);
-                // 灏?Win32 鍙绱㈠紩鏄犲皠鍒?pages 鏁扮粍绱㈠紩
+                // 将 Win32 可见索引转换为 pages 索引
                 int newIndex = VisibleIndexToPageIndex(state, newVisibleIndex);
                 if (newIndex >= 0 && newIndex < (int)state->pages.size()) {
                     state->currentIndex = newIndex;
                     UpdateTabLayout(state);
 
-                    // 瑙﹀彂鍥炶皟
+                    // 触发回调
                     if (state->callback) {
                         state->callback(hTabControl, newIndex);
                     }
@@ -7153,23 +7153,23 @@ LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam
         break;
     }
 
-    // TCS_OWNERDRAWFIXED: 鐖剁獥鍙ｈ礋璐ｇ粯鍒舵瘡涓?Tab 鏍囩
-    // 鐢?ID2D1DCRenderTarget 娓叉煋褰╄壊 Emoji锛堢瓑鍚屼簬鎸夐挳鐨?D2D 娓叉煋璺緞锛?
-    // 閲嶆瀯锛氫粠 TabControlState 璇诲彇鎵€鏈夋牱寮忓弬鏁帮紝鏀寔鍥炬爣銆佸叧闂寜閽€佺鐢ㄧ姸鎬?
+    // TCS_OWNERDRAWFIXED：自绘每个 Tab 项
+    // 用 ID2D1DCRenderTarget 实现支持彩色 Emoji 的 D2D 绘制
+    // TabControlState 中保存了当前绘制所需的全部状态
     case WM_DRAWITEM: {
         DRAWITEMSTRUCT* dis = (DRAWITEMSTRUCT*)lparam;
-        // 鍙鐞嗗睘浜庢 TabControl 鐨勭粯鍒惰姹?
+        // 仅处理当前 TabControl 的绘制
         if (dis->CtlType != ODT_TAB || dis->hwndItem != hTabControl) break;
 
         int visibleTabIdx = (int)dis->itemID;
-        // 灏?Win32 鍙绱㈠紩鏄犲皠鍒?pages 鏁扮粍绱㈠紩
+        // 将 Win32 可见索引转换为 pages 索引
         int tabIdx = VisibleIndexToPageIndex(state, visibleTabIdx);
-        // 鑻ユ爣棰樺皻鏈姞鍏?pages锛堟瀬灏戞暟鏃跺簭闂锛夛紝璺宠繃锛岃绯荤粺榛樿澶勭悊
+        // 若索引超出 pages 范围，说明当前时序下该项无需绘制
         if (tabIdx < 0 || tabIdx >= (int)state->pages.size()) break;
 
         const std::wstring& title = state->pages[tabIdx].title;
         bool isSelected = (dis->itemState & ODS_SELECTED) != 0;
-        bool isEnabled = state->pages[tabIdx].enabled;  // 2.4: 绂佺敤鐘舵€?
+        bool isEnabled = state->pages[tabIdx].enabled;  // 2.4: 是否启用
         int header_style = TAB_HEADER_STYLE_LINE;
         auto header_style_it = g_tab_header_styles.find(hTabControl);
         if (header_style_it != g_tab_header_styles.end()) {
@@ -7180,7 +7180,7 @@ LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam
         int h = dis->rcItem.bottom - dis->rcItem.top;
         if (w <= 0 || h <= 0) break;
 
-        // 鈹€鈹€ 1. 鍒涘缓鍐呭瓨 DC + 32 浣?DIBSection锛圖2D Premultiplied Alpha 鎵€闇€锛夆攢鈹€
+        // 1. 创建兼容 DC + 32 位 DIBSection，供 D2D Premultiplied Alpha 绘制
         HDC memDC = CreateCompatibleDC(dis->hDC);
         if (!memDC) break;
 
@@ -7197,7 +7197,7 @@ LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam
         if (!hBmp) { DeleteDC(memDC); break; }
         HBITMAP hOldBmp = (HBITMAP)SelectObject(memDC, hBmp);
 
-        // 鈹€鈹€ 2. 鍒涘缓 D2D DCRenderTarget锛圥remultiplied Alpha = 褰╄壊 Emoji 娓叉煋鎵€闇€锛夆攢鈹€
+        // ── 2. 创建 D2D DCRenderTarget（Premultiplied Alpha = 彩色 Emoji 渲染所需）──
         D2D1_RENDER_TARGET_PROPERTIES rtProps = D2D1::RenderTargetProperties(
             D2D1_RENDER_TARGET_TYPE_DEFAULT,
             D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)
@@ -7206,15 +7206,15 @@ LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam
         if (SUCCEEDED(g_d2d_factory->CreateDCRenderTarget(&rtProps, &dcRT))) {
             RECT rcBind = { 0, 0, w, h };
             dcRT->BindDC(memDC, &rcBind);
-            // Grayscale 鎶楅敮榻匡細涓?Premultiplied Alpha 鍏煎锛屼笖鏀寔褰╄壊瀛椾綋
+            // Grayscale 抗锯齿：与 Premultiplied Alpha 兼容，且支持彩色字体
             dcRT->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
 
             dcRT->BeginDraw();
 
-            // 2.4: 绂佺敤鏍囩椤典娇鐢?50% 閫忔槑搴?
+            // 2.4: 禁用标签页使用 50% 透明度
             float opacity = isEnabled ? 1.0f : 0.5f;
 
-            // 鈹€鈹€ 3. 鑳屾櫙濉厖锛堟敮鎸佸绉嶆爣绛惧ご椋庢牸锛夆攢鈹€
+            // ── 3. 背景填充（支持多种标签头风格）──
             UINT32 stripBgArgb = ThemeColor_Background();
             UINT32 bgArgb = isSelected ? state->selectedBgColor : state->unselectedBgColor;
             UINT32 textArgb = isSelected ? state->selectedTextColor : state->unselectedTextColor;
@@ -7473,14 +7473,14 @@ LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam
             if (borderBrush) borderBrush->Release();
             if (dividerBrush) dividerBrush->Release();
 
-            // 鈹€鈹€ 4. 鍥炬爣缁樺埗锛?.5锛? 鏂囧瓧锛?.2锛? 鍏抽棴鎸夐挳锛?.6锛夆攢鈹€
+            // 4. 文本/图标/关闭按钮布局
             float textInset = draw_card_tab_edges ? 0.0f : (draw_outline ? 4.0f : 0.0f);
-            float textLeft = (float)state->paddingH + card_inset_x + textInset;   // 2.2: 浣跨敤 paddingH
+            float textLeft = (float)state->paddingH + card_inset_x + textInset;   // 2.2: 使用 paddingH
             float textRight = (float)(w - state->paddingH) - card_inset_x - textInset;
-            float closeBtnSize = 20.0f;  // 鍏抽棴鎸夐挳鍖哄煙澶у皬
-            float closeBtnMargin = 6.0f; // 鍏抽棴鎸夐挳涓庢枃瀛楅棿璺?
+            float closeBtnSize = 20.0f;  // 关闭按钮区域大小
+            float closeBtnMargin = 6.0f; // 关闭按钮右侧边距
 
-            // 2.5: 鍥炬爣缁樺埗
+            // 2.5: 图标绘制
             float iconSize = 16.0f;
             float iconGap = 4.0f;
             bool hasIcon = !state->pages[tabIdx].iconData.empty();
@@ -7491,18 +7491,18 @@ LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam
                     D2D1_RECT_F iconRect = D2D1::RectF(textLeft, iconY, textLeft + iconSize, iconY + iconSize);
                     dcRT->DrawBitmap(iconBitmap, iconRect, opacity, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
                     iconBitmap->Release();
-                    textLeft += iconSize + iconGap;  // 鏂囧瓧璧峰浣嶇疆鍙崇Щ
+                    textLeft += iconSize + iconGap;  // 文字起始位置右移
                 }
             }
 
-            // 2.6: 鍏抽棴鎸夐挳鍗犱綅锛堥鐣欏彸渚х┖闂达級
+            // 2.6: 关闭按钮占位（预留右侧空间）
             if (state->closable) {
                 textRight -= (closeBtnSize + closeBtnMargin);
             }
 
             if (!title.empty() && g_dwrite_factory) {
                 IDWriteTextFormat* fmt = nullptr;
-                // 2.2: 浠?state 璇诲彇瀛椾綋鍚嶇О鍜屽瓧鍙?
+                // 2.2: 使用 state 中的字体配置
                 g_dwrite_factory->CreateTextFormat(
                     state->fontName.c_str(),
                     nullptr,
@@ -7517,20 +7517,20 @@ LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam
                     fmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
                     fmt->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
-                    // 2.2: 浠?style 瑙ｆ瀽鏂囧瓧棰滆壊
+                    // 2.2: 按 style 计算文字颜色
                     D2D1_COLOR_F textColor = ColorFromUInt32(textArgb);
-                    textColor.a *= opacity;  // 绂佺敤鏃跺崐閫忔槑
+                    textColor.a *= opacity;  // 禁用时半透明
 
                     ID2D1SolidColorBrush* textBrush = nullptr;
                     dcRT->CreateSolidColorBrush(textColor, &textBrush);
 
-                    // 2.2: 浣跨敤 paddingH/paddingV 璁＄畻鏂囧瓧缁樺埗鍖哄煙
+                    // 2.2: 使用 paddingH/paddingV 计算文字绘制区域
                     D2D1_RECT_F textRect = D2D1::RectF(
                         textLeft, (float)state->paddingV + card_inset_y,
                         textRight, (FLOAT)(h - (draw_indicator ? 2.0f : 0.0f) - state->paddingV)
                     );
 
-                    // D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT: 鍏抽敭 鈥斺€?褰╄壊 Emoji 娓叉煋
+                    // D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT: 启用彩色 Emoji 字体
                     dcRT->DrawText(
                         title.c_str(),
                         (UINT32)title.length(),
@@ -7545,13 +7545,13 @@ LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam
                 }
             }
 
-            // 鈹€鈹€ 2.6: 鍏抽棴鎸夐挳缁樺埗 鈹€鈹€
+            // ── 2.6: 关闭按钮绘制 ──
             if (state->closable) {
                 float btnX = (float)w - closeBtnSize - closeBtnMargin;
                 float btnY = ((float)h - closeBtnSize) / 2.0f;
                 bool isCloseHovered = (state->hoveredCloseTabIndex == tabIdx);
 
-                // 鎮仠鏃剁粯鍒剁孩鑹茶儗鏅渾瑙掔煩褰?
+                // 绘制关闭按钮悬停背景
                 if (isCloseHovered) {
                     ID2D1SolidColorBrush* closeBgBrush = nullptr;
                     D2D1_COLOR_F closeBgColor = ColorFromUInt32(ThemeColor_Hover(ThemeColor_BackgroundLight()));
@@ -7566,7 +7566,7 @@ LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam
                     closeBgBrush->Release();
                 }
 
-                // 缁樺埗 脳 绗﹀彿
+                // 绘制 × 符号
                 ID2D1SolidColorBrush* closeBrush = nullptr;
                 D2D1_COLOR_F closeColor = isCloseHovered
                     ? ColorFromUInt32(ThemeColor_TextPrimary())
@@ -7585,7 +7585,7 @@ LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam
                 closeBrush->Release();
             }
 
-            // 鈹€鈹€ 5. 閫変腑鎸囩ず鏉★紙2.3: 浠?state 璇诲彇棰滆壊锛夆攢鈹€
+            // 5. 绘制底部指示线（2.3：使用 state 的指示器颜色）
             if (draw_indicator) {
                 D2D1_COLOR_F indicatorColor = ColorFromUInt32(state->indicatorColor);
                 indicatorColor.a *= opacity;
@@ -7605,10 +7605,10 @@ LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam
             dcRT->Release();
         }
 
-        // 鈹€鈹€ 6. 灏嗘覆鏌撶粨鏋?Blit 鍒?TabControl 鐨?HDC 鈹€鈹€
+        // 6. 最后将内存位图 BitBlt 到 TabControl 的 HDC 上
         BitBlt(dis->hDC, dis->rcItem.left, dis->rcItem.top, w, h, memDC, 0, 0, SRCCOPY);
 
-        // 鈹€鈹€ 7. 娓呯悊璧勬簮 鈹€鈹€
+        // ── 7. 清理资源 ──
         SelectObject(memDC, hOldBmp);
         DeleteObject(hBmp);
         DeleteDC(memDC);
@@ -7617,13 +7617,13 @@ LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam
     }
 
     case WM_SIZE: {
-        // 绐楀彛澶у皬鏀瑰彉鏃讹紝鏇存柊甯冨眬
+        // 窗口大小改变时，更新布局
         UpdateTabLayout(state);
         break;
     }
 
     case WM_DESTROY: {
-        // 娓呯悊瀛愮被鍖?
+        // 清理子类
         RemoveWindowSubclass(hwnd, TabControlParentSubclassProc, uIdSubclass);
         break;
     }
@@ -7632,7 +7632,7 @@ LRESULT CALLBACK TabControlParentSubclassProc(HWND hwnd, UINT msg, WPARAM wparam
     return DefSubclassProc(hwnd, msg, wparam, lparam);
 }
 
-// 鍒涘缓 TabControl
+// 创建 TabControl
 HWND __stdcall CreateTabControl(HWND hParent, int x, int y, int width, int height) {
     if (!g_d2d_factory) {
         D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &g_d2d_factory);
@@ -7672,14 +7672,14 @@ HWND __stdcall CreateTabControl(HWND hParent, int x, int y, int width, int heigh
 
     if (!hTabControl) return nullptr;
 
-    // 鍒涘缓鐘舵€佸璞?
+    // 创建状态对象
     TabControlState* state = new TabControlState();
     state->hTabControl = hTabControl;
     state->hParent = hParent;
     state->currentIndex = -1;
     state->callback = nullptr;
 
-    // 澶栬瀛楁榛樿鍊?
+    // 外观字段默认值
     state->tabWidth = 120;
     state->tabHeight = 34;
     state->fontName = L"Segoe UI Emoji";
@@ -7692,7 +7692,7 @@ HWND __stdcall CreateTabControl(HWND hParent, int x, int y, int width, int heigh
     state->paddingH = 2;
     state->paddingV = 0;
 
-    // 浜や簰瀛楁榛樿鍊?
+    // 交互字段默认值
     state->closable = false;
     state->closeCallback = nullptr;
     state->rightClickCallback = nullptr;
@@ -7700,44 +7700,44 @@ HWND __stdcall CreateTabControl(HWND hParent, int x, int y, int width, int heigh
     state->newButtonCallback = nullptr;
     state->draggable = false;
 
-    // 甯冨眬瀛楁榛樿鍊?
+    // 布局字段默认值
     state->tabPosition = 0;
     state->tabAlignment = 0;
     state->scrollable = false;
     state->scrollOffset = 0;
 
-    // 缁樺埗杈呭姪瀛楁榛樿鍊?
+    // 绘制辅助字段默认值
     state->hoveredCloseTabIndex = -1;
     state->hoveredTabIndex = -1;
     state->hoveredNewButton = false;
     state->layoutBatchInProgress = false;
 
-    // 鎷栨嫿鐘舵€佸瓧娈甸粯璁ゅ€?
+    // 拖拽状态字段默认值
     state->isDragging = false;
     state->dragStartIndex = -1;
     state->dragTargetIndex = -1;
     state->dragStartPoint = { 0, 0 };
 
-    // 淇濆瓨鍒板叏灞€鏄犲皠琛?
+    // 保存到全局映射
     g_tab_controls[hTabControl] = state;
     g_tab_header_styles[hTabControl] = TAB_HEADER_STYLE_LINE;
 
     return hTabControl;
 }
 
-// 娣诲姞 Tab 椤?
+// 添加 Tab 页
 int __stdcall AddTabItem(HWND hTabControl, const unsigned char* title_bytes, int title_len, HWND hContentWindow) {
     auto it = g_tab_controls.find(hTabControl);
     if (it == g_tab_controls.end()) return -1;
 
     TabControlState* state = it->second;
 
-    // 杞崲鏍囬
+    // 转换标题
     std::wstring title = Utf8ToWide(title_bytes, title_len);
 
-    // 濡傛灉娌℃湁鎻愪緵鍐呭绐楀彛锛屽垯鍒涘缓涓€涓敮鎸?Emoji 鎸夐挳鐨勭獥鍙?
+    // 如果没有提供内容窗口，则创建一个支持 Emoji 按钮的窗口
     if (!hContentWindow || !IsWindow(hContentWindow)) {
-        // 纭繚 D2D 鍜?DWrite 宸ュ巶宸插垵濮嬪寲
+        // 确保 D2D 和 DWrite 工厂已初始化
         if (!g_d2d_factory) {
             D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &g_d2d_factory);
         }
@@ -7749,7 +7749,7 @@ int __stdcall AddTabItem(HWND hTabControl, const unsigned char* title_bytes, int
             );
         }
 
-        // 浣跨敤 TabContentD2DClass 鏀寔 D2D 娓叉煋鍜?Emoji 鎸夐挳
+        // 使用 TabContentD2DClass 支持 D2D 渲染和 Emoji 按钮
         static bool tab_content_class_registered = false;
         if (!tab_content_class_registered) {
             WNDCLASSW wc = {};
@@ -7786,19 +7786,19 @@ int __stdcall AddTabItem(HWND hTabControl, const unsigned char* title_bytes, int
 
     int index = (int)state->pages.size();
 
-    // 淇濆瓨 Tab 椤典俊鎭?
+    // 保存 Tab 页信息
     TabPageInfo pageInfo;
     pageInfo.index = index;
     pageInfo.title = title;
     pageInfo.hContentWindow = hContentWindow;
-    pageInfo.visible = true;   // 榛樿鍦ㄦ爣绛炬爮涓彲瑙?
+    pageInfo.visible = true;   // 默认在标签栏中可见
     pageInfo.enabled = true;
-    // iconData 榛樿涓虹┖锛坰td::vector 榛樿鏋勯€狅級
+    // iconData 默认为空（std::vector 默认构造）
     pageInfo.contentBgColor = 0xFFFFFFFF;
 
     state->pages.push_back(pageInfo);
 
-    // 濡傛灉鏄涓€涓?Tab锛岃嚜鍔ㄩ€変腑
+    // 如果是第一个 Tab，自动选中
     if (index == 0) {
         state->currentIndex = 0;
         UpdateTabLayout(state);
@@ -7812,7 +7812,7 @@ int __stdcall AddTabItem(HWND hTabControl, const unsigned char* title_bytes, int
     return index;
 }
 
-// 绉婚櫎 Tab 椤?
+// 移除 Tab 页
 BOOL __stdcall RemoveTabItem(HWND hTabControl, int index) {
     auto it = g_tab_controls.find(hTabControl);
     if (it == g_tab_controls.end()) return FALSE;
@@ -7824,7 +7824,7 @@ BOOL __stdcall RemoveTabItem(HWND hTabControl, int index) {
     TabPageInfo& pageInfo = state->pages[index];
 
     if (pageInfo.hContentWindow && IsWindow(pageInfo.hContentWindow)) {
-        // 娓呯悊鍐呭绐楀彛鐨?WindowState锛堝鏋滃瓨鍦級
+        // 清理内容窗口的 WindowState（如果存在）
         auto win_it = g_windows.find(pageInfo.hContentWindow);
         if (win_it != g_windows.end()) {
             WindowState* win_state = win_it->second;
@@ -7865,7 +7865,7 @@ BOOL __stdcall RemoveTabItem(HWND hTabControl, int index) {
     return TRUE;
 }
 
-// 璁剧疆 Tab 鍒囨崲鍥炶皟
+// 设置 Tab 切换回调
 void __stdcall SetTabCallback(HWND hTabControl, TAB_CALLBACK pCallback) {
     auto it = g_tab_controls.find(hTabControl);
     if (it == g_tab_controls.end()) return;
@@ -7874,7 +7874,7 @@ void __stdcall SetTabCallback(HWND hTabControl, TAB_CALLBACK pCallback) {
     state->callback = pCallback;
 }
 
-// 鑾峰彇褰撳墠閫変腑鐨?Tab 绱㈠紩
+// 获取当前选中的 Tab 索引
 int __stdcall GetCurrentTabIndex(HWND hTabControl) {
     auto it = g_tab_controls.find(hTabControl);
     if (it == g_tab_controls.end()) return -1;
@@ -7882,7 +7882,7 @@ int __stdcall GetCurrentTabIndex(HWND hTabControl) {
     return it->second->currentIndex;
 }
 
-// 瀹為檯鎵ц Tab 鍒囨崲锛堝湪娑堟伅娉典腑璋冪敤锛涘嬁鍦ㄦ爲閫変腑鏄撹瑷€鍥炶皟鍚屾爤鍚屾 TabCtrl_SetCurSel锛屽惁鍒欎細 WM_NOTIFY/UpdateTabLayout 涓?D2D 鏍戦噸鍏ュ穿婧冿級
+// 实际执行 Tab 切换（在消息泵中调用；不要在树回调同栈同步 TabCtrl_SetCurSel）
 static BOOL ApplySelectTab(HWND hTabControl, int index) {
     auto it = g_tab_controls.find(hTabControl);
     if (it == g_tab_controls.end()) return FALSE;
@@ -7904,7 +7904,7 @@ static BOOL ApplySelectTab(HWND hTabControl, int index) {
     return TRUE;
 }
 
-// 鍒囨崲鍒版寚瀹?Tab锛堟姇閫掑埌椤跺眰涓荤獥鍙ｅ欢鍚庢墽琛岋紝閬垮厤鏍戝洖璋冨唴鍚屾 SelectTab 宕╂簝锛?
+// 切换到指定 Tab（延后执行，避免树回调内同步 SelectTab 崩溃）
 BOOL __stdcall SelectTab(HWND hTabControl, int index) {
     auto it = g_tab_controls.find(hTabControl);
     if (it == g_tab_controls.end()) return FALSE;
@@ -7924,7 +7924,7 @@ BOOL __stdcall SelectTabImmediate(HWND hTabControl, int index) {
     return ApplySelectTab(hTabControl, index);
 }
 
-// 鑾峰彇 Tab 鏁伴噺
+// 获取 Tab 数量
 int __stdcall GetTabCount(HWND hTabControl) {
     auto it = g_tab_controls.find(hTabControl);
     if (it == g_tab_controls.end()) return 0;
@@ -7932,7 +7932,7 @@ int __stdcall GetTabCount(HWND hTabControl) {
     return (int)it->second->pages.size();
 }
 
-// 鑾峰彇鎸囧畾 Tab 鐨勫唴瀹圭獥鍙ｅ彞鏌?
+// 获取指定 Tab 的内容窗口句柄
 HWND __stdcall GetTabContentWindow(HWND hTabControl, int index) {
     auto it = g_tab_controls.find(hTabControl);
     if (it == g_tab_controls.end()) return nullptr;
@@ -7944,7 +7944,7 @@ HWND __stdcall GetTabContentWindow(HWND hTabControl, int index) {
     return state->pages[index].hContentWindow;
 }
 
-// 閿€姣?TabControl锛堟竻鐞嗚祫婧愶級
+// 销毁 TabControl（清理资源）
 void __stdcall DestroyTabControl(HWND hTabControl) {
     auto it = g_tab_controls.find(hTabControl);
     if (it == g_tab_controls.end()) return;
@@ -7953,7 +7953,7 @@ void __stdcall DestroyTabControl(HWND hTabControl) {
 
     for (auto& page : state->pages) {
         if (page.hContentWindow && IsWindow(page.hContentWindow)) {
-            // 娓呯悊鍐呭绐楀彛鐨?WindowState锛堝鏋滃瓨鍦級
+            // 清理内容窗口的 WindowState（如果存在）
             auto win_it = g_windows.find(page.hContentWindow);
             if (win_it != g_windows.end()) {
                 WindowState* win_state = win_it->second;
@@ -7974,7 +7974,7 @@ void __stdcall DestroyTabControl(HWND hTabControl) {
     DestroyWindow(hTabControl);
 }
 
-// 鎵嬪姩鏇存柊 TabControl 甯冨眬锛堢獥鍙ｅぇ灏忔敼鍙樺悗璋冪敤锛?
+// 手动更新 TabControl 布局（窗口大小改变后调用）
 void __stdcall UpdateTabControlLayout(HWND hTabControl) {
     auto it = g_tab_controls.find(hTabControl);
     if (it == g_tab_controls.end()) return;
@@ -8010,10 +8010,10 @@ BOOL __stdcall RedrawTabControl(HWND hTabControl) {
 }
 
 // ========================================
-// 缂栬緫妗嗗拰鏍囩杈呭姪鍑芥暟
+// 编辑框和标签辅助函数
 // ========================================
 
-// 鍒涘缓瀛椾綋
+// 创建字体
 HFONT CreateCustomFont(const FontStyle& font, int dpi = 96) {
     int height = -MulDiv(font.font_size, dpi, 72);
     return CreateFontW(
@@ -8034,13 +8034,13 @@ HFONT CreateCustomFont(const FontStyle& font, int dpi = 96) {
     );
 }
 
-// 鏇存柊缂栬緫妗嗘牸寮忕煩褰互瀹炵幇鍨傜洿灞呬腑锛堥渶涓衡€滃琛屾牱寮忊€濈殑缂栬緫妗嗭紝EM_SETRECTNP 浠呭澶氳鏈夋晥锛?
+// 更新编辑框格式矩形以实现垂直居中（EM_SETRECTNP 仅对多行样式有效）
 static void UpdateEditBoxFormatRect(HWND hwnd) {
     auto it = g_editboxes.find(hwnd);
     if (it == g_editboxes.end()) return;
     EditBoxState* state = it->second;
     if (!state->vertical_center) return;
-    // 澶氳缂栬緫妗嗕笉璁惧瀭鐩村眳涓紱鍗曡鍨傜洿灞呬腑鏃?state->multiline 涓?false 浣嗘帶浠跺疄闄呭甫 ES_MULTILINE
+    // 多行编辑框不设垂直居中；单行垂直居中时 state->multiline=false，但控件实际带 ES_MULTILINE
     if (state->multiline) return;
 
     RECT client;
@@ -8121,7 +8121,7 @@ static void LogEditBoxSnapshot(const char* tag, HWND hEdit) {
     );
 }
 
-// 缂栬緫妗嗗瓙绫诲寲澶勭悊
+// 编辑框子类化处理
 LRESULT CALLBACK EditBoxSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     EditBoxState* state = (EditBoxState*)dwRefData;
     
@@ -8178,7 +8178,7 @@ LRESULT CALLBACK EditBoxSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
             break;
         }
         case WM_CHAR: {
-            // 鍗曡+鍨傜洿灞呬腑鏃剁敤澶氳鏍峰紡鍒涘缓锛岄渶鎷︽埅鍥炶溅闃叉鎹㈣
+            // 单行+垂直居中时用多行样式创建，需拦截回车防止换行
             if (state->vertical_center && !state->multiline) {
                 if (wparam == VK_RETURN || wparam == '\r' || wparam == '\n') {
                     return 0;
@@ -8211,7 +8211,7 @@ LRESULT CALLBACK EditBoxSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
     return DefSubclassProc(hwnd, msg, wparam, lparam);
 }
 
-// 鏍囩瀛愮被鍖栧鐞?
+// 标签子类化过程
 LRESULT CALLBACK LabelSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     LabelState* state = (LabelState*)dwRefData;
     if (HandleCommonEvents(hwnd, msg, wparam, lparam, state ? &state->events : nullptr)) {
@@ -8228,7 +8228,7 @@ LRESULT CALLBACK LabelSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             RECT rect;
             GetClientRect(hwnd, &rect);
             
-            // 浣跨敤Direct2D娓叉煋浠ユ敮鎸佸僵鑹睧moji锛堝厛鐢诲埌鍐呭瓨浣嶅浘锛屽啀涓€娆℃€?BitBlt 鍒扮獥鍙ｏ紝閬垮厤缂╂斁鏃堕棯鐑?閫忓簳锛?
+            // 使用 Direct2D 渲染以支持彩色 Emoji，最后再 BitBlt 到窗口避免闪烁
             int w = rect.right - rect.left;
             int h = rect.bottom - rect.top;
             if (w > 0 && h > 0 && g_d2d_factory && g_dwrite_factory) {
@@ -8259,7 +8259,7 @@ LRESULT CALLBACK LabelSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                             rt->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
                             rt->BeginDraw();
 
-                            // 缁樺埗鑳屾櫙锛堣В鏋愪富棰橀鑹茬储寮曪級
+                            // 绘制背景（解析主题颜色索引）
                             D2D1_COLOR_F bg_color = ColorFromUInt32(ResolveLegacyLabelBackgroundColor(state));
                             ID2D1SolidColorBrush* bg_brush = nullptr;
                             rt->CreateSolidColorBrush(bg_color, &bg_brush);
@@ -8268,7 +8268,7 @@ LRESULT CALLBACK LabelSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                                 bg_brush->Release();
                             }
 
-                            // 鍒涘缓鏂囨湰鏍煎紡锛堜娇鐢ㄧ敤鎴锋寚瀹氱殑瀛椾綋锛孌irectWrite浼氳嚜鍔?fallback 鍒?emoji 瀛椾綋锛?
+                            // 创建文本格式，DirectWrite 会自动 fallback 到 emoji 字体
                             IDWriteTextFormat* text_format = nullptr;
                             HRESULT hr = g_dwrite_factory->CreateTextFormat(
                                 state->font.font_name.c_str(),
@@ -8342,8 +8342,8 @@ LRESULT CALLBACK LabelSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                     DeleteDC(memDC);
                 }
             } else {
-                // 闄嶇骇鍒癎DI娓叉煋锛堝鏋淒irect2D涓嶅彲鐢級
-                // 瑙ｆ瀽涓婚棰滆壊绱㈠紩
+                // 降级到GDI渲染（如果Direct2D不可用）
+                // 解析主题颜色索引
                 UINT32 resolved_bg_gdi = ResolveLegacyLabelBackgroundColor(state);
                 UINT32 resolved_fg_gdi = IsWindowEnabled(hwnd) ? ResolveLegacyLabelTextColor(state->fg_color) : ThemeColor_TextPlaceholder();
                 HBRUSH hBrGdi = CreateSolidBrush(RGB(
@@ -8387,7 +8387,7 @@ LRESULT CALLBACK LabelSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             return 0;
         }
         case WM_ERASEBKGND:
-            return 1;  // 闃叉甯冨眬璋冩暣鏃舵爣绛惧厛琚郴缁熸摝鑳屾櫙瀵艰嚧闂儊
+            return 1;  // 防止布局调整时标签先被系统擦背景导致闪烁
         case WM_ENABLE:
             InvalidateRect(hwnd, NULL, FALSE);
             return 0;
@@ -8406,7 +8406,7 @@ LRESULT CALLBACK LabelSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
 }
 
 // ========================================
-// 缂栬緫妗嗗鍑哄嚱鏁?
+// 编辑框导出函数
 // ========================================
 
 extern "C" {
@@ -8431,18 +8431,18 @@ __declspec(dllexport) HWND __stdcall CreateEditBox(
     BOOL has_border,
     BOOL vertical_center
 ) {
-    // 杞崲鏂囨湰
+    // 转换文本
     EnsureSharedRenderFactoriesInitialized();
     std::wstring text = Utf8ToWide(text_bytes, text_len);
     std::wstring font_name = Utf8ToWide(font_name_bytes, font_name_len);
     
-    // 鍒涘缓缂栬緫妗嗘牱寮?
-    // 鍗曡+鍨傜洿灞呬腑鏃剁敤 ES_MULTILINE+ES_AUTOHSCROLL锛屼娇 EM_SETRECTNP 鐢熸晥锛堢郴缁熷崟琛?EDIT 蹇界暐鏍煎紡鐭╁舰锛?
-    // Win32 EDIT 鐨?ES_PASSWORD 涓?ES_MULTILINE 涓嶈兘鍙潬鍏卞瓨銆?
-    // 鍗曡鍨傜洿灞呬腑鐨勫琛屽吋瀹规妧宸у湪瀵嗙爜妗嗗満鏅笅蹇呴』鍏抽棴锛屽惁鍒欎細鏄剧ず鏄庢枃銆?
+    // 创建编辑框样式
+    // 单行+垂直居中时用 ES_MULTILINE+ES_AUTOHSCROLL，使 EM_SETRECTNP 生效
+    // Win32 EDIT 的 ES_PASSWORD 与 ES_MULTILINE 不能可靠共存
+    // 因此密码框场景下禁用这种垂直居中兼容技巧，避免显示异常
     BOOL use_multiline_for_center = (vertical_center && !multiline && !password);
-    // 椤堕儴宸ュ叿鏍忛噷鐨勫湴鍧€鏍忎細鍜岃儗鏅爣绛惧彂鐢熼噸鍙狅紝寮€鍚?WS_CLIPSIBLINGS
-    // 鍚庤浣庡眰 sibling 缁樺埗鏃惰嚜鍔ㄩ伩寮€楂樺眰缂栬緫妗嗭紝閬垮厤棣栧抚鏂囧瓧琚洊鎺夈€?
+    // 地址栏等场景需要 WS_CLIPSIBLINGS
+    // 让低层 sibling 绘制时自动避开高层编辑框，避免首帧文字被盖住
     DWORD style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_CLIPSIBLINGS;
     if (multiline || use_multiline_for_center) {
         style |= ES_MULTILINE | ES_AUTOHSCROLL;
@@ -8460,14 +8460,14 @@ __declspec(dllexport) HWND __stdcall CreateEditBox(
         style |= WS_BORDER;
     }
     
-    // 璁剧疆瀵归綈鏂瑰紡
+    // 设置对齐方式
     switch (alignment) {
         case ALIGN_LEFT: style |= ES_LEFT; break;
         case ALIGN_CENTER: style |= ES_CENTER; break;
         case ALIGN_RIGHT: style |= ES_RIGHT; break;
     }
     
-    // 鍒涘缓缂栬緫妗?
+    // 创建编辑框
     RECT px_rect = EW_LogicalChildRectToPx(hParent, x, y, width, height, true);
     int id = g_next_control_id++;
     HWND hEdit = CreateWindowExW(
@@ -8486,7 +8486,7 @@ __declspec(dllexport) HWND __stdcall CreateEditBox(
         return NULL;
     }
     
-    // 鍒涘缓鐘舵€佸璞?
+    // 创建状态对象
     EditBoxState* state = new EditBoxState();
     state->hwnd = hEdit;
     state->parent = hParent;
@@ -8506,21 +8506,21 @@ __declspec(dllexport) HWND __stdcall CreateEditBox(
     state->vertical_center = (vertical_center != 0);
     state->key_callback = nullptr;
 
-    // 鉁?鍒涘缓鑳屾櫙鐢诲埛锛堝彧鍒涘缓涓€娆★紝閬垮厤閲嶅鍒涘缓瀵艰嚧闂儊锛?
+    // 创建背景画刷（只创建一次，避免重复创建导致闪烁）
     RebuildBrush(state->bg_brush, bg_color);
     
     g_editboxes[hEdit] = state;
     EW_StoreLogicalBounds(hEdit, x, y, width, height, true);
     LogEditBoxSnapshot("CreateEditBox:created", hEdit);
     
-    // 璁剧疆瀛椾綋
+    // 设置字体
     HFONT hFont = CreateCustomFont(state->font);
     SendMessage(hEdit, WM_SETFONT, (WPARAM)hFont, TRUE);
 
-    // 瀛愮被鍖栦互澶勭悊棰滆壊銆佸瀭鐩村眳涓€佹寜閿洖璋?
+    // 子类化以处理颜色、垂直居中和按键回调
     SetWindowSubclass(hEdit, EditBoxSubclassProc, 0, (DWORD_PTR)state);
 
-    // 缁欏崟琛岃緭鍏ユ淇濈暀鍩虹宸﹀彸鍐呰竟璺濓紝閬垮厤澶у瓧鍙锋椂鏂囨湰璐磋竟銆?
+    // 设置左右内边距，避免文字贴边
     SendMessageW(hEdit, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELPARAM(12, 12));
 
     if (state->vertical_center && !state->multiline) {
@@ -8559,7 +8559,7 @@ __declspec(dllexport) int __stdcall GetEditBoxText(
     std::wstring text(len + 1, 0);
     GetWindowTextW(hEdit, &text[0], len + 1);
     
-    // 杞崲涓?UTF-8
+    // 转换为 UTF-8
     int utf8_len = WideCharToMultiByte(CP_UTF8, 0, text.c_str(), -1, NULL, 0, NULL, NULL);
     if (buffer == nullptr) {
         return utf8_len > 0 ? utf8_len - 1 : 0;
@@ -8569,7 +8569,7 @@ __declspec(dllexport) int __stdcall GetEditBoxText(
     }
     
     WideCharToMultiByte(CP_UTF8, 0, text.c_str(), -1, (LPSTR)buffer, buffer_size, NULL, NULL);
-    return utf8_len - 1;  // 涓嶅寘鎷粨灏剧殑 null
+    return utf8_len - 1;  // 不包括结尾的 null
 }
 
 __declspec(dllexport) void __stdcall SetEditBoxText(
@@ -8665,7 +8665,7 @@ __declspec(dllexport) void __stdcall SetEditBoxColor(
     state->fg_color = fg_color;
     state->bg_color = bg_color;
     
-    // 鉁?閲嶆柊鍒涘缓鑳屾櫙鐢诲埛
+    // 重新创建背景画刷
     RebuildBrush(state->bg_brush, bg_color);
     
     InvalidateRect(hEdit, NULL, TRUE);
@@ -8690,7 +8690,7 @@ __declspec(dllexport) void __stdcall SetEditBoxBounds(
 
     AppendEditBoxDebugLog("SetEditBoxBounds:input hwnd=%p x=%d y=%d w=%d h=%d current_w=%d current_h=%d", hEdit, x, y, width, height, current_w, current_h);
 
-    // 闃叉姈淇濇姢锛氬閮ㄥ伓鍙戜紶鍏?0/1 瀹介珮鏃讹紝淇濇寔褰撳墠鏈夋晥灏哄锛岄伩鍏嶇紪杈戞琚帇鎵佸悗鈥滄秷澶扁€濄€?
+    // 防抖保护：外部偶发传入 0/1 宽高时，保持当前有效尺寸，避免编辑框被压扁后“消失”
     if (safe_width <= 1) {
         int fallback_w = d2d ? max(1, d2d->width) : current_w;
         safe_width = max(1, fallback_w);
@@ -8828,7 +8828,7 @@ __declspec(dllexport) void __stdcall SetEditBoxKeyCallback(
     it->second->key_callback = callback;
 }
 
-// 鑾峰彇缂栬緫妗嗗瓧浣撲俊鎭?
+// 获取编辑框字体信息
 __declspec(dllexport) int __stdcall GetEditBoxFont(
     HWND hEdit,
     unsigned char* font_name_buffer,
@@ -8871,7 +8871,7 @@ __declspec(dllexport) int __stdcall GetEditBoxFont(
     return (int)utf8_name.size();
 }
 
-// 鑾峰彇缂栬緫妗嗛鑹?
+// 获取编辑框颜色
 __declspec(dllexport) int __stdcall GetEditBoxColor(
     HWND hEdit,
     UINT32* fg_color,
@@ -8892,7 +8892,7 @@ __declspec(dllexport) int __stdcall GetEditBoxColor(
     return 0;
 }
 
-// 鑾峰彇缂栬緫妗嗕綅缃拰澶у皬
+// 获取编辑框位置和大小
 __declspec(dllexport) int __stdcall GetEditBoxBounds(
     HWND hEdit,
     int* x,
@@ -8905,7 +8905,7 @@ __declspec(dllexport) int __stdcall GetEditBoxBounds(
     RECT rc;
     if (!GetWindowRect(hEdit, &rc)) return -1;
 
-    // 杞崲涓虹埗绐楀彛瀹㈡埛鍖哄潗鏍?
+    // 转换为父窗口客户区坐标
     HWND hParent = GetParent(hEdit);
     if (hParent) {
         POINT pt = { rc.left, rc.top };
@@ -8921,7 +8921,7 @@ __declspec(dllexport) int __stdcall GetEditBoxBounds(
     return 0;
 }
 
-// 鑾峰彇缂栬緫妗嗗榻愭柟寮?
+// 获取编辑框对齐方式
 __declspec(dllexport) int __stdcall GetEditBoxAlignment(
     HWND hEdit
 ) {
@@ -8981,7 +8981,7 @@ __declspec(dllexport) void __stdcall SetEditBoxAlignment(
     InvalidateRect(hEdit, NULL, TRUE);
 }
 
-// 鑾峰彇缂栬緫妗嗗惎鐢ㄧ姸鎬?
+// 获取编辑框启用状态
 __declspec(dllexport) int __stdcall GetEditBoxEnabled(
     HWND hEdit
 ) {
@@ -8992,7 +8992,7 @@ __declspec(dllexport) int __stdcall GetEditBoxEnabled(
     return IsWindowEnabled(hEdit) ? 1 : 0;
 }
 
-// 鑾峰彇缂栬緫妗嗗彲瑙嗙姸鎬?
+// 获取编辑框可视状态
 __declspec(dllexport) int __stdcall GetEditBoxVisible(
     HWND hEdit
 ) {
@@ -9017,9 +9017,9 @@ extern "C" __declspec(dllexport) HWND __stdcall CreateD2DColorEmojiEditBox(
     bool vertical_center
 );
 
-// 鍒涘缓褰╄壊Emoji缂栬緫妗?
-// 杩欓噷搴斾娇鐢ㄧ郴缁熺紪杈戞锛圧ichEdit锛夎矾寰勶紝淇濊瘉涓?ShowEditBox/SetEditBoxBounds 绛?API 涓€鑷淬€?
-// D2D 鑷粯缂栬緫妗嗚浣跨敤 CreateD2DColorEmojiEditBox銆?
+// 创建彩色 Emoji 编辑框
+// 这里应使用系统编辑框（RichEdit）路径，保证与 ShowEditBox/SetEditBoxBounds 等 API 一致
+// D2D 自绘编辑框请使用 CreateD2DColorEmojiEditBox
 __declspec(dllexport) HWND __stdcall CreateColorEmojiEditBox(
     HWND hParent,
     int x, int y, int width, int height,
@@ -9061,7 +9061,7 @@ __declspec(dllexport) HWND __stdcall CreateColorEmojiEditBox(
 }
 
 // ========================================
-// 鏍囩瀵煎嚭鍑芥暟
+// 标签导出函数
 // ========================================
 
 __declspec(dllexport) HWND __stdcall CreateLabel(
@@ -9078,13 +9078,13 @@ __declspec(dllexport) HWND __stdcall CreateLabel(
     BOOL italic,
     BOOL underline,
     int alignment,
-    BOOL word_wrap  // 鉁?鏂板鍙傛暟: 鏄惁鎹㈣鏄剧ず
+    BOOL word_wrap  // 新增参数：是否换行显示
 ) {
-    // 杞崲鏂囨湰
+    // 转换文本
     std::wstring text = Utf8ToWide(text_bytes, text_len);
     std::wstring font_name = Utf8ToWide(font_name_bytes, font_name_len);
     
-    // 鍒涘缓鏍囩
+    // 创建标签
     EnsureSharedRenderFactoriesInitialized();
     RECT px_rect = EW_LogicalChildRectToPx(hParent, x, y, width, height, true);
     int id = g_next_control_id++;
@@ -9104,7 +9104,7 @@ __declspec(dllexport) HWND __stdcall CreateLabel(
         return NULL;
     }
     
-    // 鍒涘缓鐘舵€佸璞?
+    // 创建状态对象
     LabelState* state = new LabelState();
     state->hwnd = hLabel;
     state->parent = hParent;
@@ -9122,14 +9122,14 @@ __declspec(dllexport) HWND __stdcall CreateLabel(
     state->font.italic = italic != 0;
     state->font.underline = underline != 0;
     state->alignment = (TextAlignment)alignment;
-    state->word_wrap = word_wrap != 0;  // 鉁?淇濆瓨鎹㈣璁剧疆
+    state->word_wrap = word_wrap != 0;  // 保存换行设置
 
     RebuildLabelBackgroundBrush(state);
     
     g_labels[hLabel] = state;
     EW_StoreLogicalBounds(hLabel, x, y, width, height, true);
     
-    // 瀛愮被鍖栦互鑷畾涔夌粯鍒?
+    // 子类化以自定义绘制
     SetWindowSubclass(hLabel, LabelSubclassProc, 0, (DWORD_PTR)state);
     
     return hLabel;
@@ -9146,12 +9146,12 @@ __declspec(dllexport) int __stdcall GetLabelText(
     LabelState* state = it->second;
     std::string utf8_text = WindowWideToUtf8(state->text);
 
-    // 绗竴娆¤皟鐢細杩斿洖鎵€闇€闀垮害
+    // 第一次调用：返回所需长度
     if (buffer == nullptr) {
         return (int)utf8_text.size();
     }
 
-    // 绗簩娆¤皟鐢細澶嶅埗鏁版嵁
+    // 第二次调用：复制数据
     if (buffer_size < (int)utf8_text.size()) return -1;
     memcpy(buffer, utf8_text.c_str(), utf8_text.size());
     return (int)utf8_text.size();
@@ -9263,7 +9263,7 @@ __declspec(dllexport) void __stdcall ShowLabel(
     }
 }
 
-// 鑾峰彇鏍囩瀛椾綋淇℃伅
+// 获取标签字体信息
 __declspec(dllexport) int __stdcall GetLabelFont(
     HWND hLabel,
     unsigned char* font_name_buffer,
@@ -9279,24 +9279,24 @@ __declspec(dllexport) int __stdcall GetLabelFont(
     LabelState* state = it->second;
     std::string utf8_name = WindowWideToUtf8(state->font.font_name);
 
-    // 濉厖杈撳嚭鍙傛暟
+    // 填充输出参数
     if (font_size) *font_size = state->font.font_size;
     if (bold) *bold = state->font.bold ? 1 : 0;
     if (italic) *italic = state->font.italic ? 1 : 0;
     if (underline) *underline = state->font.underline ? 1 : 0;
 
-    // 绗竴娆¤皟鐢細杩斿洖瀛椾綋鍚嶆墍闇€闀垮害
+    // 第一次调用：返回字体名所需长度
     if (font_name_buffer == nullptr) {
         return (int)utf8_name.size();
     }
 
-    // 绗簩娆¤皟鐢細澶嶅埗瀛椾綋鍚?
+    // 第二次调用：复制字体名
     if (font_name_buffer_size < (int)utf8_name.size()) return -1;
     memcpy(font_name_buffer, utf8_name.c_str(), utf8_name.size());
     return (int)utf8_name.size();
 }
 
-// 鑾峰彇鏍囩棰滆壊
+// 获取标签颜色
 __declspec(dllexport) int __stdcall GetLabelColor(
     HWND hLabel,
     UINT32* fg_color,
@@ -9311,7 +9311,7 @@ __declspec(dllexport) int __stdcall GetLabelColor(
     return 0;
 }
 
-// 鑾峰彇鏍囩浣嶇疆鍜屽ぇ灏?
+// 获取标签位置和大小
 __declspec(dllexport) int __stdcall GetLabelBounds(
     HWND hLabel,
     int* x,
@@ -9322,7 +9322,7 @@ __declspec(dllexport) int __stdcall GetLabelBounds(
     return EW_ReadLogicalBounds(hLabel, x, y, width, height, true);
 }
 
-// 鑾峰彇鏍囩瀵归綈鏂瑰紡
+// 获取标签对齐方式
 __declspec(dllexport) int __stdcall GetLabelAlignment(
     HWND hLabel
 ) {
@@ -9333,7 +9333,7 @@ __declspec(dllexport) int __stdcall GetLabelAlignment(
     return (int)state->alignment;
 }
 
-// 璁剧疆鏍囩瀵归綈鏂瑰紡锛?=宸?1=涓?2=鍙筹級锛屽垱寤哄悗涔熷彲璋冪敤
+// 设置标签对齐方式（0=左，1=中，2=右），创建后也可调用
 __declspec(dllexport) void __stdcall SetLabelAlignment(
     HWND hLabel,
     int alignment
@@ -9348,16 +9348,16 @@ __declspec(dllexport) void __stdcall SetLabelAlignment(
     else InvalidateRect(hLabel, NULL, TRUE);
 }
 
-// 鑾峰彇鏍囩鍚敤鐘舵€?
+// 获取标签启用状态
 __declspec(dllexport) int __stdcall GetLabelEnabled(
     HWND hLabel
 ) {
     if (!hLabel) return -1;
-    // 瀵逛簬鐖剁粯鍒舵ā寮忕殑鏍囩锛岄€氳繃IsWindowEnabled妫€鏌?
+    // 对于父绘制模式的标签，跳过 IsWindowEnabled 检查
     return IsWindowEnabled(hLabel) ? 1 : 0;
 }
 
-// 鑾峰彇鏍囩鍙鐘舵€?
+// 获取标签可视状态
 __declspec(dllexport) int __stdcall GetLabelVisible(
     HWND hLabel
 ) {
@@ -9365,7 +9365,7 @@ __declspec(dllexport) int __stdcall GetLabelVisible(
     if (it == g_labels.end()) return -1;
 
     LabelState* state = it->second;
-    // 浼樺厛浣跨敤state涓瓨鍌ㄧ殑visible鐘舵€侊紙鐖剁粯鍒舵ā寮忎笅鏇村噯纭級
+    // 优先使用state中存储的visible状态（父绘制模式下更准确）
     if (state->parent_drawn) {
         return state->visible ? 1 : 0;
     }
@@ -9375,9 +9375,9 @@ __declspec(dllexport) int __stdcall GetLabelVisible(
 } // extern "C"
 
 
-// ========== 澶嶉€夋鍔熻兘瀹炵幇 ==========
+// ========== 复选框功能实现 ==========
 
-// 缁樺埗澶嶉€夋锛圗lement UI椋庢牸锛?
+// 绘制复选框（Element UI风格）
 void DrawCheckBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, CheckBoxState* state) {
     if (!rt || !factory || !state) return;
     UINT dpi = EW_GetDpiForReference(state->hwnd, state->parent);
@@ -9393,7 +9393,7 @@ void DrawCheckBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, CheckBoxSt
     }
     auto sx = [draw_scale](float value) { return value * draw_scale; };
 
-    // Element UI 閰嶈壊锛堜娇鐢ㄤ富棰橀鑹诧級
+    // Element UI 配色（使用主题颜色）
     UINT32 primary_color = ThemeColor_Primary();
     UINT32 border_color = ThemeColor_BorderBase();
     UINT32 disabled_color = ThemeColor_TextPlaceholder();
@@ -9409,7 +9409,7 @@ void DrawCheckBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, CheckBoxSt
         style = style_it->second;
     }
 
-    // 澶嶉€夋灏哄锛圗lement UI鏍囧噯锛?
+    // 复选框尺寸（Element UI标准）
     int box_size = EW_LogicalToPx(style == CHECKBOX_STYLE_FILL ? 18 : 18, dpi);
     int box_x = state->x;
     int box_y = state->y + (state->height - box_size) / 2;
@@ -9507,7 +9507,7 @@ void DrawCheckBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, CheckBoxSt
         return;
     }
 
-    // 纭畾澶嶉€夋棰滆壊锛堣В鏋愪富棰橀鑹茬储寮曪級
+    // 确定复选框颜色（解析主题颜色索引）
     UINT32 current_bg = ResolveThemeColor(state->bg_color);
     UINT32 current_border = border_color;
 
@@ -9524,7 +9524,7 @@ void DrawCheckBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, CheckBoxSt
         }
     }
 
-    // 缁樺埗澶嶉€夋鑳屾櫙
+    // 绘制复选框背景
     ID2D1SolidColorBrush* bg_brush = nullptr;
     rt->CreateSolidColorBrush(ColorFromUInt32(current_bg), &bg_brush);
     
@@ -9535,30 +9535,30 @@ void DrawCheckBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, CheckBoxSt
             (FLOAT)(box_x + box_size),
             (FLOAT)(box_y + box_size)
         ),
-        sx(2.0f), sx(2.0f)  // Element UI 鍦嗚
+        sx(2.0f), sx(2.0f)  // Element UI 圆角
     );
     rt->FillRoundedRectangle(box_rect, bg_brush);
     bg_brush->Release();
 
-    // 缁樺埗杈规
+    // 绘制边框
     ID2D1SolidColorBrush* border_brush = nullptr;
     rt->CreateSolidColorBrush(ColorFromUInt32(current_border), &border_brush);
     rt->DrawRoundedRectangle(box_rect, border_brush, sx(1.0f));
     border_brush->Release();
 
-    // 濡傛灉閫変腑锛岀粯鍒跺嬀閫夋爣璁?
+    // 如果选中，绘制勾选标记
     if (state->checked) {
         ID2D1SolidColorBrush* check_brush = nullptr;
         rt->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White), &check_brush);
 
-        // 缁樺埗鍕鹃€夎矾寰勶紙浣跨敤璺緞鍑犱綍锛?
+        // 绘制勾选路径（使用路径几何）
         ID2D1PathGeometry* path = nullptr;
         g_d2d_factory->CreatePathGeometry(&path);
         
         ID2D1GeometrySink* sink = nullptr;
         path->Open(&sink);
         
-        // 鍕鹃€夋爣璁扮殑璺緞鐐?
+        // 勾选标记的路径
         float cx = box_x + box_size / 2.0f;
         float cy = box_y + box_size / 2.0f;
         
@@ -9575,7 +9575,7 @@ void DrawCheckBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, CheckBoxSt
         check_brush->Release();
     }
 
-    // 缁樺埗鏂囨湰鏍囩
+    // 绘制文本标签
     if (!state->text.empty()) {
         IDWriteTextFormat* text_format = nullptr;
         factory->CreateTextFormat(
@@ -9609,7 +9609,7 @@ void DrawCheckBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, CheckBoxSt
             text_format,
             text_rect,
             text_brush,
-            D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT  // 鍚敤褰╄壊 Emoji
+            D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT  // 启用彩色 Emoji
         );
 
         text_brush->Release();
@@ -9617,11 +9617,11 @@ void DrawCheckBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, CheckBoxSt
     }
 }
 
-// 澶嶉€夋绐楀彛杩囩▼锛堝瓙绫诲寲锛?
+// 复选框窗口过程（子类化）
 LRESULT CALLBACK CheckBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     CheckBoxState* state = (CheckBoxState*)dwRefData;
 
-    // 閫氱敤浜嬩欢澶勭悊
+    // 通用事件处理
     HandleCommonEvents(hwnd, msg, wparam, lparam, state ? &state->events : nullptr);
 
     switch (msg) {
@@ -9642,7 +9642,7 @@ LRESULT CALLBACK CheckBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
 
-            // 鍒涘缓D2D娓叉煋鐩爣
+            // 创建D2D渲染目标
             ID2D1HwndRenderTarget* rt = nullptr;
             D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties();
             D2D1_HWND_RENDER_TARGET_PROPERTIES hwnd_props = D2D1::HwndRenderTargetProperties(
@@ -9679,18 +9679,18 @@ LRESULT CALLBACK CheckBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
                 state->pressed = false;
                 ReleaseCapture();
 
-                // 妫€鏌ラ紶鏍囨槸鍚︿粛鍦ㄦ帶浠跺尯鍩熷唴
+                // 检查鼠标是否仍在控件区域内
                 POINT pt;
                 pt.x = GET_X_LPARAM(lparam);
                 pt.y = GET_Y_LPARAM(lparam);
                 RECT rc;
                 GetClientRect(hwnd, &rc);
                 if (PtInRect(&rc, pt)) {
-                    // 鍒囨崲閫変腑鐘舵€?
+                    // 切换选中状态
                     state->checked = !state->checked;
                     InvalidateRect(hwnd, nullptr, FALSE);
 
-                    // 瑙﹀彂鍥炶皟
+                    // 触发回调
                     if (state->callback) {
                         state->callback(hwnd, state->checked);
                     }
@@ -9710,7 +9710,7 @@ LRESULT CALLBACK CheckBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
                 state->hovered = true;
                 InvalidateRect(hwnd, nullptr, FALSE);
 
-                // 璺熻釜榧犳爣绂诲紑
+                // 跟踪鼠标离开
                 TRACKMOUSEEVENT tme = { sizeof(TRACKMOUSEEVENT) };
                 tme.dwFlags = TME_LEAVE;
                 tme.hwndTrack = hwnd;
@@ -9729,7 +9729,7 @@ LRESULT CALLBACK CheckBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
         }
 
         case WM_NCDESTROY: {
-            // 娓呯悊璧勬簮
+            // 清理资源
             RemoveWindowSubclass(hwnd, CheckBoxProc, uIdSubclass);
             g_checkboxes.erase(hwnd);
             g_checkbox_styles.erase(hwnd);
@@ -9742,7 +9742,7 @@ LRESULT CALLBACK CheckBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
     return DefSubclassProc(hwnd, msg, wparam, lparam);
 }
 
-// 鍒涘缓澶嶉€夋
+// 创建复选框
 HWND __stdcall CreateCheckBox(
     HWND hParent,
     int x, int y, int width, int height,
@@ -9760,7 +9760,7 @@ HWND __stdcall CreateCheckBox(
 ) {
     if (!hParent) return nullptr;
     
-    // 鍒濆鍖朌2D鍜孌irectWrite锛堝鏋滃皻鏈垵濮嬪寲锛?
+    // 初始化 D2D 和 DirectWrite（如果尚未初始化）
     if (!g_d2d_factory) {
         D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &g_d2d_factory);
     }
@@ -9778,7 +9778,7 @@ HWND __stdcall CreateCheckBox(
         return nullptr;
     }
     
-    // 鍒涘缓闈欐€佹帶浠朵綔涓哄閫夋瀹瑰櫒
+    // 创建静态控件作为复选框容器
     HWND hwnd = CreateWindowExW(
         0,
         L"STATIC",
@@ -9793,12 +9793,12 @@ HWND __stdcall CreateCheckBox(
 
     if (!hwnd) return nullptr;
 
-    // 鍒涘缓鐘舵€佸璞?
+    // 创建状态对象
     CheckBoxState* state = new CheckBoxState();
     state->hwnd = hwnd;
     state->parent = actual_parent;
     state->id = (int)(INT_PTR)GetMenu(hwnd);
-    state->x = 0;  // 鐩稿浜庢帶浠惰嚜韬?
+    state->x = 0;  // 相对于控件自身
     state->y = 0;
     state->width = EW_RectWidthPx(px_rect);
     state->height = EW_RectHeightPx(px_rect);
@@ -9807,10 +9807,10 @@ HWND __stdcall CreateCheckBox(
     state->enabled = true;
     state->hovered = false;
     state->pressed = false;
-    state->fg_color = fg_color ? fg_color : 0xFF303133;  // Element UI 涓昏鏂囨湰鑹?
-    state->bg_color = bg_color ? bg_color : 0xFFFFFFFF;  // 鐧借壊鑳屾櫙
-    state->check_color = ThemeColor_Primary();  // 涓婚涓昏壊
-    // 浣跨敤浼犲叆鐨勫瓧浣撳弬鏁帮紝濡傛灉鏈彁渚涘垯浣跨敤榛樿鍊?
+    state->fg_color = fg_color ? fg_color : 0xFF303133;  // Element UI 主要文本色
+    state->bg_color = bg_color ? bg_color : 0xFFFFFFFF;  // 白色背景
+    state->check_color = ThemeColor_Primary();  // 主题主色
+    // 使用传入的字体参数，如果未提供则使用默认值
     if (font_name_bytes && font_name_len > 0) {
         state->font.font_name = Utf8ToWide(font_name_bytes, font_name_len);
     } else {
@@ -9822,31 +9822,31 @@ HWND __stdcall CreateCheckBox(
     state->font.underline = (underline != 0);
     state->callback = nullptr;
     
-    // 淇濆瓨鍒板叏灞€map
+    // 保存到全局map
     g_checkboxes[hwnd] = state;
     g_checkbox_styles[hwnd] = CHECKBOX_STYLE_DEFAULT;
     g_checkbox_check_colors[hwnd] = state->check_color;
     EW_StoreLogicalBounds(hwnd, logical_x, logical_y, width, height, true);
     
-    // 濡傛灉鐖剁獥鍙ｆ槸鍒嗙粍妗嗭紝鑷姩娣诲姞鍒板垎缁勬鐨勫瓙鎺т欢鍒楄〃
+    // 如果父窗口是分组框，自动添加到分组框的子控件列表
     if (parent_groupbox) {
         AddChildToGroup(hParent, hwnd);
     }
     
-    // 瀛愮被鍖栫獥鍙?
+    // 子类化窗口
     SetWindowSubclass(hwnd, CheckBoxProc, 0, (DWORD_PTR)state);
     
     return hwnd;
 }
 
-// 鑾峰彇澶嶉€夋閫変腑鐘舵€?
+// 获取复选框选中状态
 BOOL __stdcall GetCheckBoxState(HWND hCheckBox) {
     auto it = g_checkboxes.find(hCheckBox);
     if (it == g_checkboxes.end()) return FALSE;
     return it->second->checked ? TRUE : FALSE;
 }
 
-// 璁剧疆澶嶉€夋閫変腑鐘舵€?
+// 设置复选框选中状态
 void __stdcall SetCheckBoxState(HWND hCheckBox, BOOL checked) {
     auto it = g_checkboxes.find(hCheckBox);
     if (it == g_checkboxes.end()) return;
@@ -9855,7 +9855,7 @@ void __stdcall SetCheckBoxState(HWND hCheckBox, BOOL checked) {
     InvalidateRect(hCheckBox, nullptr, FALSE);
 }
 
-// 璁剧疆澶嶉€夋鍥炶皟
+// 设置复选框回调
 void __stdcall SetCheckBoxCallback(HWND hCheckBox, CheckBoxCallback callback) {
     auto it = g_checkboxes.find(hCheckBox);
     if (it == g_checkboxes.end()) return;
@@ -9863,7 +9863,7 @@ void __stdcall SetCheckBoxCallback(HWND hCheckBox, CheckBoxCallback callback) {
     it->second->callback = callback;
 }
 
-// 鍚敤/绂佺敤澶嶉€夋
+// 启用/禁用复选框
 void __stdcall EnableCheckBox(HWND hCheckBox, BOOL enable) {
     auto it = g_checkboxes.find(hCheckBox);
     if (it == g_checkboxes.end()) return;
@@ -9882,13 +9882,13 @@ void __stdcall EnableCheckBox(HWND hCheckBox, BOOL enable) {
     InvalidateRect(hCheckBox, nullptr, FALSE);
 }
 
-// 鏄剧ず/闅愯棌澶嶉€夋
+// 显示/隐藏复选框
 void __stdcall ShowCheckBox(HWND hCheckBox, BOOL show) {
     if (!hCheckBox) return;
     ShowWindow(hCheckBox, show ? SW_SHOW : SW_HIDE);
 }
 
-// 璁剧疆澶嶉€夋鏂囨湰
+// 设置复选框文本
 void __stdcall SetCheckBoxText(HWND hCheckBox, const unsigned char* text_bytes, int text_len) {
     auto it = g_checkboxes.find(hCheckBox);
     if (it == g_checkboxes.end()) return;
@@ -9897,7 +9897,7 @@ void __stdcall SetCheckBoxText(HWND hCheckBox, const unsigned char* text_bytes, 
     InvalidateRect(hCheckBox, nullptr, FALSE);
 }
 
-// 璁剧疆澶嶉€夋浣嶇疆鍜屽ぇ灏?
+// 设置复选框位置和大小
 void __stdcall SetCheckBoxBounds(HWND hCheckBox, int x, int y, int width, int height) {
     auto it = g_checkboxes.find(hCheckBox);
     if (it == g_checkboxes.end()) return;
@@ -9912,7 +9912,7 @@ void __stdcall SetCheckBoxBounds(HWND hCheckBox, int x, int y, int width, int he
     InvalidateRect(hCheckBox, nullptr, FALSE);
 }
 
-// 鑾峰彇澶嶉€夋鏂囨湰锛圲TF-8锛屼袱娆¤皟鐢ㄦā寮忥級
+// 获取复选框文本（UTF-8，两次调用模式）
 __declspec(dllexport) int __stdcall GetCheckBoxText(
     HWND hCheckBox,
     unsigned char* buffer,
@@ -9932,7 +9932,7 @@ __declspec(dllexport) int __stdcall GetCheckBoxText(
     return (int)utf8_text.size();
 }
 
-// 璁剧疆澶嶉€夋瀛椾綋
+// 设置复选框字体
 __declspec(dllexport) void __stdcall SetCheckBoxFont(
     HWND hCheckBox,
     const unsigned char* font_name_bytes,
@@ -9956,7 +9956,7 @@ __declspec(dllexport) void __stdcall SetCheckBoxFont(
     InvalidateRect(hCheckBox, nullptr, FALSE);
 }
 
-// 鑾峰彇澶嶉€夋瀛椾綋淇℃伅锛堜袱娆¤皟鐢ㄦā寮忥紝杩斿洖瀛椾綋鍚峌TF-8瀛楄妭鏁帮級
+// 获取复选框字体信息（两次调用模式，返回字体名UTF-8字节数）
 __declspec(dllexport) int __stdcall GetCheckBoxFont(
     HWND hCheckBox,
     unsigned char* font_name_buffer,
@@ -9986,7 +9986,7 @@ __declspec(dllexport) int __stdcall GetCheckBoxFont(
     return (int)utf8_name.size();
 }
 
-// 璁剧疆澶嶉€夋棰滆壊
+// 设置复选框颜色
 __declspec(dllexport) void __stdcall SetCheckBoxColor(
     HWND hCheckBox,
     UINT32 fg_color,
@@ -10040,7 +10040,7 @@ __declspec(dllexport) int __stdcall GetCheckBoxStyle(
     return it != g_checkbox_styles.end() ? it->second : CHECKBOX_STYLE_DEFAULT;
 }
 
-// 鑾峰彇澶嶉€夋棰滆壊锛堣繑鍥?鎴愬姛锛?1澶辫触锛?
+// 获取复选框颜色（返回0成功，1失败）
 __declspec(dllexport) int __stdcall GetCheckBoxColor(
     HWND hCheckBox,
     UINT32* fg_color,
@@ -10056,12 +10056,12 @@ __declspec(dllexport) int __stdcall GetCheckBoxColor(
 }
 
 
-// ========== 杩涘害鏉″姛鑳藉疄鐜?==========
+// ========== 进度条功能实现 ==========
 
-// 杩涘害鏉″姩鐢诲畾鏃跺櫒ID鍩烘暟
+// 进度条动画定时器ID基数
 #define PROGRESSBAR_TIMER_BASE 20000
 
-// 缁樺埗杩涘害鏉?
+// 绘制进度条
 void DrawProgressBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ProgressBarState* state) {
     if (!rt || !factory || !state) return;
     UINT dpi = EW_GetDpiForReference(state->hwnd, state->parent);
@@ -10076,16 +10076,16 @@ void DrawProgressBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, Progres
     float width = (float)state->width;
     float height = (float)state->height;
     
-    // Element UI 椋庢牸閰嶈壊锛堣В鏋愪富棰橀鑹茬储寮曪級
+    // Element UI 风格配色（解析主题颜色索引）
     UINT32 bg_color = ResolveThemeColor(state->bg_color);
     UINT32 fg_color = ResolveThemeColor(state->fg_color);
-    // 濡傛灉绂佺敤锛屼娇鐢ㄧ伆鑹?
+    // 如果禁用，使用灰色
     if (!state->enabled) {
-        fg_color = ThemeColor_TextPlaceholder();  // 涓婚绂佺敤鑹?
+        fg_color = ThemeColor_TextPlaceholder();  // 主题禁用色
         bg_color = ThemeColor_BackgroundLight();
     }
     
-    // 缁樺埗鑳屾櫙锛堝渾瑙掔煩褰級
+    // 绘制背景（圆角矩形）
     D2D1_ROUNDED_RECT bg_rect = D2D1::RoundedRect(
         D2D1::RectF(0, 0, width, height),
         radius, radius
@@ -10093,12 +10093,12 @@ void DrawProgressBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, Progres
     brush->SetColor(ColorFromUInt32(bg_color));
     rt->FillRoundedRectangle(bg_rect, brush);
 
-    // 璁＄畻杩涘害鏉″搴?
+    // 计算进度条宽度
     float progress_width = 0;
     
     if (state->indeterminate) {
-        // 涓嶇‘瀹氭ā寮忥細缁樺埗绉诲姩鐨勮繘搴︽潯
-        float bar_width = width * 0.3f;  // 杩涘害鏉″搴︿负鎬诲搴︾殑30%
+        // 不确定模式：绘制移动的进度条
+        float bar_width = width * 0.3f;  // 进度条宽度为总宽度的30%
         float start_x = state->indeterminate_pos * (width + bar_width) - bar_width;
         progress_width = bar_width;
         
@@ -10117,7 +10117,7 @@ void DrawProgressBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, Progres
             }
         }
     } else {
-        // 纭畾妯″紡锛氭牴鎹姩鐢诲€肩粯鍒惰繘搴?
+        // 确定模式：根据动画值绘制进度
         progress_width = (state->animation_value / 100.0f) * width;
         
         if (progress_width > 0) {
@@ -10130,7 +10130,7 @@ void DrawProgressBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, Progres
         }
     }
     
-    // 缁樺埗鐧惧垎姣旀枃鏈?
+    // 绘制百分比文本
     if (state->show_text && !state->indeterminate) {
         wchar_t text[32];
         swprintf_s(text, 32, L"%d%%", state->current_value);
@@ -10167,11 +10167,11 @@ void DrawProgressBar(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, Progres
     brush->Release();
 }
 
-// 杩涘害鏉＄獥鍙ｈ繃绋?
+// 进度条窗口过程
 LRESULT CALLBACK ProgressBarProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     ProgressBarState* state = (ProgressBarState*)dwRefData;
 
-    // 閫氱敤浜嬩欢澶勭悊
+    // 通用事件处理
     HandleCommonEvents(hwnd, msg, wparam, lparam, state ? &state->events : nullptr);
 
     switch (msg) {
@@ -10179,7 +10179,7 @@ LRESULT CALLBACK ProgressBarProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
             
-            // 鍒涘缓 D2D 娓叉煋鐩爣
+            // 创建 D2D 渲染目标
             ID2D1HwndRenderTarget* rt = nullptr;
             D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties();
             D2D1_HWND_RENDER_TARGET_PROPERTIES hwnd_props = D2D1::HwndRenderTargetProperties(
@@ -10219,22 +10219,22 @@ LRESULT CALLBACK ProgressBarProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                 bool need_redraw = false;
                 
                 if (state->indeterminate) {
-                    // 涓嶇‘瀹氭ā寮忓姩鐢?
+                    // 不确定模式动画
                     state->indeterminate_pos += 0.02f;
                     if (state->indeterminate_pos > 1.0f) {
                         state->indeterminate_pos = 0.0f;
                     }
                     need_redraw = true;
                 } else {
-                    // 骞虫粦杩囨浮鍔ㄧ敾
+                    // 平滑过渡动画
                     float diff = state->target_value - state->animation_value;
                     if (fabs(diff) > 0.1f) {
-                        state->animation_value += diff * 0.15f;  // 骞虫粦绯绘暟
+                        state->animation_value += diff * 0.15f;  // 平滑系数
                         need_redraw = true;
                     } else {
                         state->animation_value = (float)state->target_value;
                         if (state->current_value == state->target_value) {
-                            // 鍔ㄧ敾瀹屾垚锛屽仠姝㈠畾鏃跺櫒
+                            // 动画完成，停止定时器
                             KillTimer(hwnd, state->timer_id);
                             state->timer_id = 0;
                         }
@@ -10259,15 +10259,15 @@ LRESULT CALLBACK ProgressBarProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
         }
 
         case WM_NCDESTROY: {
-            // 娓呯悊瀹氭椂鍣?
+            // 清理定时器
             if (state->timer_id != 0) {
                 KillTimer(hwnd, state->timer_id);
             }
             
-            // 绉婚櫎瀛愮被鍖?
+            // 移除子类
             RemoveWindowSubclass(hwnd, ProgressBarProc, uIdSubclass);
             
-            // 浠庡叏灞€map涓Щ闄?
+            // 从全局map中移除
             g_progressbars.erase(hwnd);
             delete state;
             return 0;
@@ -10277,7 +10277,7 @@ LRESULT CALLBACK ProgressBarProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
     return DefSubclassProc(hwnd, msg, wparam, lparam);
 }
 
-// 鍒涘缓杩涘害鏉?
+// 创建进度条
 __declspec(dllexport) HWND __stdcall CreateProgressBar(
     HWND hParent,
     int x, int y, int width, int height,
@@ -10289,14 +10289,14 @@ __declspec(dllexport) HWND __stdcall CreateProgressBar(
 ) {
     if (!hParent) return NULL;
     
-    // 闄愬埗鍒濆鍊艰寖鍥?
+    // 限制初始值范围
     if (initial_value < 0) initial_value = 0;
     if (initial_value > 100) initial_value = 100;
     
-    // 鐢熸垚鍞竴ID
+    // 生成唯一ID
     int id = g_next_control_id++;
     
-    // 鍒涘缓闈欐€佹帶浠朵綔涓哄鍣?
+    // 创建静态控件作为容器
     RECT px_rect = EW_LogicalChildRectToPx(hParent, x, y, width, height, true);
     HWND hProgressBar = CreateWindowExW(
         0,
@@ -10314,7 +10314,7 @@ __declspec(dllexport) HWND __stdcall CreateProgressBar(
         return NULL;
     }
     
-    // 鍒涘缓鐘舵€佸璞?
+    // 创建状态对象
     ProgressBarState* state = new ProgressBarState();
     state->hwnd = hProgressBar;
     state->parent = hParent;
@@ -10331,7 +10331,7 @@ __declspec(dllexport) HWND __stdcall CreateProgressBar(
     state->enabled = true;
     state->fg_color = fg_color;
     state->bg_color = bg_color;
-    state->border_color = 9;  // 涓婚杈规鑹茬储寮?(THEME_COLOR_BORDER_BASE)
+    state->border_color = 9;  // 主题边框色索引(THEME_COLOR_BORDER_BASE)
     state->text_color = text_color;
     state->show_text = show_text != 0;
     state->font.font_name = L"Microsoft YaHei UI";
@@ -10345,13 +10345,13 @@ __declspec(dllexport) HWND __stdcall CreateProgressBar(
     g_progressbars[hProgressBar] = state;
     EW_StoreLogicalBounds(hProgressBar, x, y, width, height, true);
     
-    // 瀛愮被鍖栦互鑷畾涔夌粯鍒?
+    // 子类化以自定义绘制
     SetWindowSubclass(hProgressBar, ProgressBarProc, 0, (DWORD_PTR)state);
     
     return hProgressBar;
 }
 
-// 璁剧疆杩涘害鏉″€?
+// 设置进度条值
 __declspec(dllexport) void __stdcall SetProgressValue(
     HWND hProgressBar,
     int value
@@ -10361,7 +10361,7 @@ __declspec(dllexport) void __stdcall SetProgressValue(
     
     ProgressBarState* state = it->second;
     
-    // 闄愬埗鍊艰寖鍥?
+    // 限制值范围
     if (value < 0) value = 0;
     if (value > 100) value = 100;
     
@@ -10369,12 +10369,12 @@ __declspec(dllexport) void __stdcall SetProgressValue(
     state->target_value = value;
     state->current_value = value;
     
-    // 鍚姩鍔ㄧ敾瀹氭椂鍣?
+    // 启动动画定时器
     if (state->timer_id == 0) {
         state->timer_id = SetTimer(hProgressBar, PROGRESSBAR_TIMER_BASE + state->id, 16, NULL);  // 60fps
     }
     
-    // 瑙﹀彂鍥炶皟
+    // 触发回调
     if (state->callback && old_value != value) {
         state->callback(hProgressBar, value);
     }
@@ -10385,7 +10385,7 @@ __declspec(dllexport) void __stdcall SetProgressValue(
     InvalidateRect(hProgressBar, NULL, FALSE);
 }
 
-// 鑾峰彇杩涘害鏉″€?
+// 获取进度条值
 __declspec(dllexport) int __stdcall GetProgressValue(
     HWND hProgressBar
 ) {
@@ -10395,7 +10395,7 @@ __declspec(dllexport) int __stdcall GetProgressValue(
     return it->second->current_value;
 }
 
-// 璁剧疆杩涘害鏉′笉纭畾妯″紡
+// 设置进度条不确定模式
 __declspec(dllexport) void __stdcall SetProgressIndeterminate(
     HWND hProgressBar,
     BOOL indeterminate
@@ -10407,7 +10407,7 @@ __declspec(dllexport) void __stdcall SetProgressIndeterminate(
     state->indeterminate = indeterminate != 0;
     state->indeterminate_pos = 0.0f;
     
-    // 鍚姩鎴栧仠姝㈠姩鐢诲畾鏃跺櫒
+    // 启动或停止动画定时器
     if (state->indeterminate) {
         if (state->timer_id == 0) {
             state->timer_id = SetTimer(hProgressBar, PROGRESSBAR_TIMER_BASE + state->id, 16, NULL);
@@ -10422,7 +10422,7 @@ __declspec(dllexport) void __stdcall SetProgressIndeterminate(
     InvalidateRect(hProgressBar, NULL, FALSE);
 }
 
-// 璁剧疆杩涘害鏉￠鑹?
+// 设置进度条颜色
 __declspec(dllexport) void __stdcall SetProgressBarColor(
     HWND hProgressBar,
     UINT32 fg_color,
@@ -10449,7 +10449,7 @@ __declspec(dllexport) void __stdcall SetProgressBarTextColor(
     InvalidateRect(hProgressBar, NULL, FALSE);
 }
 
-// 璁剧疆杩涘害鏉″洖璋?
+// 设置进度条回调
 __declspec(dllexport) void __stdcall SetProgressBarCallback(
     HWND hProgressBar,
     ProgressBarCallback callback
@@ -10460,7 +10460,7 @@ __declspec(dllexport) void __stdcall SetProgressBarCallback(
     it->second->callback = callback;
 }
 
-// 鍚敤/绂佺敤杩涘害鏉?
+// 启用/禁用进度条
 __declspec(dllexport) void __stdcall EnableProgressBar(
     HWND hProgressBar,
     BOOL enable
@@ -10475,7 +10475,7 @@ __declspec(dllexport) void __stdcall EnableProgressBar(
     InvalidateRect(hProgressBar, NULL, FALSE);
 }
 
-// 鏄剧ず/闅愯棌杩涘害鏉?
+// 显示/隐藏进度条
 __declspec(dllexport) void __stdcall ShowProgressBar(
     HWND hProgressBar,
     BOOL show
@@ -10486,7 +10486,7 @@ __declspec(dllexport) void __stdcall ShowProgressBar(
     ShowWindow(hProgressBar, show ? SW_SHOW : SW_HIDE);
 }
 
-// 璁剧疆杩涘害鏉′綅缃拰澶у皬
+// 设置进度条位置和大小
 __declspec(dllexport) void __stdcall SetProgressBarBounds(
     HWND hProgressBar,
     int x, int y, int width, int height
@@ -10505,7 +10505,7 @@ __declspec(dllexport) void __stdcall SetProgressBarBounds(
     InvalidateRect(hProgressBar, NULL, FALSE);
 }
 
-// 璁剧疆鏄惁鏄剧ず鐧惧垎姣旀枃鏈?
+// 设置是否显示百分比文本
 __declspec(dllexport) void __stdcall SetProgressBarShowText(
     HWND hProgressBar,
     BOOL show_text
@@ -10519,7 +10519,7 @@ __declspec(dllexport) void __stdcall SetProgressBarShowText(
     InvalidateRect(hProgressBar, NULL, FALSE);
 }
 
-// 鑾峰彇杩涘害鏉￠鑹?
+// 获取进度条颜色
 __declspec(dllexport) int __stdcall GetProgressBarColor(
     HWND hProgressBar,
     UINT32* fg_color,
@@ -10534,7 +10534,7 @@ __declspec(dllexport) int __stdcall GetProgressBarColor(
     return 0;
 }
 
-// 鑾峰彇杩涘害鏉′綅缃拰澶у皬
+// 获取进度条位置和大小
 __declspec(dllexport) int __stdcall GetProgressBarBounds(
     HWND hProgressBar,
     int* x,
@@ -10545,7 +10545,7 @@ __declspec(dllexport) int __stdcall GetProgressBarBounds(
     return EW_ReadLogicalBounds(hProgressBar, x, y, width, height, true);
 }
 
-// 鑾峰彇杩涘害鏉″惎鐢ㄧ姸鎬?
+// 获取进度条启用状态
 __declspec(dllexport) int __stdcall GetProgressBarEnabled(
     HWND hProgressBar
 ) {
@@ -10553,7 +10553,7 @@ __declspec(dllexport) int __stdcall GetProgressBarEnabled(
     return IsWindowEnabled(hProgressBar) ? 1 : 0;
 }
 
-// 鑾峰彇杩涘害鏉″彲瑙嗙姸鎬?
+// 获取进度条可视状态
 __declspec(dllexport) int __stdcall GetProgressBarVisible(
     HWND hProgressBar
 ) {
@@ -10561,7 +10561,7 @@ __declspec(dllexport) int __stdcall GetProgressBarVisible(
     return IsWindowVisible(hProgressBar) ? 1 : 0;
 }
 
-// 鑾峰彇杩涘害鏉℃槸鍚︽樉绀虹櫨鍒嗘瘮鏂囨湰
+// 获取进度条是否显示百分比文本
 __declspec(dllexport) int __stdcall GetProgressBarShowText(
     HWND hProgressBar
 ) {
@@ -10570,16 +10570,16 @@ __declspec(dllexport) int __stdcall GetProgressBarShowText(
     return it->second->show_text ? 1 : 0;
 }
 
-// ========== 鍥剧墖妗嗗姛鑳藉疄鐜?==========
+// ========== 图片框功能实现 ==========
 
-// 缁樺埗鍥剧墖妗?
+// 绘制图片框
 void DrawPictureBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, PictureBoxState* state) {
     if (!rt || !state) return;
     
     float width = (float)state->width;
     float height = (float)state->height;
     
-    // 缁樺埗鑳屾櫙
+    // 绘制背景
     ID2D1SolidColorBrush* brush = nullptr;
     rt->CreateSolidColorBrush(ColorFromUInt32(state->bg_color), &brush);
     if (brush) {
@@ -10587,7 +10587,7 @@ void DrawPictureBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, PictureB
         brush->Release();
     }
     
-    // 濡傛灉鏈夊浘鐗囷紝缁樺埗鍥剧墖
+    // 如果有图片，绘制图片
     if (state->bitmap) {
         D2D1_SIZE_F bitmapSize = state->bitmap->GetSize();
         D2D1_RECT_F destRect;
@@ -10599,17 +10599,17 @@ void DrawPictureBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, PictureB
 
         switch (scale_mode) {
             case SCALE_NONE: {
-                // 涓嶇缉鏀撅紝宸︿笂瑙掑榻?
+                // 不缩放，左上角对齐
                 destRect = D2D1::RectF(0, 0, bitmapSize.width, bitmapSize.height);
                 break;
             }
             case SCALE_STRETCH: {
-                // 鎷変几濉厖鏁翠釜鎺т欢
+                // 拉伸填充整个控件
                 destRect = D2D1::RectF(0, 0, width, height);
                 break;
             }
             case SCALE_FIT: {
-                // 绛夋瘮缂╂斁閫傚簲鎺т欢
+                // 等比缩放适应控件
                 float scaleX = width / bitmapSize.width;
                 float scaleY = height / bitmapSize.height;
                 float scale = min(scaleX, scaleY);
@@ -10623,7 +10623,7 @@ void DrawPictureBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, PictureB
                 break;
             }
             case SCALE_CENTER: {
-                // 灞呬腑鏄剧ず锛屼笉缂╂斁
+                // 居中显示，不缩放
                 float offsetX = (width - bitmapSize.width) / 2.0f;
                 float offsetY = (height - bitmapSize.height) / 2.0f;
                 
@@ -10635,7 +10635,7 @@ void DrawPictureBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, PictureB
                 break;
         }
         
-        // 缁樺埗鍥剧墖锛屽簲鐢ㄩ€忔槑搴?
+        // 绘制图片，应用透明度
         rt->DrawBitmap(
             state->bitmap,
             destRect,
@@ -10646,11 +10646,11 @@ void DrawPictureBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, PictureB
     }
 }
 
-// 鍥剧墖妗嗙獥鍙ｈ繃绋?
+// 图片框窗口过程
 LRESULT CALLBACK PictureBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     PictureBoxState* state = (PictureBoxState*)dwRefData;
 
-    // 閫氱敤浜嬩欢澶勭悊
+    // 通用事件处理
     bool allow_common_events = state && (state->enabled || msg == WM_MOUSELEAVE || msg == WM_KILLFOCUS || msg == WM_NCDESTROY);
     if (allow_common_events && HandleCommonEvents(hwnd, msg, wparam, lparam, &state->events)) {
         return 0;
@@ -10667,7 +10667,7 @@ LRESULT CALLBACK PictureBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
             
-            // 鍒涘缓D2D娓叉煋鐩爣
+            // 创建D2D渲染目标
             ID2D1HwndRenderTarget* rt = nullptr;
             D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties();
             D2D1_HWND_RENDER_TARGET_PROPERTIES hwndProps = D2D1::HwndRenderTargetProperties(
@@ -10684,25 +10684,25 @@ LRESULT CALLBACK PictureBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
                 rt->BeginDraw();
                 rt->Clear(D2D1::ColorF(D2D1::ColorF::White, 0.0f));
                 
-                // 鈿狅笍 鍏抽敭淇锛氭瘡娆￠兘浠嶹IC婧愰噸鏂板垱寤轰綅鍥撅紝纭繚浣嶅浘涓庡綋鍓嶆覆鏌撶洰鏍囧吋瀹?
+                // ⚠️ 关键修复：每次都从WIC源重新创建位图，确保位图与当前渲染目标兼容
                 if (state->wic_source) {
-                    // 閲婃斁鏃т綅鍥撅紙濡傛灉瀛樺湪锛?
+                    // 释放旧位图（如果存在）
                     if (state->bitmap) {
                         state->bitmap->Release();
                         state->bitmap = nullptr;
                     }
-                    // 浠嶹IC婧愬垱寤烘柊浣嶅浘
+                    // 从WIC源创建新位图
                     HRESULT hr = rt->CreateBitmapFromWicBitmap(state->wic_source, nullptr, &state->bitmap);
                     
-                    // 璋冭瘯杈撳嚭
+                    // 调试输出
                     if (SUCCEEDED(hr) && state->bitmap) {
                         D2D1_SIZE_F size = state->bitmap->GetSize();
-                        OutputDebugStringA("浣嶅浘鍒涘缓鎴愬姛锛屽昂瀵? ");
+                        OutputDebugStringA("位图创建成功，尺寸: ");
                         char buf[256];
                         sprintf_s(buf, "%.0fx%.0f\n", size.width, size.height);
                         OutputDebugStringA(buf);
                     } else {
-                        OutputDebugStringA("浣嶅浘鍒涘缓澶辫触锛乗n");
+                        OutputDebugStringA("位图创建失败！\n");
                     }
                 }
                 
@@ -10728,7 +10728,7 @@ LRESULT CALLBACK PictureBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         }
         
         case WM_NCDESTROY: {
-            // 娓呯悊璧勬簮
+            // 清理资源
             if (state->bitmap) {
                 state->bitmap->Release();
                 state->bitmap = nullptr;
@@ -10738,7 +10738,7 @@ LRESULT CALLBACK PictureBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
                 state->wic_source = nullptr;
             }
             
-            // 浠庡叏灞€map涓Щ闄?
+            // 从全局map中移除
             g_pictureboxes.erase(hwnd);
             delete state;
             
@@ -10750,7 +10750,7 @@ LRESULT CALLBACK PictureBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
     return DefSubclassProc(hwnd, msg, wparam, lparam);
 }
 
-// 鍒涘缓鍥剧墖妗?
+// 创建图片框
 HWND __stdcall CreatePictureBox(
     HWND hParent,
     int x, int y, int width, int height,
@@ -10759,7 +10759,7 @@ HWND __stdcall CreatePictureBox(
 ) {
     if (!hParent) return nullptr;
     
-    // 鍒濆鍖朌2D鍜孌irectWrite锛堝鏋滃皻鏈垵濮嬪寲锛?
+    // 初始化D2D和DirectWrite（如果尚未初始化）
     if (!g_d2d_factory) {
         D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &g_d2d_factory);
     }
@@ -10767,7 +10767,7 @@ HWND __stdcall CreatePictureBox(
         DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
                            reinterpret_cast<IUnknown**>(&g_dwrite_factory));
     }
-    // 鍒濆鍖朩IC宸ュ巶锛堝鏋滃皻鏈垵濮嬪寲锛?
+    // 初始化WIC工厂（如果尚未初始化）
     if (!g_wic_factory) {
         CoInitialize(nullptr);
         CoCreateInstance(
@@ -10778,7 +10778,7 @@ HWND __stdcall CreatePictureBox(
         );
     }
     
-    // 鍒涘缓闈欐€佹帶浠朵綔涓哄浘鐗囨瀹瑰櫒
+    // 创建静态控件作为图片框容器
     RECT px_rect = EW_LogicalChildRectToPx(hParent, x, y, width, height, true);
     HWND hwnd = CreateWindowExW(
         0,
@@ -10794,7 +10794,7 @@ HWND __stdcall CreatePictureBox(
 
     if (!hwnd) return nullptr;
 
-    // 鍒涘缓鐘舵€佸璞?
+    // 创建状态对象
     PictureBoxState* state = new PictureBoxState();
     state->hwnd = hwnd;
     state->parent = hParent;
@@ -10807,21 +10807,21 @@ HWND __stdcall CreatePictureBox(
     state->wic_source = nullptr;
     state->scale_mode = (ImageScaleMode)scale_mode;
     state->opacity = 1.0f;
-    state->bg_color = bg_color ? bg_color : ThemeColor_BackgroundLight();  // 涓婚娴呰壊鑳屾櫙
+    state->bg_color = bg_color ? bg_color : ThemeColor_BackgroundLight();  // 主题浅色背景
     state->enabled = true;
     state->callback = nullptr;
     
-    // 淇濆瓨鍒板叏灞€map
+    // 保存到全局map
     g_pictureboxes[hwnd] = state;
     EW_StoreLogicalBounds(hwnd, x, y, width, height, true);
     
-    // 瀛愮被鍖栫獥鍙?
+    // 子类化窗口
     SetWindowSubclass(hwnd, PictureBoxProc, 0, (DWORD_PTR)state);
     
     return hwnd;
 }
 
-// 浠庢枃浠跺姞杞藉浘鐗?
+// 从文件加载图片
 BOOL __stdcall LoadImageFromFile(
     HWND hPictureBox,
     const unsigned char* file_path_bytes,
@@ -10832,7 +10832,7 @@ BOOL __stdcall LoadImageFromFile(
     
     PictureBoxState* state = it->second;
     
-    // 娓呴櫎鏃у浘鐗?
+    // 清除旧图片
     if (state->bitmap) {
         state->bitmap->Release();
         state->bitmap = nullptr;
@@ -10844,10 +10844,10 @@ BOOL __stdcall LoadImageFromFile(
     
     if (!g_wic_factory) return FALSE;
     
-    // 杞崲鏂囦欢璺緞
+    // 转换文件路径
     std::wstring file_path = Utf8ToWide(file_path_bytes, path_len);
     
-    // 浣跨敤WIC鍔犺浇鍥剧墖
+    // 使用WIC加载图片
     IWICBitmapDecoder* decoder = nullptr;
     HRESULT hr = g_wic_factory->CreateDecoderFromFilename(
         file_path.c_str(),
@@ -10859,14 +10859,14 @@ BOOL __stdcall LoadImageFromFile(
     
     if (FAILED(hr)) return FALSE;
     
-    // 鑾峰彇绗竴甯?
+    // 获取第一帧
     IWICBitmapFrameDecode* frame = nullptr;
     hr = decoder->GetFrame(0, &frame);
     decoder->Release();
     
     if (FAILED(hr)) return FALSE;
     
-    // 杞崲涓?2bppPBGRA鏍煎紡
+    // 转换为32bppPBGRA格式
     IWICFormatConverter* converter = nullptr;
     hr = g_wic_factory->CreateFormatConverter(&converter);
     
@@ -10888,20 +10888,20 @@ BOOL __stdcall LoadImageFromFile(
         return FALSE;
     }
     
-    // 鈿狅笍 鍏抽敭淇锛氬彧淇濆瓨WIC婧愶紝涓嶅湪杩欓噷鍒涘缓D2D浣嶅浘
-    // D2D浣嶅浘浼氬湪WM_PAINT鏃朵粠WIC婧愬垱寤猴紝杩欐牱鍙互纭繚浣嶅浘涓庢覆鏌撶洰鏍囧尮閰?
+    // ⚠️ 关键修复：只保存WIC源，不在这里创建D2D位图
+    // D2D位图会在WM_PAINT时从WIC源创建，这样可以确保位图与渲染目标匹配
     state->wic_source = converter;
     if (state->events.on_value_changed) {
         state->events.on_value_changed(hPictureBox);
     }
     
-    // 瑙﹀彂閲嶇粯
+    // 触发重绘
     InvalidateRect(hPictureBox, nullptr, TRUE);
     
     return TRUE;
 }
 
-// 浠庡唴瀛樺姞杞藉浘鐗?
+// 从内存加载图片
 BOOL __stdcall LoadImageFromMemory(
     HWND hPictureBox,
     const unsigned char* image_data,
@@ -10909,13 +10909,13 @@ BOOL __stdcall LoadImageFromMemory(
 ) {
     auto it = g_pictureboxes.find(hPictureBox);
     if (it == g_pictureboxes.end()) {
-        OutputDebugStringA("LoadImageFromMemory: 鍥剧墖妗嗘湭鎵惧埌\n");
+        OutputDebugStringA("LoadImageFromMemory: 图片框未找到\n");
         return FALSE;
     }
     
     PictureBoxState* state = it->second;
     
-    // 娓呴櫎鏃у浘鐗?
+    // 清除旧图片
     if (state->bitmap) {
         state->bitmap->Release();
         state->bitmap = nullptr;
@@ -10926,30 +10926,30 @@ BOOL __stdcall LoadImageFromMemory(
     }
     
     if (!g_wic_factory) {
-        OutputDebugStringA("LoadImageFromMemory: WIC宸ュ巶鏈垵濮嬪寲\n");
+        OutputDebugStringA("LoadImageFromMemory: WIC工厂未初始化\n");
         return FALSE;
     }
     
     char buf[256];
-    sprintf_s(buf, "LoadImageFromMemory: 鏁版嵁闀垮害=%d\n", data_len);
+    sprintf_s(buf, "LoadImageFromMemory: 数据长度=%d\n", data_len);
     OutputDebugStringA(buf);
     
-    // 鍒涘缓鍐呭瓨娴?
+    // 创建内存流
     IWICStream* stream = nullptr;
     HRESULT hr = g_wic_factory->CreateStream(&stream);
     if (FAILED(hr)) {
-        OutputDebugStringA("LoadImageFromMemory: 鍒涘缓娴佸け璐n");
+        OutputDebugStringA("LoadImageFromMemory: 创建流失败\n");
         return FALSE;
     }
     
     hr = stream->InitializeFromMemory((BYTE*)image_data, data_len);
     if (FAILED(hr)) {
         stream->Release();
-        OutputDebugStringA("LoadImageFromMemory: 鍒濆鍖栨祦澶辫触\n");
+        OutputDebugStringA("LoadImageFromMemory: 初始化流失败\n");
         return FALSE;
     }
     
-    // 浣跨敤WIC瑙ｇ爜鍥剧墖
+    // 使用WIC解码图片
     IWICBitmapDecoder* decoder = nullptr;
     hr = g_wic_factory->CreateDecoderFromStream(
         stream,
@@ -10961,21 +10961,21 @@ BOOL __stdcall LoadImageFromMemory(
     stream->Release();
     
     if (FAILED(hr)) {
-        OutputDebugStringA("LoadImageFromMemory: 鍒涘缓瑙ｇ爜鍣ㄥけ璐n");
+        OutputDebugStringA("LoadImageFromMemory: 创建解码器失败\n");
         return FALSE;
     }
     
-    // 鑾峰彇绗竴甯?
+    // 获取第一帧
     IWICBitmapFrameDecode* frame = nullptr;
     hr = decoder->GetFrame(0, &frame);
     decoder->Release();
     
     if (FAILED(hr)) {
-        OutputDebugStringA("LoadImageFromMemory: 鑾峰彇甯уけ璐n");
+        OutputDebugStringA("LoadImageFromMemory: 获取帧失败\n");
         return FALSE;
     }
     
-    // 杞崲涓?2bppPBGRA鏍煎紡
+    // 转换为32bppPBGRA格式
     IWICFormatConverter* converter = nullptr;
     hr = g_wic_factory->CreateFormatConverter(&converter);
     
@@ -10994,31 +10994,31 @@ BOOL __stdcall LoadImageFromMemory(
     
     if (FAILED(hr)) {
         if (converter) converter->Release();
-        OutputDebugStringA("LoadImageFromMemory: 鏍煎紡杞崲澶辫触\n");
+        OutputDebugStringA("LoadImageFromMemory: 格式转换失败\n");
         return FALSE;
     }
     
-    // 鑾峰彇鍥剧墖灏哄
+    // 获取图片尺寸
     UINT width, height;
     converter->GetSize(&width, &height);
-    sprintf_s(buf, "LoadImageFromMemory: WIC婧愬垱寤烘垚鍔燂紝灏哄=%dx%d\n", width, height);
+    sprintf_s(buf, "LoadImageFromMemory: WIC源创建成功，尺寸=%dx%d\n", width, height);
     OutputDebugStringA(buf);
     
-    // 鍙繚瀛榃IC婧愶紝涓嶅垱寤篋2D浣嶅浘
-    // D2D浣嶅浘灏嗗湪WM_PAINT涓粠WIC婧愬垱寤猴紝纭繚涓庡綋鍓嶆覆鏌撶洰鏍囧吋瀹?
+    // 只保存WIC源，不创建D2D位图
+    // D2D位图将在WM_PAINT中从WIC源创建，确保与当前渲染目标兼容
     state->wic_source = converter;
     if (state->events.on_value_changed) {
         state->events.on_value_changed(hPictureBox);
     }
     
-    // 鍒锋柊鏄剧ず锛圱RUE琛ㄧず鎿﹂櫎鑳屾櫙锛?
+    // 刷新显示（TRUE表示擦除背景）
     InvalidateRect(hPictureBox, nullptr, TRUE);
     
-    OutputDebugStringA("LoadImageFromMemory: 鎴愬姛\n");
+    OutputDebugStringA("LoadImageFromMemory: 成功\n");
     return TRUE;
 }
 
-// 娓呴櫎鍥剧墖
+// 清除图片
 void __stdcall ClearImage(HWND hPictureBox) {
     auto it = g_pictureboxes.find(hPictureBox);
     if (it == g_pictureboxes.end()) return;
@@ -11026,7 +11026,7 @@ void __stdcall ClearImage(HWND hPictureBox) {
     PictureBoxState* state = it->second;
     bool changed = (state->bitmap != nullptr) || (state->wic_source != nullptr);
     
-    // 閲婃斁鍥剧墖璧勬簮
+    // 释放图片资源
     if (state->bitmap) {
         state->bitmap->Release();
         state->bitmap = nullptr;
@@ -11040,11 +11040,11 @@ void __stdcall ClearImage(HWND hPictureBox) {
         state->events.on_value_changed(hPictureBox);
     }
 
-    // 鍒锋柊鏄剧ず
+    // 刷新显示
     InvalidateRect(hPictureBox, nullptr, FALSE);
 }
 
-// 璁剧疆鍥剧墖閫忔槑搴?
+// 设置图片透明度
 void __stdcall SetImageOpacity(HWND hPictureBox, float opacity) {
     auto it = g_pictureboxes.find(hPictureBox);
     if (it == g_pictureboxes.end()) return;
@@ -11052,7 +11052,7 @@ void __stdcall SetImageOpacity(HWND hPictureBox, float opacity) {
     PictureBoxState* state = it->second;
     float old_opacity = state->opacity;
     
-    // 闄愬埗鑼冨洿鍦?.0-1.0涔嬮棿
+    // 限制范围在0.0-1.0之间
     if (opacity < 0.0f) opacity = 0.0f;
     if (opacity > 1.0f) opacity = 1.0f;
     
@@ -11061,11 +11061,11 @@ void __stdcall SetImageOpacity(HWND hPictureBox, float opacity) {
         state->events.on_value_changed(hPictureBox);
     }
     
-    // 鍒锋柊鏄剧ず
+    // 刷新显示
     InvalidateRect(hPictureBox, nullptr, FALSE);
 }
 
-// 璁剧疆鍥剧墖妗嗗洖璋?
+// 设置图片框回调
 void __stdcall SetPictureBoxCallback(HWND hPictureBox, PictureBoxCallback callback) {
     auto it = g_pictureboxes.find(hPictureBox);
     if (it == g_pictureboxes.end()) return;
@@ -11073,7 +11073,7 @@ void __stdcall SetPictureBoxCallback(HWND hPictureBox, PictureBoxCallback callba
     it->second->callback = callback;
 }
 
-// 鍚敤/绂佺敤鍥剧墖妗?
+// 启用/禁用图片框
 void __stdcall EnablePictureBox(HWND hPictureBox, BOOL enable) {
     auto it = g_pictureboxes.find(hPictureBox);
     if (it == g_pictureboxes.end()) return;
@@ -11086,7 +11086,7 @@ void __stdcall EnablePictureBox(HWND hPictureBox, BOOL enable) {
     InvalidateRect(hPictureBox, nullptr, FALSE);
 }
 
-// 鏄剧ず/闅愯棌鍥剧墖妗?
+// 显示/隐藏图片框
 void __stdcall ShowPictureBox(HWND hPictureBox, BOOL show) {
     if (!hPictureBox) return;
     if (!show && GetFocus() == hPictureBox) {
@@ -11096,7 +11096,7 @@ void __stdcall ShowPictureBox(HWND hPictureBox, BOOL show) {
     ShowWindow(hPictureBox, show ? SW_SHOW : SW_HIDE);
 }
 
-// 璁剧疆鍥剧墖妗嗕綅缃拰澶у皬
+// 设置图片框位置和大小
 void __stdcall SetPictureBoxBounds(HWND hPictureBox, int x, int y, int width, int height) {
     auto it = g_pictureboxes.find(hPictureBox);
     if (it == g_pictureboxes.end()) return;
@@ -11116,7 +11116,7 @@ void __stdcall SetPictureBoxBounds(HWND hPictureBox, int x, int y, int width, in
     InvalidateRect(hPictureBox, nullptr, FALSE);
 }
 
-// 璁剧疆鍥剧墖妗嗙缉鏀炬ā寮?
+// 设置图片框缩放模式
 void __stdcall SetPictureBoxScaleMode(HWND hPictureBox, int scale_mode) {
     auto it = g_pictureboxes.find(hPictureBox);
     if (it == g_pictureboxes.end()) return;
@@ -11144,7 +11144,7 @@ void __stdcall SetPictureBoxScaleMode(HWND hPictureBox, int scale_mode) {
     InvalidateRect(hPictureBox, nullptr, FALSE);
 }
 
-// 璁剧疆鍥剧墖妗嗚儗鏅壊
+// 设置图片框背景色
 void __stdcall SetPictureBoxBackgroundColor(HWND hPictureBox, UINT32 bg_color) {
     auto it = g_pictureboxes.find(hPictureBox);
     if (it == g_pictureboxes.end()) return;
@@ -11158,9 +11158,9 @@ void __stdcall SetPictureBoxBackgroundColor(HWND hPictureBox, UINT32 bg_color) {
     InvalidateRect(hPictureBox, nullptr, FALSE);
 }
 
-// ========== 鍗曢€夋寜閽姛鑳藉疄鐜?==========
+// ========== 单选按钮功能实现 ==========
 
-// 缁樺埗鍗曢€夋寜閽紙Element UI椋庢牸锛?
+// 绘制单选按钮（Element UI风格）
 void DrawRadioButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, RadioButtonState* state) {
     if (!rt || !factory || !state) return;
     UINT dpi = EW_GetDpiForReference(state->hwnd, state->parent);
@@ -11288,7 +11288,7 @@ void DrawRadioButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, RadioBu
         dot_brush->Release();
     }
 
-    // 缁樺埗鏂囨湰鏍囩
+    // 绘制文本标签
     if (!state->text.empty()) {
         IDWriteTextFormat* text_format = nullptr;
         factory->CreateTextFormat(
@@ -11322,7 +11322,7 @@ void DrawRadioButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, RadioBu
             text_format,
             text_rect,
             text_brush,
-            D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT  // 鍚敤褰╄壊 Emoji
+            D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT  // 启用彩色 Emoji
         );
 
         text_brush->Release();
@@ -11330,11 +11330,11 @@ void DrawRadioButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, RadioBu
     }
 }
 
-// 鍗曢€夋寜閽獥鍙ｈ繃绋嬶紙瀛愮被鍖栵級
+// 单选按钮窗口过程（子类化）
 LRESULT CALLBACK RadioButtonProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     RadioButtonState* state = (RadioButtonState*)dwRefData;
 
-    // 閫氱敤浜嬩欢澶勭悊
+    // 通用事件处理
     HandleCommonEvents(hwnd, msg, wparam, lparam, state ? &state->events : nullptr);
 
     switch (msg) {
@@ -11355,7 +11355,7 @@ LRESULT CALLBACK RadioButtonProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
 
-            // 鍒涘缓D2D娓叉煋鐩爣
+            // 创建D2D渲染目标
             ID2D1HwndRenderTarget* rt = nullptr;
             D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties();
             D2D1_HWND_RENDER_TARGET_PROPERTIES hwnd_props = D2D1::HwndRenderTargetProperties(
@@ -11392,16 +11392,16 @@ LRESULT CALLBACK RadioButtonProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                 state->pressed = false;
                 ReleaseCapture();
 
-                // 妫€鏌ラ紶鏍囨槸鍚︿粛鍦ㄦ帶浠跺尯鍩熷唴
+                // 检查鼠标是否仍在控件区域内
                 POINT pt;
                 pt.x = GET_X_LPARAM(lparam);
                 pt.y = GET_Y_LPARAM(lparam);
                 RECT rc;
                 GetClientRect(hwnd, &rc);
                 if (PtInRect(&rc, pt)) {
-                    // 濡傛灉鏈€変腑锛屽垯閫変腑褰撳墠鎸夐挳骞跺彇娑堝悓缁勫叾浠栨寜閽?
+                    // 如果未选中，则选中当前按钮并取消同组其他按钮
                     if (!state->checked) {
-                        // 鍙栨秷鍚岀粍鍏朵粬鎸夐挳鐨勯€変腑鐘舵€?
+                        // 取消同组其他按钮的选中状态
                         auto group_it = g_radio_groups.find(state->group_id);
                         if (group_it != g_radio_groups.end()) {
                             for (HWND other_hwnd : group_it->second) {
@@ -11415,11 +11415,11 @@ LRESULT CALLBACK RadioButtonProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                             }
                         }
 
-                        // 閫変腑褰撳墠鎸夐挳
+                        // 选中当前按钮
                         state->checked = true;
                         InvalidateRect(hwnd, nullptr, FALSE);
 
-                        // 瑙﹀彂鍥炶皟
+                        // 触发回调
                         if (state->callback) {
                             state->callback(hwnd, state->group_id, TRUE);
                         }
@@ -11440,7 +11440,7 @@ LRESULT CALLBACK RadioButtonProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                 state->hovered = true;
                 InvalidateRect(hwnd, nullptr, FALSE);
 
-                // 璺熻釜榧犳爣绂诲紑
+                // 跟踪鼠标离开
                 TRACKMOUSEEVENT tme = { sizeof(TRACKMOUSEEVENT) };
                 tme.dwFlags = TME_LEAVE;
                 tme.hwndTrack = hwnd;
@@ -11459,7 +11459,7 @@ LRESULT CALLBACK RadioButtonProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
         }
 
         case WM_NCDESTROY: {
-            // 浠庡垎缁勪腑绉婚櫎
+            // 从分组中移除
             auto group_it = g_radio_groups.find(state->group_id);
             if (group_it != g_radio_groups.end()) {
                 auto& group = group_it->second;
@@ -11469,7 +11469,7 @@ LRESULT CALLBACK RadioButtonProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                 }
             }
 
-            // 娓呯悊璧勬簮
+            // 清理资源
             RemoveWindowSubclass(hwnd, RadioButtonProc, uIdSubclass);
             g_radio_styles.erase(hwnd);
             g_radiobuttons.erase(hwnd);
@@ -11481,7 +11481,7 @@ LRESULT CALLBACK RadioButtonProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
     return DefSubclassProc(hwnd, msg, wparam, lparam);
 }
 
-// 鍒涘缓鍗曢€夋寜閽?
+// 创建单选按钮
 HWND __stdcall CreateRadioButton(
     HWND hParent,
     int x, int y, int width, int height,
@@ -11500,7 +11500,7 @@ HWND __stdcall CreateRadioButton(
 ) {
     if (!hParent) return nullptr;
     
-    // 鍒濆鍖朌2D鍜孌irectWrite锛堝鏋滃皻鏈垵濮嬪寲锛?
+    // 初始化D2D和DirectWrite（如果尚未初始化）
     if (!g_d2d_factory) {
         D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &g_d2d_factory);
     }
@@ -11518,7 +11518,7 @@ HWND __stdcall CreateRadioButton(
         return nullptr;
     }
     
-    // 鍒涘缓闈欐€佹帶浠朵綔涓哄崟閫夋寜閽鍣?
+    // 创建静态控件作为单选按钮容器
     HWND hwnd = CreateWindowExW(
         0,
         L"STATIC",
@@ -11533,13 +11533,13 @@ HWND __stdcall CreateRadioButton(
     
     if (!hwnd) return nullptr;
     
-    // 鍒涘缓鐘舵€佸璞?
+    // 创建状态对象
     RadioButtonState* state = new RadioButtonState();
     state->hwnd = hwnd;
     state->parent = actual_parent;
     state->id = (int)(INT_PTR)GetMenu(hwnd);
     state->group_id = group_id;
-    state->x = 0;  // 鐩稿浜庢帶浠惰嚜韬?
+    state->x = 0;  // 相对于控件自身
     state->y = 0;
     state->width = EW_RectWidthPx(px_rect);
     state->height = EW_RectHeightPx(px_rect);
@@ -11548,10 +11548,10 @@ HWND __stdcall CreateRadioButton(
     state->enabled = true;
     state->hovered = false;
     state->pressed = false;
-    state->fg_color = fg_color ? fg_color : 0xFF303133;  // Element UI 涓昏鏂囨湰鑹?
-    state->bg_color = bg_color ? bg_color : 0xFFFFFFFF;  // 鐧借壊鑳屾櫙
-    state->dot_color = ThemeColor_Primary();  // 涓婚涓昏壊
-    // 浣跨敤浼犲叆鐨勫瓧浣撳弬鏁帮紝濡傛灉鏈彁渚涘垯浣跨敤榛樿鍊?
+    state->fg_color = fg_color ? fg_color : 0xFF303133;  // Element UI 主要文本色
+    state->bg_color = bg_color ? bg_color : 0xFFFFFFFF;  // 白色背景
+    state->dot_color = ThemeColor_Primary();  // 主题主色
+    // 使用传入的字体参数，如果未提供则使用默认值
     if (font_name_bytes && font_name_len > 0) {
         state->font.font_name = Utf8ToWide(font_name_bytes, font_name_len);
     } else {
@@ -11563,20 +11563,20 @@ HWND __stdcall CreateRadioButton(
     state->font.underline = (underline != 0);
     state->callback = nullptr;
     
-    // 淇濆瓨鍒板叏灞€map
+    // 保存到全局map
     g_radiobuttons[hwnd] = state;
     g_radio_styles[hwnd] = RADIO_STYLE_DEFAULT;
     EW_StoreLogicalBounds(hwnd, logical_x, logical_y, width, height, true);
     
-    // 娣诲姞鍒板垎缁?
+    // 添加到分组
     g_radio_groups[group_id].push_back(hwnd);
     
-    // 濡傛灉鐖剁獥鍙ｆ槸鍒嗙粍妗嗭紝鑷姩娣诲姞鍒板垎缁勬鐨勫瓙鎺т欢鍒楄〃
+    // 如果父窗口是分组框，自动添加到分组框的子控件列表
     if (parent_groupbox) {
         AddChildToGroup(hParent, hwnd);
     }
     
-    // 濡傛灉璁剧疆涓洪€変腑锛屽彇娑堝悓缁勫叾浠栨寜閽?
+    // 如果设置为选中，取消同组其他按钮
     if (state->checked) {
         for (HWND other_hwnd : g_radio_groups[group_id]) {
             if (other_hwnd != hwnd) {
@@ -11588,26 +11588,26 @@ HWND __stdcall CreateRadioButton(
         }
     }
     
-    // 瀛愮被鍖栫獥鍙?
+    // 子类化窗口
     SetWindowSubclass(hwnd, RadioButtonProc, 0, (DWORD_PTR)state);
     
     return hwnd;
 }
 
-// 鑾峰彇鍗曢€夋寜閽€変腑鐘舵€?
+// 获取单选按钮选中状态
 BOOL __stdcall GetRadioButtonState(HWND hRadioButton) {
     auto it = g_radiobuttons.find(hRadioButton);
     if (it == g_radiobuttons.end()) return FALSE;
     return it->second->checked ? TRUE : FALSE;
 }
 
-// 璁剧疆鍗曢€夋寜閽€変腑鐘舵€?
+// 设置单选按钮选中状态
 void __stdcall SetRadioButtonState(HWND hRadioButton, BOOL checked) {
     auto it = g_radiobuttons.find(hRadioButton);
     if (it == g_radiobuttons.end()) return;
     
     if (checked) {
-        // 濡傛灉璁剧疆涓洪€変腑锛屽彇娑堝悓缁勫叾浠栨寜閽?
+        // 如果设置为选中，取消同组其他按钮
         RadioButtonState* state = it->second;
         auto group_it = g_radio_groups.find(state->group_id);
         if (group_it != g_radio_groups.end()) {
@@ -11627,7 +11627,7 @@ void __stdcall SetRadioButtonState(HWND hRadioButton, BOOL checked) {
     InvalidateRect(hRadioButton, nullptr, FALSE);
 }
 
-// 璁剧疆鍗曢€夋寜閽洖璋?
+// 设置单选按钮回调
 void __stdcall SetRadioButtonCallback(HWND hRadioButton, RadioButtonCallback callback) {
     auto it = g_radiobuttons.find(hRadioButton);
     if (it == g_radiobuttons.end()) return;
@@ -11635,7 +11635,7 @@ void __stdcall SetRadioButtonCallback(HWND hRadioButton, RadioButtonCallback cal
     it->second->callback = callback;
 }
 
-// 鍚敤/绂佺敤鍗曢€夋寜閽?
+// 启用/禁用单选按钮
 void __stdcall EnableRadioButton(HWND hRadioButton, BOOL enable) {
     auto it = g_radiobuttons.find(hRadioButton);
     if (it == g_radiobuttons.end()) return;
@@ -11650,18 +11650,18 @@ void __stdcall EnableRadioButton(HWND hRadioButton, BOOL enable) {
         }
     }
 
-    // RadioButton 鏄熀浜?STATIC 瀛愮獥鍙ｈ嚜缁樼殑銆傝繖閲屼笉璋冪敤 EnableWindow锛?
-    // 鍚﹀垯 Windows 鍘熺敓 STATIC 鐨勭鐢ㄦ摝鑳屾櫙娴佺▼浼氭妸鑷粯鍐呭瑕嗙洊鎴愮伆鍧椼€?
+    // RadioButton 是基于 STATIC 子窗口自绘的。这里不调用 EnableWindow。
+    // 否则 Windows 原生 STATIC 的禁用擦背景流程会把自绘内容覆盖成灰块。
     RedrawWindow(hRadioButton, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
 }
 
-// 鏄剧ず/闅愯棌鍗曢€夋寜閽?
+// 显示/隐藏单选按钮
 void __stdcall ShowRadioButton(HWND hRadioButton, BOOL show) {
     if (!hRadioButton) return;
     ShowWindow(hRadioButton, show ? SW_SHOW : SW_HIDE);
 }
 
-// 璁剧疆鍗曢€夋寜閽枃鏈?
+// 设置单选按钮文本
 void __stdcall SetRadioButtonText(HWND hRadioButton, const unsigned char* text_bytes, int text_len) {
     auto it = g_radiobuttons.find(hRadioButton);
     if (it == g_radiobuttons.end()) return;
@@ -11670,7 +11670,7 @@ void __stdcall SetRadioButtonText(HWND hRadioButton, const unsigned char* text_b
     InvalidateRect(hRadioButton, nullptr, FALSE);
 }
 
-// 璁剧疆鍗曢€夋寜閽綅缃拰澶у皬
+// 设置单选按钮位置和大小
 void __stdcall SetRadioButtonBounds(HWND hRadioButton, int x, int y, int width, int height) {
     auto it = g_radiobuttons.find(hRadioButton);
     if (it == g_radiobuttons.end()) return;
@@ -11685,7 +11685,7 @@ void __stdcall SetRadioButtonBounds(HWND hRadioButton, int x, int y, int width, 
     InvalidateRect(hRadioButton, nullptr, FALSE);
 }
 
-// 鑾峰彇鍗曢€夋寜閽綅缃拰澶у皬
+// 获取单选按钮位置和大小
 __declspec(dllexport) int __stdcall GetRadioButtonBounds(
     HWND hRadioButton,
     int* x,
@@ -11696,7 +11696,7 @@ __declspec(dllexport) int __stdcall GetRadioButtonBounds(
     return EW_ReadLogicalBounds(hRadioButton, x, y, width, height, true);
 }
 
-// 鑾峰彇鍗曢€夋寜閽彲瑙嗙姸鎬?
+// 获取单选按钮可视状态
 __declspec(dllexport) int __stdcall GetRadioButtonVisible(
     HWND hRadioButton
 ) {
@@ -11705,7 +11705,7 @@ __declspec(dllexport) int __stdcall GetRadioButtonVisible(
     return IsWindowVisible(hRadioButton) ? 1 : 0;
 }
 
-// 鑾峰彇鍗曢€夋寜閽惎鐢ㄧ姸鎬?
+// 获取单选按钮启用状态
 __declspec(dllexport) int __stdcall GetRadioButtonEnabled(
     HWND hRadioButton
 ) {
@@ -11714,7 +11714,7 @@ __declspec(dllexport) int __stdcall GetRadioButtonEnabled(
     return it->second->enabled ? 1 : 0;
 }
 
-// 鑾峰彇鍗曢€夋寜閽枃鏈紙UTF-8锛屼袱娆¤皟鐢ㄦā寮忥級
+// 获取单选按钮文本（UTF-8，两次调用模式）
 __declspec(dllexport) int __stdcall GetRadioButtonText(
     HWND hRadioButton,
     unsigned char* buffer,
@@ -11734,7 +11734,7 @@ __declspec(dllexport) int __stdcall GetRadioButtonText(
     return (int)utf8_text.size();
 }
 
-// 璁剧疆鍗曢€夋寜閽瓧浣?
+// 设置单选按钮字体
 __declspec(dllexport) void __stdcall SetRadioButtonFont(
     HWND hRadioButton,
     const unsigned char* font_name_bytes,
@@ -11758,7 +11758,7 @@ __declspec(dllexport) void __stdcall SetRadioButtonFont(
     InvalidateRect(hRadioButton, nullptr, FALSE);
 }
 
-// 鑾峰彇鍗曢€夋寜閽瓧浣撲俊鎭紙涓ゆ璋冪敤妯″紡锛岃繑鍥炲瓧浣撳悕UTF-8瀛楄妭鏁帮級
+// 获取单选按钮字体信息（两次调用模式，返回字体名UTF-8字节数）
 __declspec(dllexport) int __stdcall GetRadioButtonFont(
     HWND hRadioButton,
     unsigned char* font_name_buffer,
@@ -11788,7 +11788,7 @@ __declspec(dllexport) int __stdcall GetRadioButtonFont(
     return (int)utf8_name.size();
 }
 
-// 璁剧疆鍗曢€夋寜閽鑹?
+// 设置单选按钮颜色
 __declspec(dllexport) void __stdcall SetRadioButtonColor(
     HWND hRadioButton,
     UINT32 fg_color,
@@ -11802,7 +11802,7 @@ __declspec(dllexport) void __stdcall SetRadioButtonColor(
     InvalidateRect(hRadioButton, nullptr, FALSE);
 }
 
-// 鑾峰彇鍗曢€夋寜閽鑹诧紙杩斿洖0鎴愬姛锛?1澶辫触锛?
+// 获取单选按钮颜色（返回0成功，-1失败）
 __declspec(dllexport) int __stdcall GetRadioButtonColor(
     HWND hRadioButton,
     UINT32* fg_color,
@@ -13530,46 +13530,46 @@ __declspec(dllexport) void __stdcall CloseNotification(HWND hNotification) {
     DestroyWindow(hNotification);
 }
 
-// ========== 鍒楄〃妗嗗姛鑳藉疄鐜?==========
+// ========== 列表框功能实现 ==========
 
-// 缁樺埗鍒楄〃妗?(Element UI椋庢牸)
+// 绘制列表框(Element UI风格)
 void DrawListBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ListBoxState* state) {
     if (!rt || !factory || !state) return;
 
     SyncListBoxDpiMetrics(state);
     D2D1_SIZE_F size = rt->GetSize();
 
-    // Element UI棰滆壊锛堣В鏋愪富棰橀鑹茬储寮曪級
+    // Element UI颜色（解析主题颜色索引）
     D2D1_COLOR_F bg_color = ColorFromUInt32(ResolveThemeColor(state->bg_color));
     D2D1_COLOR_F fg_color = ColorFromUInt32(ResolveThemeColor(state->fg_color));
     D2D1_COLOR_F select_color = ColorFromUInt32(ThemeColor_LightBg(ThemeColor_Primary()));
     D2D1_COLOR_F hover_color = ColorFromUInt32(ThemeColor_BackgroundLight());
     D2D1_COLOR_F border_color = ColorFromUInt32(ThemeColor_BorderBase());
     
-    // 濡傛灉绂佺敤锛屼娇鐢ㄤ富棰橀鑹?
+    // 如果禁用，使用主题颜色
     if (!state->enabled) {
         bg_color = ColorFromUInt32(ThemeColor_BackgroundLight());
         fg_color = ColorFromUInt32(ThemeColor_TextPlaceholder());
     }
     
-    // 鍒涘缓鐢诲埛
+    // 创建画刷
     ID2D1SolidColorBrush* brush = nullptr;
     rt->CreateSolidColorBrush(bg_color, &brush);
     if (!brush) return;
     
-    // 缁樺埗鑳屾櫙
+    // 绘制背景
     D2D1_RECT_F rect = D2D1::RectF(0, 0, size.width, size.height);
     brush->SetColor(bg_color);
     rt->FillRectangle(rect, brush);
     
-    // 缁樺埗杈规 (1px, Element UI椋庢牸)
+    // 绘制边框 (1px, Element UI风格)
     brush->SetColor(border_color);
     rt->DrawRectangle(rect, brush, 1.0f);
     
-    // 鍒涘缓鏂囨湰鏍煎紡锛堜娇鐢⊿egoe UI Emoji鏀寔褰╄壊Emoji锛?
+    // 创建文本格式（使用Segoe UI Emoji支持彩色Emoji）
     IDWriteTextFormat* text_format = nullptr;
     HRESULT hr = factory->CreateTextFormat(
-        L"Segoe UI Emoji",  // 浣跨敤鏀寔褰╄壊Emoji鐨勫瓧浣?
+        L"Segoe UI Emoji",  // 使用支持彩色Emoji的字体
         nullptr,
         DWRITE_FONT_WEIGHT_NORMAL,
         DWRITE_FONT_STYLE_NORMAL,
@@ -13587,7 +13587,7 @@ void DrawListBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ListBoxStat
     text_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
     text_format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     
-    // 鍒涘缓澶囩敤鏂囨湰鏍煎紡锛堢敤浜庝腑鏂囩瓑闈濫moji瀛楃锛?
+    // 创建备用文本格式（用于中文等非Emoji字符）
     IDWriteTextFormat* fallback_format = nullptr;
     factory->CreateTextFormat(
         state->font.font_name.c_str(),
@@ -13600,16 +13600,16 @@ void DrawListBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ListBoxStat
         &fallback_format
     );
     
-    // 璁＄畻鍙鍖哄煙
+    // 计算可见区域
     int visible_start = state->scroll_offset / state->item_height;
     int visible_count = (int)(size.height / state->item_height) + 2;
     int visible_end = min(visible_start + visible_count, (int)state->items.size());
     
-    // 缁樺埗鍙鐨勫垪琛ㄩ」
+    // 绘制可见的列表项
     for (int i = visible_start; i < visible_end; i++) {
         float y = (float)(i * state->item_height - state->scroll_offset);
         
-        // 璺宠繃涓嶅湪鍙鍖哄煙鐨勯」鐩?
+        // 跳过不在可见区域的项目
         if (y + state->item_height < 0 || y > size.height) continue;
         
         D2D1_RECT_F item_rect = D2D1::RectF(
@@ -13619,7 +13619,7 @@ void DrawListBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ListBoxStat
             y + state->item_height
         );
         
-        // 缁樺埗閫変腑鑳屾櫙
+        // 绘制选中背景
         bool is_selected = (i == state->selected_index);
         if (state->multi_select) {
             is_selected = std::find(state->selected_indices.begin(), 
@@ -13630,21 +13630,21 @@ void DrawListBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ListBoxStat
             brush->SetColor(select_color);
             rt->FillRectangle(item_rect, brush);
         }
-        // 缁樺埗鎮仠鑳屾櫙
+        // 绘制悬停背景
         else if (i == state->hovered_index && state->enabled) {
             brush->SetColor(hover_color);
             rt->FillRectangle(item_rect, brush);
         }
         
-        // 缁樺埗鏂囨湰锛堜娇鐢═extLayout鏀寔褰╄壊Emoji锛?
+        // 绘制文本（使用TextLayout支持彩色Emoji）
         D2D1_RECT_F text_rect = D2D1::RectF(
-            item_rect.left + 12,  // 宸﹁竟璺?2px
+            item_rect.left + 12,  // 左边距12px
             item_rect.top,
-            item_rect.right - 12,  // 鍙宠竟璺?2px
+            item_rect.right - 12,  // 右边距12px
             item_rect.bottom
         );
         
-        // 鍒涘缓TextLayout浠ユ敮鎸佸僵鑹睧moji
+        // 创建TextLayout以支持彩色Emoji
         IDWriteTextLayout* text_layout = nullptr;
         hr = factory->CreateTextLayout(
             state->items[i].text.c_str(),
@@ -13658,12 +13658,12 @@ void DrawListBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ListBoxStat
         if (text_layout) {
             brush->SetColor(fg_color);
             
-            // 浣跨敤DrawTextLayout鑰屼笉鏄疍rawTextW锛岃繖鏍峰彲浠ユ敮鎸佸僵鑹睧moji
+            // 使用DrawTextLayout而不是DrawTextW，这样可以支持彩色Emoji
             rt->DrawTextLayout(
                 D2D1::Point2F(text_rect.left, text_rect.top),
                 text_layout,
                 brush,
-                D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT  // 鍚敤褰╄壊瀛椾綋锛?
+                D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT  // 启用彩色字体
             );
             
             text_layout->Release();
@@ -13672,7 +13672,7 @@ void DrawListBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ListBoxStat
     
     if (fallback_format) fallback_format->Release();
     
-    // ===== 缁樺埗婊氬姩鏉?=====
+    // ===== 绘制滚动条 =====
     int total_content_height = (int)state->items.size() * state->item_height;
     int visible_height = (int)size.height;
     if (total_content_height > visible_height) {
@@ -13681,7 +13681,7 @@ void DrawListBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ListBoxStat
         float track_height = size.height - 4.0f;
         float track_y = 2.0f;
         
-        // 婊氬姩鏉¤儗鏅建閬?
+        // 滚动条背景轨道
         ID2D1SolidColorBrush* sb_brush = nullptr;
         rt->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.05f), &sb_brush);
         if (sb_brush) {
@@ -13691,7 +13691,7 @@ void DrawListBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ListBoxStat
             );
             rt->FillRoundedRectangle(track_rect, sb_brush);
             
-            // 婊氬姩鏉℃粦鍧?
+            // 滚动条滑块
             float thumb_ratio = (float)visible_height / (float)total_content_height;
             float thumb_height = (std::max)(20.0f, track_height * thumb_ratio);
             int max_scroll = total_content_height - visible_height;
@@ -13713,7 +13713,7 @@ void DrawListBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ListBoxStat
     brush->Release();
 }
 
-// 鍒楄〃妗嗙獥鍙ｈ繃绋?
+// 列表框窗口过程
 LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, 
                              UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     auto it = g_listboxes.find(hwnd);
@@ -13723,7 +13723,7 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
     
     ListBoxState* state = it->second;
 
-    // 閫氱敤浜嬩欢澶勭悊
+    // 通用事件处理
     HandleCommonEvents(hwnd, msg, wparam, lparam, &state->events);
 
     switch (msg) {
@@ -13731,7 +13731,7 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
             
-            // 鍒涘缓D2D娓叉煋鐩爣
+            // 创建D2D渲染目标
             ID2D1HwndRenderTarget* rt = nullptr;
             D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties();
             D2D1_HWND_RENDER_TARGET_PROPERTIES hwnd_props = D2D1::HwndRenderTargetProperties(
@@ -13785,12 +13785,12 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
                 return 0;
             }
             
-            // 璁＄畻鐐瑰嚮鐨勯」鐩储寮?
+            // 计算点击的项目索引
             int clicked_index = (y + state->scroll_offset) / state->item_height;
             
             if (clicked_index >= 0 && clicked_index < (int)state->items.size()) {
                 if (state->multi_select) {
-                    // 澶氶€夋ā寮忥細鍒囨崲閫変腑鐘舵€?
+                    // 多选模式：切换选中状态
                     auto it_sel = std::find(state->selected_indices.begin(), 
                                            state->selected_indices.end(), clicked_index);
                     if (it_sel != state->selected_indices.end()) {
@@ -13799,11 +13799,11 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
                         state->selected_indices.push_back(clicked_index);
                     }
                 } else {
-                    // 鍗曢€夋ā寮?
+                    // 单选模式
                     state->selected_index = clicked_index;
                 }
                 
-                // 瑙﹀彂鍥炶皟
+                // 触发回调
                 if (state->callback) {
                     state->callback(hwnd, clicked_index);
                 }
@@ -13874,7 +13874,7 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
                 InvalidateRect(hwnd, nullptr, TRUE);
             }
             
-            // 杩借釜榧犳爣绂诲紑浜嬩欢
+            // 追踪鼠标离开事件
             TRACKMOUSEEVENT tme = { sizeof(TRACKMOUSEEVENT) };
             tme.dwFlags = TME_LEAVE;
             tme.hwndTrack = hwnd;
@@ -13895,9 +13895,9 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
             SyncListBoxDpiMetrics(state);
             
             int delta = GET_WHEEL_DELTA_WPARAM(wparam);
-            int scroll_amount = -delta / 3;  // 婊氬姩閲?
+            int scroll_amount = -delta / 3;  // 滚动量
             
-            // 鏇存柊婊氬姩鍋忕Щ
+            // 更新滚动偏移
             int max_scroll = max(0, (int)state->items.size() * state->item_height - state->height);
             state->scroll_offset = max(0, min(max_scroll, state->scroll_offset + scroll_amount));
             
@@ -13922,7 +13922,7 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
             return 0;
         
         case WM_NCDESTROY: {
-            // 娓呯悊璧勬簮
+            // 清理资源
             RemoveWindowSubclass(hwnd, ListBoxProc, uIdSubclass);
             g_listboxes.erase(hwnd);
             delete state;
@@ -13933,7 +13933,7 @@ LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
     return DefSubclassProc(hwnd, msg, wparam, lparam);
 }
 
-// 鍒涘缓鍒楄〃妗?
+// 创建列表框
 HWND __stdcall CreateListBox(
     HWND hParent,
     int x, int y, int width, int height,
@@ -13943,7 +13943,7 @@ HWND __stdcall CreateListBox(
 ) {
     if (!hParent || !IsWindow(hParent)) return nullptr;
 
-    // 鍒涘缓绐楀彛
+    // 创建窗口
     RECT px_rect = EW_LogicalChildRectToPx(hParent, x, y, width, height, true);
     HWND hwnd = CreateWindowExW(
         0,
@@ -13959,7 +13959,7 @@ HWND __stdcall CreateListBox(
 
     if (!hwnd) return nullptr;
 
-    // 鍒涘缓鐘舵€?
+    // 创建状态对象
     ListBoxState* state = new ListBoxState();
     state->hwnd = hwnd;
     state->parent = hParent;
@@ -13971,7 +13971,7 @@ HWND __stdcall CreateListBox(
     state->selected_index = -1;
     state->hovered_index = -1;
     state->scroll_offset = 0;
-    state->logical_item_height = 32;  // 96 DPI 閫昏緫琛岄珮
+    state->logical_item_height = 32;  // 96 DPI 逻辑行高
     state->item_height = EW_LogicalToPx(state->logical_item_height, EW_GetDpiForReference(hParent));
     state->multi_select = (multi_select != 0);
     state->scrollbar_dragging = false;
@@ -13979,11 +13979,11 @@ HWND __stdcall CreateListBox(
     state->enabled = true;
     state->fg_color = fg_color;
     state->bg_color = bg_color;
-    state->select_color = ThemeColor_LightBg(ThemeColor_Primary());  // 涓婚閫変腑鑳屾櫙鑹?
-    state->hover_color = ThemeColor_BackgroundLight();   // 涓婚鎮仠鑳屾櫙鑹?
+    state->select_color = ThemeColor_LightBg(ThemeColor_Primary());  // 主题选中背景色
+    state->hover_color = ThemeColor_BackgroundLight();   // 主题悬停背景色
     state->callback = nullptr;
     
-    // 榛樿瀛椾綋
+    // 默认字体
     state->font.font_name = L"Microsoft YaHei UI";
     state->logical_font_size = 14;
     state->font.font_size = EW_LogicalToPx(state->logical_font_size, EW_GetDpiForReference(hParent));
@@ -13991,17 +13991,17 @@ HWND __stdcall CreateListBox(
     state->font.italic = false;
     state->font.underline = false;
     
-    // 淇濆瓨鐘舵€?
+    // 保存状态
     g_listboxes[hwnd] = state;
     EW_StoreLogicalBounds(hwnd, x, y, width, height, true);
     
-    // 瀛愮被鍖栫獥鍙?
+    // 子类化窗口
     SetWindowSubclass(hwnd, ListBoxProc, 0, (DWORD_PTR)state);
     
     return hwnd;
 }
 
-// 娣诲姞鍒楄〃椤?
+// 添加列表项
 int __stdcall AddListItem(
     HWND hListBox,
     const unsigned char* text_bytes,
@@ -14012,7 +14012,7 @@ int __stdcall AddListItem(
     
     ListBoxState* state = it->second;
     
-    // 鍒涘缓鏂伴」鐩?
+    // 创建新项目
     ListBoxItem item;
     item.text = Utf8ToWide(text_bytes, text_len);
     item.id = (int)state->items.size();
@@ -14025,7 +14025,7 @@ int __stdcall AddListItem(
     return item.id;
 }
 
-// 绉婚櫎鍒楄〃椤?
+// 移除列表项
 void __stdcall RemoveListItem(
     HWND hListBox,
     int index
@@ -14039,14 +14039,14 @@ void __stdcall RemoveListItem(
     
     state->items.erase(state->items.begin() + index);
     
-    // 鏇存柊閫変腑绱㈠紩
+    // 更新选中索引
     if (state->selected_index == index) {
         state->selected_index = -1;
     } else if (state->selected_index > index) {
         state->selected_index--;
     }
     
-    // 鏇存柊澶氶€夌储寮?
+    // 更新多选索引
     if (state->multi_select) {
         auto it_sel = std::find(state->selected_indices.begin(), 
                                state->selected_indices.end(), index);
@@ -14054,7 +14054,7 @@ void __stdcall RemoveListItem(
             state->selected_indices.erase(it_sel);
         }
         
-        // 璋冩暣鍏朵粬閫変腑椤圭殑绱㈠紩
+        // 调整其他选中项的索引
         for (int& sel_idx : state->selected_indices) {
             if (sel_idx > index) {
                 sel_idx--;
@@ -14065,7 +14065,7 @@ void __stdcall RemoveListItem(
     InvalidateRect(hListBox, nullptr, TRUE);
 }
 
-// 娓呯┖鍒楄〃妗?
+// 清空列表框
 void __stdcall ClearListBox(
     HWND hListBox
 ) {
@@ -14083,7 +14083,7 @@ void __stdcall ClearListBox(
     InvalidateRect(hListBox, nullptr, TRUE);
 }
 
-// 鑾峰彇閫変腑椤圭储寮?
+// 获取选中项索引
 int __stdcall GetSelectedIndex(
     HWND hListBox
 ) {
@@ -14093,7 +14093,7 @@ int __stdcall GetSelectedIndex(
     return it->second->selected_index;
 }
 
-// 璁剧疆閫変腑椤圭储寮?
+// 设置选中项索引
 void __stdcall SetSelectedIndex(
     HWND hListBox,
     int index
@@ -14110,7 +14110,7 @@ void __stdcall SetSelectedIndex(
     InvalidateRect(hListBox, nullptr, TRUE);
 }
 
-// 鑾峰彇鍒楄〃椤规暟閲?
+// 获取列表项数量
 int __stdcall GetListItemCount(
     HWND hListBox
 ) {
@@ -14120,7 +14120,7 @@ int __stdcall GetListItemCount(
     return (int)it->second->items.size();
 }
 
-// 鑾峰彇鍒楄〃椤规枃鏈?
+// 获取列表项文本
 int __stdcall GetListItemText(
     HWND hListBox,
     int index,
@@ -14134,20 +14134,20 @@ int __stdcall GetListItemText(
     
     if (index < 0 || index >= (int)state->items.size()) return 0;
     
-    // 杞崲涓篣TF-8
+    // 转换为UTF-8
     std::wstring text = state->items[index].text;
     int utf8_len = WideCharToMultiByte(CP_UTF8, 0, text.c_str(), -1, nullptr, 0, nullptr, nullptr);
     
     if (buffer && buffer_size > 0) {
         int copied = WideCharToMultiByte(CP_UTF8, 0, text.c_str(), -1, 
                                         (LPSTR)buffer, buffer_size, nullptr, nullptr);
-        return copied - 1;  // 涓嶅寘鎷琻ull缁堟绗?
+        return copied - 1;  // 不包括 null 终止符
     }
     
-    return utf8_len - 1;  // 涓嶅寘鎷琻ull缁堟绗?
+    return utf8_len - 1;  // 不包括 null 终止符
 }
 
-// 璁剧疆鍒楄〃妗嗗洖璋?
+// 设置列表框回调
 void __stdcall SetListBoxCallback(
     HWND hListBox,
     ListBoxCallback callback
@@ -14158,7 +14158,7 @@ void __stdcall SetListBoxCallback(
     it->second->callback = callback;
 }
 
-// 鍚敤/绂佺敤鍒楄〃妗?
+// 启用/禁用列表框
 void __stdcall EnableListBox(
     HWND hListBox,
     BOOL enable
@@ -14167,12 +14167,12 @@ void __stdcall EnableListBox(
     if (it == g_listboxes.end()) return;
     
     it->second->enabled = (enable != 0);
-    // 涓嶈皟鐢?EnableWindow锛岄伩鍏?Windows 鍘熺敓 STATIC 鎺т欢鎿﹂櫎鑳屾櫙瀵艰嚧闂儊/娑堝け
-    // 浠呴€氳繃鍐呴儴 enabled 鐘舵€佹帶鍒朵氦浜掕涓?
+    // 不调用 EnableWindow，避免 Windows 原生 STATIC 控件擦除背景导致闪烁/消失
+    // 仅通过内部 enabled 状态控制交互行为
     RedrawWindow(hListBox, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
 }
 
-// 鏄剧ず/闅愯棌鍒楄〃妗?
+// 显示/隐藏列表框
 void __stdcall ShowListBox(
     HWND hListBox,
     BOOL show
@@ -14182,7 +14182,7 @@ void __stdcall ShowListBox(
     ShowWindow(hListBox, show ? SW_SHOW : SW_HIDE);
 }
 
-// 璁剧疆鍒楄〃妗嗕綅缃拰澶у皬
+// 设置列表框位置和大小
 void __stdcall SetListBoxBounds(
     HWND hListBox,
     int x, int y, int width, int height
@@ -14259,7 +14259,7 @@ int __stdcall GetListBoxColors(
     return 0;
 }
 
-// 璁剧疆鍒楄〃椤规枃鏈?
+// 设置列表项文本
 BOOL __stdcall SetListItemText(
     HWND hListBox,
     int index,
@@ -14273,7 +14273,7 @@ BOOL __stdcall SetListItemText(
     if (index < 0 || index >= (int)state->items.size()) return FALSE;
     if (!text_bytes || text_len <= 0) return FALSE;
     
-    // UTF-8 杞?wstring
+    // UTF-8 转 wstring
     int wlen = MultiByteToWideChar(CP_UTF8, 0, (const char*)text_bytes, text_len, nullptr, 0);
     if (wlen <= 0) return FALSE;
     
@@ -14285,12 +14285,12 @@ BOOL __stdcall SetListItemText(
     return TRUE;
 }
 
-// ========== 缁勫悎妗嗘帶浠跺疄锟?==========
+// ========== 组合框控件实现 ==========
 
 static int ComboBoxButtonWidthPx(const ComboBoxState* state);
 static int ComboBoxMaxDropdownHeightPx(const ComboBoxState* state);
 
-// 缁樺埗缁勫悎锟?
+// 绘制组合框
 void DrawComboBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ComboBoxState* state) {
     if (!rt || !factory || !state) return;
     UINT dpi = EW_GetDpiForReference(state->hwnd, state->parent);
@@ -14299,7 +14299,7 @@ void DrawComboBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ComboBoxSt
     rt->BeginDraw();
     rt->Clear(ColorFromUInt32(resolved_bg));
     
-    // 缁樺埗涓嬫媺鎸夐挳鍖哄煙锛堝彸渚э級
+    // 绘制下拉按钮区域（右侧）
     int button_width = ComboBoxButtonWidthPx(state);
     D2D1_RECT_F button_rect = D2D1::RectF(
         (float)(state->width - button_width),
@@ -14308,14 +14308,14 @@ void DrawComboBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ComboBoxSt
         (float)state->height
     );
     
-    // 鎸夐挳鑳屾櫙锟?
+    // 按钮背景色
     UINT32 button_color = resolved_bg;
     if (!state->enabled) {
-        button_color = ThemeColor_BackgroundLight();  // 绂佺敤鐘舵€?
+        button_color = ThemeColor_BackgroundLight();  // 禁用状态
     } else if (state->button_pressed) {
-        button_color = ThemeColor_LightBg(ThemeColor_Primary());  // 鎸変笅鐘舵€?
+        button_color = ThemeColor_LightBg(ThemeColor_Primary());  // 按下状态
     } else if (state->button_hovered) {
-        button_color = ThemeColor_BackgroundLight();  // 鎮仠鐘舵€?
+        button_color = ThemeColor_BackgroundLight();  // 悬停状态
     }
     
     ID2D1SolidColorBrush* brush = nullptr;
@@ -14327,14 +14327,14 @@ void DrawComboBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ComboBoxSt
         brush->Release();
     }
     
-    // 缁樺埗涓嬫媺绠ご
+    // 绘制下拉箭头
     rt->CreateSolidColorBrush(ColorFromUInt32(ThemeColor_TextSecondary()), &brush);
     if (brush) {
         float arrow_x = state->width - button_width / 2.0f;
         float arrow_y = state->height / 2.0f;
         float arrow_size = EW_LogicalToPxF(4.0f, dpi);
         
-        // 鍒涘缓绠ご璺緞
+        // 创建箭头路径
         ID2D1PathGeometry* arrow_path = nullptr;
         g_d2d_factory->CreatePathGeometry(&arrow_path);
         if (arrow_path) {
@@ -14354,7 +14354,7 @@ void DrawComboBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ComboBoxSt
         brush->Release();
     }
     
-    // 缁樺埗杈规锛堝渾瑙?4px锛屼笌璁捐鍣ㄤ竴鑷达級
+    // 绘制边框（圆角4px，与设计器一致）
     rt->CreateSolidColorBrush(ColorFromUInt32(ThemeColor_BorderBase()), &brush);
     if (brush) {
         float half = EW_LogicalToPxF(0.5f, dpi);
@@ -14380,7 +14380,7 @@ static int ComboBoxMaxDropdownHeightPx(const ComboBoxState* state) {
     return EW_LogicalToPxForReference(state ? state->hwnd : nullptr, state ? state->parent : nullptr, 200);
 }
 
-// 闈?D2D 缁勫悎妗嗘樉绀哄眰浠嶈蛋浼犵粺 Invalidate锛汥2D 璺緞鐢?SetD2DEditBoxText 鍗曟鐖剁獥 RedrawWindow 瀹屾垚锛岄伩鍏嶉噸澶嶇粯鍒跺鑷撮棯鐑併€?
+// 非 D2D 组合框显示层仍走传统 Invalidate；D2D 路径由 SetD2DEditBoxText 单次父窗 RedrawWindow 完成，避免重复绘制导致闪烁。
 static void RedrawComboBoxEditAfterContentChange(HWND hComboBox, HWND hEdit) {
     if (!hComboBox || !hEdit || !IsWindow(hEdit)) return;
     if (IsD2DEditBoxWindow(hEdit)) {
@@ -14455,13 +14455,13 @@ static int GetComboDisplayText(HWND hEdit, unsigned char* buffer, int buffer_siz
     return utf8_len > 0 ? utf8_len - 1 : 0;
 }
 
-// 缁樺埗缁勫悎妗嗕笅鎷夊垪锟?
+// 绘制组合框下拉列表
 void DrawComboDropDown(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, ComboBoxState* state) {
     if (!rt || !factory || !state) {
         OutputDebugStringW(L"DrawComboDropDown: invalid state\n");
         return;
     }
-    OutputDebugStringW((L"DrawComboDropDown: 寮€濮嬬粯鍒讹紝椤圭洰鎬绘暟: " + std::to_wstring(state->items.size()) + L", 婊氬姩鍋忕Щ: " + std::to_wstring(state->scroll_offset)).c_str());
+    OutputDebugStringW((L"DrawComboDropDown: 开始绘制，项目总数: " + std::to_wstring(state->items.size()) + L", 滚动偏移: " + std::to_wstring(state->scroll_offset)).c_str());
     
     const UINT32 resolved_bg = ResolveOptionalColor(state->bg_color, ThemeColor_Background());
     const UINT32 resolved_fg = ResolveOptionalColor(state->fg_color, ThemeColor_TextPrimary());
@@ -14472,24 +14472,24 @@ void DrawComboDropDown(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, Combo
     rt->BeginDraw();
     rt->Clear(ColorFromUInt32(resolved_bg));
     
-    int item_height = state->item_height;  // 浣跨敤鐘舵€佷腑鐨勮〃椤归珮搴?
+    int item_height = state->item_height;  // 使用状态中的表项高度
     
-    // 鑾峰彇涓嬫媺鍒楄〃绐楀彛鐨勫鎴峰尯楂樺害
+    // 获取下拉列表窗口的客户区高度
     RECT client_rect;
     GetClientRect(state->dropdown_hwnd, &client_rect);
     int visible_height = client_rect.bottom;
     
-    // 璁＄畻鍙鐨勮捣濮嬪拰缁撴潫椤圭洰绱㈠紩
+    // 计算可见的起始和结束项目索引
     int start_index = state->scroll_offset / item_height;
     int end_index = min((int)state->items.size(), (state->scroll_offset + visible_height) / item_height + 1);
     
-    OutputDebugStringW((L"DrawComboDropDown: 鍙鑼冨洿 " + std::to_wstring(start_index) + L" 鍒?" + std::to_wstring(end_index)).c_str());
+    OutputDebugStringW((L"DrawComboDropDown: 可见范围 " + std::to_wstring(start_index) + L" -> " + std::to_wstring(end_index)).c_str());
     
-    // 缁樺埗姣忎釜鍙椤圭洰
+    // 绘制每个可见项目
     for (int i = start_index; i < end_index; i++) {
-        OutputDebugStringW((L"DrawComboDropDown: 缁樺埗椤圭洰 " + std::to_wstring(i) + L": " + state->items[i]).c_str());
+        OutputDebugStringW((L"DrawComboDropDown: 绘制项目 " + std::to_wstring(i) + L": " + state->items[i]).c_str());
         
-        // 璁＄畻椤圭洰鐨刌鍧愭爣锛堣€冭檻婊氬姩鍋忕Щ锛?
+        // 计算项目的Y坐标（考虑滚动偏移）
         int y_offset = i * item_height - state->scroll_offset;
         D2D1_RECT_F item_rect = D2D1::RectF(
             0.0f,
@@ -14498,7 +14498,7 @@ void DrawComboDropDown(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, Combo
             (float)(y_offset + item_height)
         );
         
-        // 鑳屾櫙锟?
+        // 背景色
         UINT32 bg_color = resolved_bg;
         if ((int)i == state->selected_index) {
             bg_color = resolved_select;
@@ -14513,7 +14513,7 @@ void DrawComboDropDown(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, Combo
             brush->Release();
         }
         
-        // 缁樺埗鏂囨湰 - 浣跨敤TextLayout鏀寔褰╄壊Emoji
+        // 绘制文本 - 使用TextLayout支持彩色Emoji
         rt->CreateSolidColorBrush(ColorFromUInt32(resolved_fg), &brush);
         if (brush) {
             IDWriteTextFormat* text_format = nullptr;
@@ -14532,24 +14532,24 @@ void DrawComboDropDown(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, Combo
                 text_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
                 text_format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
                 
-                // 鍒涘缓TextLayout浠ユ敮鎸佸僵鑹睧moji
+                // 创建TextLayout以支持彩色Emoji
                 IDWriteTextLayout* text_layout = nullptr;
                 factory->CreateTextLayout(
                     state->items[i].c_str(),
                     (UINT32)state->items[i].length(),
                     text_format,
-                    (float)(state->width - 20),  // 鏈€澶у搴?
-                    (float)item_height,           // 鏈€澶ч珮搴?
+                    (float)(state->width - 20),  // 最大宽度
+                    (float)item_height,           // 最大高度
                     &text_layout
                 );
                 
                 if (text_layout) {
-                    // 浣跨敤DrawTextLayout鑰屼笉鏄疍rawTextW锛岃繖鏍峰彲浠ユ敮鎸佸僵鑹睧moji
+                    // 使用DrawTextLayout而不是DrawTextW，这样可以支持彩色Emoji
                     rt->DrawTextLayout(
                         D2D1::Point2F(10.0f, (float)y_offset),
                         text_layout,
                         brush,
-                        D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT  // 鍏抽敭锛氬惎鐢ㄥ僵鑹插瓧浣?
+                        D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT  // 关键：启用彩色字体
                     );
                     
                     text_layout->Release();
@@ -14563,7 +14563,7 @@ void DrawComboDropDown(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, Combo
         y_offset += item_height;
     }
     
-    // 缁樺埗杈规
+    // 绘制边框
     ID2D1SolidColorBrush* brush = nullptr;
     rt->CreateSolidColorBrush(ColorFromUInt32(resolved_border), &brush);
     if (brush) {
@@ -14581,11 +14581,11 @@ void DrawComboDropDown(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, Combo
     rt->EndDraw();
 }
 
-// 缁勫悎妗嗕笅鎷夊垪琛ㄧ獥鍙ｈ繃锟?
+// 组合框下拉列表窗口过程
 LRESULT CALLBACK ComboDropDownProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     ComboBoxState* state = nullptr;
     
-    // 浠庣獥鍙ｅ睘鎬ц幏鍙栫姸锟?
+    // 从窗口属性获取状态
     if (msg != WM_CREATE) {
         state = (ComboBoxState*)GetPropW(hwnd, L"ComboBoxState");
     }
@@ -14596,7 +14596,7 @@ LRESULT CALLBACK ComboDropDownProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             state = (ComboBoxState*)cs->lpCreateParams;
             SetPropW(hwnd, L"ComboBoxState", (HANDLE)state);
             
-            // 鍒涘缓娓叉煋鐩爣
+            // 创建渲染目标
             RECT rc;
             GetClientRect(hwnd, &rc);
             
@@ -14623,7 +14623,7 @@ LRESULT CALLBACK ComboDropDownProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
 
             ID2D1HwndRenderTarget* rt = (ID2D1HwndRenderTarget*)GetPropW(hwnd, L"RenderTarget");
             if (rt) {
-                OutputDebugStringW(L"ComboDropDownProc: 娓叉煋鐩爣鏈夋晥锛岃皟鐢―rawComboDropDown");
+                OutputDebugStringW(L"ComboDropDownProc: 渲染目标有效，调用DrawComboDropDown");
                 DrawComboDropDown(rt, g_dwrite_factory, state);
             } else {
                 OutputDebugStringW(L"ComboDropDownProc: render target missing\n");
@@ -14636,7 +14636,7 @@ LRESULT CALLBACK ComboDropDownProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
         case WM_LBUTTONDOWN: {
             if (!state) break;
             
-            // 璁＄畻鐐瑰嚮鐨勯」鐩储寮曪紙鑰冭檻婊氬姩鍋忕Щ锛?
+            // 计算点击的项目索引（考虑滚动偏移）
             POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
             int item_height = state->item_height;
             int index = (pt.y + state->scroll_offset) / item_height;
@@ -14644,10 +14644,10 @@ LRESULT CALLBACK ComboDropDownProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             if (index >= 0 && index < (int)state->items.size()) {
                 state->selected_index = index;
                 
-                // 鏇存柊缂栬緫妗嗘枃锟?
+                // 更新编辑框文本
                 SetComboDisplayText(state->edit_hwnd, state->items[index]);
                 
-                // 瑙﹀彂鍥炶皟
+                // 触发回调
                 if (state->callback) {
                     state->callback(state->hwnd, index);
                 }
@@ -14655,7 +14655,7 @@ LRESULT CALLBACK ComboDropDownProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                     state->events.on_value_changed(state->hwnd);
                 }
 
-                // 闅愯棌涓嬫媺鍒楄〃
+                // 隐藏下拉列表
                 ShowWindow(hwnd, SW_HIDE);
                 state->dropdown_visible = false;
             }
@@ -14665,31 +14665,31 @@ LRESULT CALLBACK ComboDropDownProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
         case WM_MOUSEWHEEL: {
             if (!state) break;
             
-            // 鑾峰彇婊氳疆婊氬姩閲?
+            // 获取滚轮滚动值
             int delta = GET_WHEEL_DELTA_WPARAM(wparam);
-            int scroll_lines = 3;  // 姣忔婊氬姩3琛?
+            int scroll_lines = 3;  // 每次滚动3项
             
-            // 璁＄畻鎬诲唴瀹归珮搴﹀拰鍙楂樺害
+            // 计算总内容高度和可见高度
             int total_height = (int)state->items.size() * state->item_height;
             RECT client_rect;
             GetClientRect(hwnd, &client_rect);
             int visible_height = client_rect.bottom;
             
-            // 璁＄畻鏈€澶ф粴鍔ㄥ亸绉?
+            // 计算最大滚动偏移
             int max_scroll = max(0, total_height - visible_height);
             
-            // 鏇存柊婊氬姩鍋忕Щ
+            // 更新滚动偏移
             if (delta > 0) {
-                // 鍚戜笂婊氬姩
+                // 向上滚动
                 state->scroll_offset = max(0, state->scroll_offset - scroll_lines * state->item_height);
             } else {
-                // 鍚戜笅婊氬姩
+                // 向下滚动
                 state->scroll_offset = min(max_scroll, state->scroll_offset + scroll_lines * state->item_height);
             }
             
-            OutputDebugStringW((L"ComboDropDownProc: WM_MOUSEWHEEL - 婊氬姩鍋忕Щ: " + std::to_wstring(state->scroll_offset) + L", 鏈€澶? " + std::to_wstring(max_scroll)).c_str());
+            OutputDebugStringW((L"ComboDropDownProc: WM_MOUSEWHEEL - 滚动偏移: " + std::to_wstring(state->scroll_offset) + L", 最大值: " + std::to_wstring(max_scroll)).c_str());
             
-            // 閲嶇粯
+            // 重绘
             InvalidateRect(hwnd, nullptr, FALSE);
             return 0;
         }
@@ -14697,7 +14697,7 @@ LRESULT CALLBACK ComboDropDownProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
         case WM_MOUSEMOVE: {
             if (!state) break;
             
-            // 璁＄畻鎮仠鐨勯」鐩储寮曪紙鑰冭檻婊氬姩鍋忕Щ锛?
+            // 计算悬停的项目索引（考虑滚动偏移）
             POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
             int item_height = state->item_height;
             int index = (pt.y + state->scroll_offset) / item_height;
@@ -14720,7 +14720,7 @@ LRESULT CALLBACK ComboDropDownProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
         }
         
         case WM_SIZE: {
-            // 绐楀彛澶у皬鏀瑰彉鏃讹紝璋冩暣娓叉煋鐩爣澶у皬
+            // 窗口大小改变时，调整渲染目标大小
             if (state) {
                 ID2D1HwndRenderTarget* rt = (ID2D1HwndRenderTarget*)GetPropW(hwnd, L"RenderTarget");
                 if (rt) {
@@ -14734,7 +14734,7 @@ LRESULT CALLBACK ComboDropDownProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
         }
         
         case WM_KILLFOCUS: {
-            // 澶卞幓鐒︾偣鏃堕殣钘忎笅鎷夊垪锟?
+            // 失去焦点时隐藏下拉列表
             if (state) {
                 ShowWindow(hwnd, SW_HIDE);
                 state->dropdown_visible = false;
@@ -14756,12 +14756,12 @@ LRESULT CALLBACK ComboDropDownProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
     return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
-// 缁勫悎妗嗕富鎺т欢绐楀彛杩囩▼
+// 组合框主控件窗口过程
 LRESULT CALLBACK ComboBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     ComboBoxState* state = (ComboBoxState*)dwRefData;
     if (!state) return DefSubclassProc(hwnd, msg, wparam, lparam);
 
-    // 閫氱敤浜嬩欢澶勭悊
+    // 通用事件处理
     HandleCommonEvents(hwnd, msg, wparam, lparam, &state->events);
 
     switch (msg) {
@@ -14792,7 +14792,7 @@ LRESULT CALLBACK ComboBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
         case WM_LBUTTONDOWN: {
             if (!state->enabled) break;
             
-            // 妫€鏌ユ槸鍚︾偣鍑讳笅鎷夋寜锟?
+            // 检查是否点击下拉按钮
             POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
             int button_width = ComboBoxButtonWidthPx(state);
             
@@ -14811,24 +14811,24 @@ LRESULT CALLBACK ComboBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
                 
                 OutputDebugStringW((L"ComboBoxProc: mouse up item count=" + std::to_wstring(state->items.size())).c_str());
                 
-                // 鍒囨崲涓嬫媺鍒楄〃鏄剧ず鐘讹拷?
+                // 切换下拉列表显示状态
                 if (state->dropdown_visible) {
                     OutputDebugStringW(L"ComboBoxProc: hide dropdown\n");
                     ShowWindow(state->dropdown_hwnd, SW_HIDE);
                     state->dropdown_visible = false;
                 } else {
-                    // 鏄剧ず涓嬫媺鍒楄〃
+                    // 显示下拉列表
                     if (state->dropdown_hwnd && !state->items.empty()) {
                         OutputDebugStringW(L"ComboBoxProc: show dropdown\n");
                         
-                        // 閲嶇疆婊氬姩鍋忕Щ
+                        // 重置滚动偏移
                         state->scroll_offset = 0;
                         
-                        // 璁＄畻涓嬫媺鍒楄〃浣嶇疆
+                        // 计算下拉列表位置
                         RECT rc;
                         GetWindowRect(hwnd, &rc);
                         
-                        // 浣跨敤鐘舵€佷腑鐨勮〃椤归珮搴﹁绠椾笅鎷夊垪琛ㄩ珮搴?
+                        // 使用状态中的表项高度计算下拉列表高度
                         int dropdown_height = min((int)state->items.size() * state->item_height, ComboBoxMaxDropdownHeightPx(state));
                         
                         OutputDebugStringW((L"ComboBoxProc: dropdown height=" + std::to_wstring(dropdown_height)).c_str());
@@ -14865,7 +14865,7 @@ LRESULT CALLBACK ComboBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
         case WM_MOUSEMOVE: {
             if (!state->enabled) break;
             
-            // 妫€鏌ユ槸鍚︽偓鍋滃湪涓嬫媺鎸夐挳锟?
+            // 检查是否悬停在下拉按钮上
             POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
             int button_width = ComboBoxButtonWidthPx(state);
             bool on_button = (pt.x >= state->width - button_width);
@@ -14875,7 +14875,7 @@ LRESULT CALLBACK ComboBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
                 InvalidateRect(hwnd, nullptr, FALSE);
                 
                 if (on_button) {
-                    // 璺熻釜榧犳爣绂诲紑
+                    // 跟踪鼠标离开
                     TRACKMOUSEEVENT tme = { sizeof(TRACKMOUSEEVENT) };
                     tme.dwFlags = TME_LEAVE;
                     tme.hwndTrack = hwnd;
@@ -14898,7 +14898,7 @@ LRESULT CALLBACK ComboBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
             state->width = (std::max)(1, (int)LOWORD(lparam));
             state->height = (std::max)(1, (int)HIWORD(lparam));
             
-            // 璋冩暣缂栬緫妗嗗ぇ锟?
+            // 调整编辑框大小
             if (state->edit_hwnd) {
                 int button_width = ComboBoxButtonWidthPx(state);
                 int edit_width = (std::max)(1, state->width - button_width);
@@ -14923,7 +14923,7 @@ LRESULT CALLBACK ComboBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
         }
         
         case WM_NCDESTROY: {
-            // 娓呯悊璧勬簮
+            // 清理资源
             if (state->dropdown_hwnd) {
                 DestroyWindow(state->dropdown_hwnd);
                 state->dropdown_hwnd = nullptr;
@@ -14939,7 +14939,7 @@ LRESULT CALLBACK ComboBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
     return DefSubclassProc(hwnd, msg, wparam, lparam);
 }
 
-// 鍒涘缓缁勫悎锟?
+// 创建组合框
 HWND __stdcall CreateComboBox(
     HWND hParent,
     int x, int y, int width, int height,
@@ -14956,7 +14956,7 @@ HWND __stdcall CreateComboBox(
 ) {
     if (!hParent) return nullptr;
     
-    // 鍒濆鍖朌2D鍜孌irectWrite
+    // 初始化D2D和DirectWrite
     if (!g_d2d_factory) {
         D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &g_d2d_factory);
     }
@@ -14965,7 +14965,7 @@ HWND __stdcall CreateComboBox(
                            reinterpret_cast<IUnknown**>(&g_dwrite_factory));
     }
     
-    // 鍒涘缓涓绘帶浠跺锟?
+    // 创建主控件容器
     RECT px_rect = EW_LogicalChildRectToPx(hParent, x, y, width, height, true);
     HWND hwnd = CreateWindowExW(
         0,
@@ -14981,7 +14981,7 @@ HWND __stdcall CreateComboBox(
     
     if (!hwnd) return nullptr;
     
-    // 鍒涘缓鐘舵€佸锟?
+    // 创建状态对象
     ComboBoxState* state = new ComboBoxState();
     state->hwnd = hwnd;
     state->parent = hParent;
@@ -15002,10 +15002,10 @@ HWND __stdcall CreateComboBox(
     state->select_color = ThemeColor_BackgroundLight();
     state->hover_color = ThemeColor_BackgroundLight();
     
-    // 璁剧疆琛ㄩ」楂樺害锛堥粯璁?5锛?
+    // 设置表项高度（默认35）
     state->item_height = EW_LogicalToPx((item_height > 0) ? item_height : 35, EW_GetDpiForReference(hParent));
     
-    // 璁剧疆瀛椾綋灞炴€?
+    // 设置字体属性
     state->font.font_name = L"Segoe UI Emoji";
     state->font.font_size = (font_size > 0) ? font_size : 14;
     state->font.bold = (bold != 0);
@@ -15013,9 +15013,9 @@ HWND __stdcall CreateComboBox(
     state->font.underline = (underline != 0);
     state->callback = nullptr;
     
-    // 缁勫悎妗嗘樉绀哄眰缁熶竴浣跨敤 D2D 褰╄壊 emoji 缂栬緫妗嗭細
-    // 1. 鏂囨湰鍙ǔ瀹氬瀭鐩村眳涓?
-    // 2. emoji 璧?Segoe UI Emoji锛屼腑鏂囦氦缁?DirectWrite fallback
+    // 组合框显示层统一使用 D2D 彩色 emoji 编辑框：
+    // 1. 文本可稳定垂直居中
+    // 2. emoji 走 Segoe UI Emoji，中文交给 DirectWrite fallback
     const int button_width_logical = 30;
     int edit_width_logical = (std::max)(1, width - button_width_logical);
     static const unsigned char combo_display_font[] = "Microsoft YaHei UI";
@@ -15041,7 +15041,7 @@ HWND __stdcall CreateComboBox(
         TRUE
     );
     
-    // 娉ㄥ唽涓嬫媺鍒楄〃绐楀彛锟?
+    // 注册下拉列表窗口类
     static bool dropdown_class_registered = false;
     if (!dropdown_class_registered) {
         WNDCLASSEXW wc = { sizeof(WNDCLASSEXW) };
@@ -15054,7 +15054,7 @@ HWND __stdcall CreateComboBox(
         dropdown_class_registered = true;
     }
     
-    // 鍒涘缓涓嬫媺鍒楄〃绐楀彛锛堝垵濮嬮殣钘忥級
+    // 创建下拉列表窗口（初始隐藏）
     state->dropdown_hwnd = CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
         L"ComboBoxDropDown",
@@ -15067,17 +15067,17 @@ HWND __stdcall CreateComboBox(
         state
     );
     
-    // 淇濆瓨鍒板叏灞€map
+    // 保存到全局map
     g_comboboxes[hwnd] = state;
     EW_StoreLogicalBounds(hwnd, x, y, width, height, true);
     
-    // 瀛愮被鍖栦富鎺т欢
+    // 子类化主控件
     SetWindowSubclass(hwnd, ComboBoxProc, 0, (DWORD_PTR)state);
     
     return hwnd;
 }
 
-// 娣诲姞缁勫悎妗嗛」锟?
+// 添加组合框项目
 int __stdcall AddComboItem(
     HWND hComboBox,
     const unsigned char* text_bytes,
@@ -15085,7 +15085,7 @@ int __stdcall AddComboItem(
 ) {
     auto it = g_comboboxes.find(hComboBox);
     if (it == g_comboboxes.end()) {
-        OutputDebugStringW(L"AddComboItem: 閿欒 - 鏈壘鍒扮粍鍚堟");
+        OutputDebugStringW(L"AddComboItem: 错误 - 未找到组合框");
         return -1;
     }
     
@@ -15093,21 +15093,21 @@ int __stdcall AddComboItem(
     std::wstring text = Utf8ToWide(text_bytes, text_len);
     state->items.push_back(text);
     
-    // 杈撳嚭璋冭瘯淇℃伅
-    OutputDebugStringW((L"AddComboItem: 娣诲姞椤圭洰 '" + text + L"', 褰撳墠鎬绘暟: " + std::to_wstring(state->items.size())).c_str());
-    OutputDebugStringW((L"AddComboItem: 涓嬫媺鍒楄〃鍙鎬? " + std::to_wstring(state->dropdown_visible)).c_str());
-    OutputDebugStringW((L"AddComboItem: 涓嬫媺鍒楄〃绐楀彛鍙ユ焺: " + std::to_wstring((UINT_PTR)state->dropdown_hwnd)).c_str());
+    // 输出调试信息
+    OutputDebugStringW((L"AddComboItem: 添加项目 '" + text + L"', 当前总数: " + std::to_wstring(state->items.size())).c_str());
+    OutputDebugStringW((L"AddComboItem: 下拉列表可见: " + std::to_wstring(state->dropdown_visible)).c_str());
+    OutputDebugStringW((L"AddComboItem: 下拉列表窗口句柄: " + std::to_wstring((UINT_PTR)state->dropdown_hwnd)).c_str());
     
-    // 濡傛灉涓嬫媺鍒楄〃姝ｅ湪鏄剧ず锛岄渶瑕侀噸鏂拌皟鏁村ぇ灏忓拰閲嶇粯
+    // 如果下拉列表正在显示，需要重新调整大小和重绘
     if (state->dropdown_visible && state->dropdown_hwnd && IsWindow(state->dropdown_hwnd)) {
-        OutputDebugStringW(L"AddComboItem: 涓嬫媺鍒楄〃姝ｅ湪鏄剧ず锛屾洿鏂板ぇ灏忓拰閲嶇粯");
+        OutputDebugStringW(L"AddComboItem: 下拉列表正在显示，更新大小和重绘");
         
-        // 閲嶆柊璁＄畻涓嬫媺鍒楄〃楂樺害
+        // 重新计算下拉列表高度
         RECT rc;
         GetWindowRect(state->hwnd, &rc);
         int dropdown_height = min((int)state->items.size() * state->item_height, ComboBoxMaxDropdownHeightPx(state));
         
-        OutputDebugStringW((L"AddComboItem: 鏂扮殑涓嬫媺鍒楄〃楂樺害: " + std::to_wstring(dropdown_height)).c_str());
+        OutputDebugStringW((L"AddComboItem: 新的下拉列表高度: " + std::to_wstring(dropdown_height)).c_str());
         
         SetWindowPos(
             state->dropdown_hwnd,
@@ -15119,14 +15119,14 @@ int __stdcall AddComboItem(
             SWP_SHOWWINDOW | SWP_NOMOVE
         );
         
-        // 鑷姩婊氬姩鍒版渶鍚庝竴涓」鐩紙鏂版坊鍔犵殑椤圭洰锛?
+        // 自动滚动到最后一个项目（新添加的项目）
         int total_height = (int)state->items.size() * state->item_height;
         int max_scroll = max(0, total_height - dropdown_height);
-        state->scroll_offset = max_scroll;  // 婊氬姩鍒板簳閮?
+        state->scroll_offset = max_scroll;  // 滚动到底部
         
-        OutputDebugStringW((L"AddComboItem: 鑷姩婊氬姩鍒板簳閮紝鍋忕Щ: " + std::to_wstring(state->scroll_offset)).c_str());
+        OutputDebugStringW((L"AddComboItem: 自动滚动到底部，偏移: " + std::to_wstring(state->scroll_offset)).c_str());
         
-        // 璋冩暣娓叉煋鐩爣澶у皬
+        // 调整渲染目标大小
         ID2D1HwndRenderTarget* rt = (ID2D1HwndRenderTarget*)GetPropW(state->dropdown_hwnd, L"RenderTarget");
         if (rt) {
             HRESULT hr = rt->Resize(D2D1::SizeU(state->width, dropdown_height));
@@ -15148,7 +15148,7 @@ int __stdcall AddComboItem(
     return (int)state->items.size() - 1;
 }
 
-// 绉婚櫎缁勫悎妗嗛」锟?
+// 移除组合框项目
 void __stdcall RemoveComboItem(HWND hComboBox, int index) {
     auto it = g_comboboxes.find(hComboBox);
     if (it == g_comboboxes.end()) return;
@@ -15157,7 +15157,7 @@ void __stdcall RemoveComboItem(HWND hComboBox, int index) {
     if (index >= 0 && index < (int)state->items.size()) {
         state->items.erase(state->items.begin() + index);
         
-        // 璋冩暣閫変腑绱㈠紩
+        // 调整选中索引
         if (state->selected_index == index) {
             state->selected_index = -1;
             SetComboDisplayText(state->edit_hwnd, L"");
@@ -15167,7 +15167,7 @@ void __stdcall RemoveComboItem(HWND hComboBox, int index) {
     }
 }
 
-// 娓呯┖缁勫悎锟?
+// 清空组合框
 void __stdcall ClearComboBox(HWND hComboBox) {
     auto it = g_comboboxes.find(hComboBox);
     if (it == g_comboboxes.end()) return;
@@ -15180,14 +15180,14 @@ void __stdcall ClearComboBox(HWND hComboBox) {
     SetComboDisplayText(state->edit_hwnd, L"");
 }
 
-// 鑾峰彇缁勫悎妗嗛€変腑椤圭储锟?
+// 获取组合框选中项索引
 int __stdcall GetComboSelectedIndex(HWND hComboBox) {
     auto it = g_comboboxes.find(hComboBox);
     if (it == g_comboboxes.end()) return -1;
     return it->second->selected_index;
 }
 
-// 璁剧疆缁勫悎妗嗛€変腑椤圭储锟?
+// 设置组合框选中项索引
 void __stdcall SetComboSelectedIndex(HWND hComboBox, int index) {
     auto it = g_comboboxes.find(hComboBox);
     if (it == g_comboboxes.end()) return;
@@ -15202,7 +15202,7 @@ void __stdcall SetComboSelectedIndex(HWND hComboBox, int index) {
             SetComboDisplayText(state->edit_hwnd, L"");
         }
         
-        // 瑙﹀彂鍥炶皟
+        // 触发回调
         if (state->callback && index >= 0) {
             state->callback(hComboBox, index);
         }
@@ -15223,14 +15223,14 @@ void __stdcall SetComboSelectedIndex(HWND hComboBox, int index) {
     }
 }
 
-// 鑾峰彇缁勫悎妗嗛」鐩暟锟?
+// 获取组合框项目数量
 int __stdcall GetComboItemCount(HWND hComboBox) {
     auto it = g_comboboxes.find(hComboBox);
     if (it == g_comboboxes.end()) return 0;
     return (int)it->second->items.size();
 }
 
-// 鑾峰彇缁勫悎妗嗛」鐩枃锟?
+// 获取组合框项目文本
 int __stdcall GetComboItemText(
     HWND hComboBox,
     int index,
@@ -15248,20 +15248,20 @@ int __stdcall GetComboItemText(
     
     if (buffer && buffer_size > 0) {
         int copied = WideCharToMultiByte(CP_UTF8, 0, text.c_str(), -1, (LPSTR)buffer, buffer_size, nullptr, nullptr);
-        return copied - 1;  // 涓嶅寘鎷琻ull缁堟锟?
+        return copied - 1;  // 不包括 null 终止符
     }
     
     return utf8_len - 1;
 }
 
-// 璁剧疆缁勫悎妗嗗洖锟?
+// 设置组合框回调
 void __stdcall SetComboBoxCallback(HWND hComboBox, ComboBoxCallback callback) {
     auto it = g_comboboxes.find(hComboBox);
     if (it == g_comboboxes.end()) return;
     it->second->callback = callback;
 }
 
-// 鍚敤/绂佺敤缁勫悎锟?
+// 启用/禁用组合框
 void __stdcall EnableComboBox(HWND hComboBox, BOOL enable) {
     auto it = g_comboboxes.find(hComboBox);
     if (it == g_comboboxes.end()) return;
@@ -15276,7 +15276,7 @@ void __stdcall EnableComboBox(HWND hComboBox, BOOL enable) {
     InvalidateRect(hComboBox, nullptr, FALSE);
 }
 
-// 鏄剧ず/闅愯棌缁勫悎锟?
+// 显示/隐藏组合框
 void __stdcall ShowComboBox(HWND hComboBox, BOOL show) {
     auto it = g_comboboxes.find(hComboBox);
     if (it == g_comboboxes.end()) return;
@@ -15297,7 +15297,7 @@ void __stdcall ShowComboBox(HWND hComboBox, BOOL show) {
     }
 }
 
-// 璁剧疆缁勫悎妗嗕綅缃拰澶у皬
+// 设置组合框位置和大小
 void __stdcall SetComboBoxBounds(HWND hComboBox, int x, int y, int width, int height) {
     auto it = g_comboboxes.find(hComboBox);
     if (it == g_comboboxes.end()) return;
@@ -15308,7 +15308,7 @@ void __stdcall SetComboBoxBounds(HWND hComboBox, int x, int y, int width, int he
 
     RECT px_rect = EW_LogicalChildRectToPx(parent, x, y, width, height, true);
 
-    // 涓庣洰鏍囦竴鑷村垯璺宠繃 SetWindowPos锛岄伩鍏嶆嫋鍔ㄤ富绐楀彛鏃堕噸澶嶈Е鍙?WM_SIZE/瀛愮紪杈戞閲嶇粯瀵艰嚧鏂囧瓧闂儊
+    // 与目标一致则跳过 SetWindowPos，避免拖动主窗口时重复触发 WM_SIZE/子编辑框重绘导致文字闪烁
     RECT wr;
     if (GetWindowRect(hComboBox, &wr)) {
         POINT pt = { wr.left, wr.top };
@@ -15333,7 +15333,7 @@ void __stdcall SetComboBoxBounds(HWND hComboBox, int x, int y, int width, int he
     SetWindowPos(hComboBox, nullptr, px_rect.left, px_rect.top, state->width, state->height, SWP_NOZORDER);
 }
 
-// 鑾峰彇缁勫悎妗嗘枃锟?
+// 获取组合框文本
 int __stdcall GetComboBoxText(
     HWND hComboBox,
     unsigned char* buffer,
@@ -15346,7 +15346,7 @@ int __stdcall GetComboBoxText(
     return GetComboDisplayText(state->edit_hwnd, buffer, buffer_size);
 }
 
-// 璁剧疆缁勫悎妗嗘枃锟?
+// 设置组合框文本
 void __stdcall SetComboBoxText(
     HWND hComboBox,
     const unsigned char* text_bytes,
@@ -15408,11 +15408,11 @@ int __stdcall GetComboBoxColors(
     return 0;
 }
 
-// ========== 鐑敭鎺т欢瀹炵幇 ==========
+// ========== 热键控件实现 ==========
 
-// 灏嗚櫄鎷熼敭鐮佽浆鎹负鏈湴鍖栭敭鍚?
+// 将虚拟键码转换为本地化键名
 std::wstring GetKeyName(int vk_code) {
-    // 鐗规畩閿悕鏄犲皠锛堜腑鏂囷級
+    // 特殊键名映射（中文）
     switch (vk_code) {
         case VK_BACK: return L"Backspace";
         case VK_TAB: return L"Tab";
@@ -15478,7 +15478,7 @@ std::wstring GetKeyName(int vk_code) {
         case VK_OEM_7: return L"'";
     }
     
-    // 瀛楁瘝鍜屾暟瀛楅敭
+    // 字母和数字键
     if (vk_code >= '0' && vk_code <= '9') {
         return std::wstring(1, (wchar_t)vk_code);
     }
@@ -15489,7 +15489,7 @@ std::wstring GetKeyName(int vk_code) {
     return L"";
 }
 
-// 鏍煎紡鍖栫儹閿樉绀烘枃鏈?
+// 格式化热键显示文本
 std::wstring FormatHotKeyText(int vk_code, int modifiers) {
     if (vk_code == 0) {
         return L"Press shortcut";
@@ -15497,7 +15497,7 @@ std::wstring FormatHotKeyText(int vk_code, int modifiers) {
 
     std::wstring text;
     
-    // 娣诲姞淇グ閿?
+    // 添加修饰键
     if (modifiers & 1) {  // Ctrl
         text += L"Ctrl+";
     }
@@ -15508,7 +15508,7 @@ std::wstring FormatHotKeyText(int vk_code, int modifiers) {
         text += L"Alt+";
     }
     
-    // 娣诲姞涓婚敭
+    // 添加主键
     std::wstring key_name = GetKeyName(vk_code);
     if (!key_name.empty()) {
         text += key_name;
@@ -15550,16 +15550,16 @@ static bool ProcessHotKeyVirtualKey(HotKeyState* state, int vk) {
     return true;
 }
 
-// 缁樺埗鐑敭鎺т欢
+// 绘制热键控件
 void DrawHotKey(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, HotKeyState* state) {
     if (!rt || !factory || !state) return;
     
     rt->BeginDraw();
     
-    // 娓呴櫎鑳屾櫙
+    // 清除背景
     rt->Clear(D2D1::ColorF(D2D1::ColorF::White, 0.0f));
     
-    // Element UI 閰嶈壊
+    // Element UI 配色
     UINT32 border_color = state->has_focus ? ThemeColor_Primary() : ThemeColor_BorderBase();
     UINT32 bg_color = state->enabled ? ResolveThemeColor(state->bg_color) : ThemeColor_BackgroundLight();
     UINT32 text_color = state->enabled ? ResolveThemeColor(state->fg_color) : ThemeColor_TextPrimary();
@@ -15576,7 +15576,7 @@ void DrawHotKey(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, HotKeyState*
     
     D2D1_RECT_F rect = D2D1::RectF(0, 0, (float)state->width, (float)state->height);
     
-    // 缁樺埗鑳屾櫙
+    // 绘制背景
     ID2D1SolidColorBrush* bg_brush = nullptr;
     rt->CreateSolidColorBrush(ColorFromUInt32(bg_color), &bg_brush);
     if (bg_brush) {
@@ -15590,7 +15590,7 @@ void DrawHotKey(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, HotKeyState*
         bg_brush->Release();
     }
     
-    // 缁樺埗杈规
+    // 绘制边框
     ID2D1SolidColorBrush* border_brush = nullptr;
     rt->CreateSolidColorBrush(ColorFromUInt32(border_color), &border_brush);
     if (border_brush) {
@@ -15615,7 +15615,7 @@ void DrawHotKey(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, HotKeyState*
         }
     }
     
-    // 缁樺埗鏂囨湰
+    // 绘制文本
     if (!state->display_text.empty()) {
         ID2D1SolidColorBrush* text_brush = nullptr;
         rt->CreateSolidColorBrush(ColorFromUInt32(text_color), &text_brush);
@@ -15688,7 +15688,7 @@ void DrawHotKey(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, HotKeyState*
     rt->EndDraw();
 }
 
-// 鐑敭鎺т欢绐楀彛杩囩▼
+// 热键控件窗口过程
 static LRESULT CALLBACK HotKeyInputProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     HotKeyState* state = reinterpret_cast<HotKeyState*>(dwRefData);
     if (!state) return DefSubclassProc(hwnd, msg, wparam, lparam);
@@ -15731,7 +15731,7 @@ static LRESULT CALLBACK HotKeyInputProc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
     return DefSubclassProc(hwnd, msg, wparam, lparam);
 }
 
-// 鐑敭鎺т欢绐楀彛杩囩▼
+// 热键控件窗口过程
 static LRESULT CALLBACK HotKeyWindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     auto it = g_hotkeys.find(hwnd);
     if (it == g_hotkeys.end()) {
@@ -15740,7 +15740,7 @@ static LRESULT CALLBACK HotKeyWindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPA
     
     HotKeyState* state = it->second;
 
-    // 閫氱敤浜嬩欢澶勭悊
+    // 通用事件处理
     HandleCommonEvents(hwnd, msg, wparam, lparam, &state->events);
 
     switch (msg) {
@@ -15748,7 +15748,7 @@ static LRESULT CALLBACK HotKeyWindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPA
             PAINTSTRUCT ps;
             BeginPaint(hwnd, &ps);
             
-            // 鍒涘缓娓叉煋鐩爣
+            // 创建渲染目标
             ID2D1HwndRenderTarget* rt = nullptr;
             D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties();
             D2D1_HWND_RENDER_TARGET_PROPERTIES hwnd_props = D2D1::HwndRenderTargetProperties(
@@ -15832,7 +15832,7 @@ static LRESULT CALLBACK HotKeyWindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPA
     return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
-// 鍒涘缓鐑敭鎺т欢
+// 创建热键控件
 HWND __stdcall CreateHotKeyControl(
     HWND hParent,
     int x, int y, int width, int height,
@@ -15869,7 +15869,7 @@ HWND __stdcall CreateHotKeyControl(
 
     if (!hwnd) return nullptr;
 
-    // 鍒涘缓鐘舵€?
+    // 创建状态对象
     HotKeyState* state = new HotKeyState();
     state->hwnd = hwnd;
     state->parent = hParent;
@@ -15918,7 +15918,7 @@ HWND __stdcall CreateHotKeyControl(
     return hwnd;
 }
 
-// 鑾峰彇鐑敭
+// 获取热键
 void __stdcall GetHotKey(
     HWND hHotKey,
     int* vk_code,
@@ -15932,7 +15932,7 @@ void __stdcall GetHotKey(
     if (modifiers) *modifiers = state->modifiers;
 }
 
-// 璁剧疆鐑敭
+// 设置热键
 void __stdcall SetHotKey(
     HWND hHotKey,
     int vk_code,
@@ -15949,14 +15949,14 @@ void __stdcall SetHotKey(
     InvalidateRect(hHotKey, nullptr, FALSE);
 }
 
-// 娓呴櫎鐑敭
+// 清除热键
 void __stdcall ClearHotKey(
     HWND hHotKey
 ) {
     SetHotKey(hHotKey, 0, 0);
 }
 
-// 璁剧疆鐑敭鍥炶皟
+// 设置热键回调
 void __stdcall SetHotKeyCallback(
     HWND hHotKey,
     HotKeyCallback callback
@@ -15967,7 +15967,7 @@ void __stdcall SetHotKeyCallback(
     it->second->callback = callback;
 }
 
-// 鍚敤/绂佺敤鐑敭鎺т欢
+// 启用/禁用热键控件
 void __stdcall EnableHotKeyControl(
     HWND hHotKey,
     BOOL enable
@@ -15976,7 +15976,7 @@ void __stdcall EnableHotKeyControl(
     EnableWindow(hHotKey, enable);
 }
 
-// 鏄剧ず/闅愯棌鐑敭鎺т欢
+// 显示/隐藏热键控件
 void __stdcall ShowHotKeyControl(
     HWND hHotKey,
     BOOL show
@@ -15985,7 +15985,7 @@ void __stdcall ShowHotKeyControl(
     ShowWindow(hHotKey, show ? SW_SHOW : SW_HIDE);
 }
 
-// 璁剧疆鐑敭鎺т欢浣嶇疆鍜屽ぇ灏?
+// 设置热键控件位置和大小
 void __stdcall SetHotKeyControlBounds(
     HWND hHotKey,
     int x, int y, int width, int height
@@ -16036,7 +16036,7 @@ int __stdcall GetHotKeyColors(
     return 0;
 }
 
-// ========== 鍒嗙粍妗嗗姛鑳藉疄鐜?==========
+// ========== 分组框功能实现 ==========
 
 static void ApplyGroupBoxWindowRegion(GroupBoxState* state) {
     if (!state || !state->hwnd || state->width <= 0 || state->height <= 0) return;
@@ -16151,7 +16151,7 @@ static void ApplyGroupBoxWindowRegion(GroupBoxState* state) {
     }
 }
 
-// 鍒涘缓鍒嗙粍妗?
+// 创建分组框
 HWND __stdcall CreateGroupBox(
     HWND hParent,
     int x, int y, int width, int height,
@@ -16168,7 +16168,7 @@ HWND __stdcall CreateGroupBox(
 ) {
     if (!hParent || !IsWindow(hParent)) return nullptr;
 
-    // 鍒涘缓闈欐€佹帶浠朵綔涓哄熀纭€
+    // 创建静态控件作为基础
     RECT px_rect = EW_LogicalChildRectToPx(hParent, x, y, width, height, true);
     HWND hwnd = CreateWindowExW(
         0,
@@ -16184,7 +16184,7 @@ HWND __stdcall CreateGroupBox(
 
     if (!hwnd) return nullptr;
 
-    // 鍒涘缓鐘舵€?
+    // 创建状态对象
     GroupBoxState* state = new GroupBoxState();
     state->hwnd = hwnd;
     state->parent = hParent;
@@ -16197,7 +16197,7 @@ HWND __stdcall CreateGroupBox(
     state->enabled = true;
     state->visible = true;
     state->border_color = border_color;
-    state->title_color = 0xFF303133;  // Element UI 涓昏鏂囨湰鑹?
+    state->title_color = 0xFF303133;  // Element UI 主要文本色
     state->bg_color = bg_color;
     if (font_name_bytes && font_name_len > 0) {
         state->font.font_name = Utf8ToWide(font_name_bytes, font_name_len);
@@ -16214,12 +16214,12 @@ HWND __stdcall CreateGroupBox(
     EW_StoreLogicalBounds(hwnd, x, y, width, height, true);
     g_groupbox_styles[hwnd] = GROUPBOX_STYLE_OUTLINE;
     
-    // 瀛愮被鍖栫獥鍙?
+    // 子类化窗口
     SetWindowSubclass(hwnd, GroupBoxProc, 0, 0);
     
     ApplyGroupBoxWindowRegion(state);
     
-    // 绔嬪嵆瑙﹀彂閲嶇粯锛岀‘淇濆垎缁勬鏄剧ず
+    // 立即触发重绘，确保分组框显示
     InvalidateRect(hwnd, nullptr, TRUE);
     UpdateWindow(hwnd);
     
@@ -16446,7 +16446,7 @@ int __stdcall GetHostSurfaceBoundsPx(
     return GetPanelBoundsPx(hHostSurface, x, y, width, height);
 }
 
-// 娣诲姞瀛愭帶浠跺埌鍒嗙粍妗?
+// 添加子控件到分组框
 void __stdcall AddChildToGroup(
     HWND hGroupBox,
     HWND hChild
@@ -16457,25 +16457,25 @@ void __stdcall AddChildToGroup(
     
     GroupBoxState* state = it->second;
     
-    // 妫€鏌ユ槸鍚﹀凡缁忓湪鍒楄〃涓?
+    // 检查是否已经在列表中
     auto child_it = std::find(state->children.begin(), state->children.end(), hChild);
     if (child_it != state->children.end()) return;
     
-    // 娣诲姞鍒板瓙鎺т欢鍒楄〃
+    // 添加到子控件列表
     state->children.push_back(hChild);
     
-    // 濡傛灉鏄崟閫夋寜閽?璁剧疆鍏跺垎缁処D涓哄垎缁勬鐨処D
+    // 如果是单选按钮，设置其分组ID为分组框的ID
     auto radio_it = g_radiobuttons.find(hChild);
     if (radio_it != g_radiobuttons.end()) {
         RadioButtonState* radio_state = radio_it->second;
         radio_state->group_id = state->id;
         
-        // 鏇存柊鍗曢€夋寜閽垎缁?
+        // 更新单选按钮分组
         g_radio_groups[state->id].push_back(hChild);
     }
 }
 
-// 浠庡垎缁勬绉婚櫎瀛愭帶浠?
+// 从分组框移除子控件
 void __stdcall RemoveChildFromGroup(
     HWND hGroupBox,
     HWND hChild
@@ -16483,13 +16483,13 @@ void __stdcall RemoveChildFromGroup(
     auto it = g_groupboxes.find(hGroupBox);
     if (it == g_groupboxes.end()) return;
     GroupBoxState* state = it->second;
-    // 浠庡瓙鎺т欢鍒楄〃涓Щ闄?
+    // 从子控件列表中移除
     auto child_it = std::find(state->children.begin(), state->children.end(), hChild);
     if (child_it != state->children.end()) {
         state->children.erase(child_it);
     }
     
-    // 濡傛灉鏄崟閫夋寜閽?浠庡垎缁勪腑绉婚櫎
+    // 如果是单选按钮，从分组中移除
     auto radio_it = g_radiobuttons.find(hChild);
     if (radio_it != g_radiobuttons.end()) {
         auto& group = g_radio_groups[state->id];
@@ -16500,7 +16500,7 @@ void __stdcall RemoveChildFromGroup(
     }
 }
 
-// 璁剧疆鍒嗙粍妗嗘爣棰?
+// 设置分组框标题
 void __stdcall SetGroupBoxTitle(
     HWND hGroupBox,
     const unsigned char* title_bytes,
@@ -16515,7 +16515,7 @@ void __stdcall SetGroupBoxTitle(
     InvalidateRect(hGroupBox, nullptr, FALSE);
 }
 
-// 鍚敤/绂佺敤鍒嗙粍妗?
+// 启用/禁用分组框
 void __stdcall EnableGroupBox(
     HWND hGroupBox,
     BOOL enable
@@ -16526,9 +16526,9 @@ void __stdcall EnableGroupBox(
     GroupBoxState* state = it->second;
     state->enabled = enable ? true : false;
 
-    // 鍚屾鍚敤/绂佺敤鎵€鏈夊瓙鎺т欢锛堜娇鐢ㄥ悇鎺т欢鑷繁鐨勫惎鐢ㄥ嚱鏁帮級
+    // 同步启用/禁用所有子控件（使用各控件自己的启用函数）
     for (HWND hChild : state->children) {
-        // 妫€鏌ユ槸鍚︽槸澶嶉€夋
+        // 检查是否是复选框
         auto cb_it = g_checkboxes.find(hChild);
         if (cb_it != g_checkboxes.end()) {
             cb_it->second->enabled = (enable != 0);
@@ -16536,7 +16536,7 @@ void __stdcall EnableGroupBox(
             continue;
         }
 
-        // 妫€鏌ユ槸鍚︽槸鍗曢€夋寜閽?
+        // 检查是否是单选按钮
         auto rb_it = g_radiobuttons.find(hChild);
         if (rb_it != g_radiobuttons.end()) {
             rb_it->second->enabled = (enable != 0);
@@ -16544,18 +16544,18 @@ void __stdcall EnableGroupBox(
             continue;
         }
 
-        // 鍏朵粬鎺т欢浣跨敤Windows API
+        // 其他控件使用Windows API
         EnableWindow(hChild, enable);
     }
 
     InvalidateRect(hGroupBox, nullptr, FALSE);
     
-    // 鍚屾鍚敤/绂佺敤鍒嗙粍妗嗗唴鐨勬寜閽紙涓荤獥鍙ｄ笂缁樺埗鐨勬寜閽級
+    // 同步启用/禁用分组框内的按钮（主窗口上绘制的按钮）
     auto win_it = g_windows.find(state->parent);
     if (win_it != g_windows.end()) {
         WindowState* win_state = win_it->second;
         for (int button_id : state->button_ids) {
-            // 鏌ユ壘鎸夐挳骞惰缃惎鐢ㄧ姸鎬?
+            // 查找按钮并设置启用状态
             for (auto& button : win_state->buttons) {
                 if (button.id == button_id) {
                     button.enabled = (enable != 0);
@@ -16570,7 +16570,7 @@ void __stdcall EnableGroupBox(
     }
 }
 
-// 瀹為檯鎵ц鏄剧ず/闅愯棌锛堝湪娑堟伅娉典腑璋冪敤锛屽嬁鍦ㄦ爲鍥炶皟鍚屾爤鐩存帴 ShowWindow锛?
+// 实际执行显示/隐藏（在消息泵中调用，勿在树回调同栈直接 ShowWindow）
 static void ApplyShowGroupBox(HWND hGroupBox, BOOL show) {
     auto it = g_groupboxes.find(hGroupBox);
     if (it == g_groupboxes.end()) {
@@ -16611,7 +16611,7 @@ static void ApplyShowGroupBox(HWND hGroupBox, BOOL show) {
     WriteLog("ApplyShowGroupBox: end hGroupBox=%p, visible_now=%d", hGroupBox, state->visible ? 1 : 0);
 }
 
-// 鏄剧ず/闅愯棌鍒嗙粍妗嗭紙鎶曢€掑埌椤跺眰涓荤獥鍙ｅ欢鍚庢墽琛岋紝閬垮厤鏄撹瑷€鏍戦€変腑鍥炶皟鍐呭悓姝?ShowWindow 閲嶅叆宕╂簝锛?
+// 显示/隐藏分组框（投递到顶层主窗口延后执行，避免易语言树控件回调内同栈 ShowWindow 重入崩溃）
 void __stdcall ShowGroupBox(
     HWND hGroupBox,
     BOOL show
@@ -16634,7 +16634,7 @@ void __stdcall ShowGroupBox(
     ApplyShowGroupBox(hGroupBox, show);
 }
 
-// 璁剧疆鍒嗙粍妗嗕綅缃拰澶у皬
+// 设置分组框位置和大小
 void __stdcall SetGroupBoxBounds(
     HWND hGroupBox,
     int x, int y, int width, int height
@@ -16644,7 +16644,7 @@ void __stdcall SetGroupBoxBounds(
     
     GroupBoxState* state = it->second;
     
-    // 璁＄畻鍋忕Щ閲?
+    // 计算偏移量
     LogicalBoundsInfo old_logical = {};
     bool has_old_logical = EW_GetStoredLogicalBounds(hGroupBox, &old_logical);
     RECT px_rect = EW_LogicalChildRectToPx(GetParent(hGroupBox), x, y, width, height, true);
@@ -16653,7 +16653,7 @@ void __stdcall SetGroupBoxBounds(
     int logical_dx = has_old_logical ? (x - old_logical.x) : 0;
     int logical_dy = has_old_logical ? (y - old_logical.y) : 0;
     
-    // 鏇存柊鍒嗙粍妗嗕綅缃拰澶у皬
+    // 更新分组框位置和大小
     state->x = px_rect.left;
     state->y = px_rect.top;
     state->width = EW_RectWidthPx(px_rect);
@@ -16663,7 +16663,7 @@ void __stdcall SetGroupBoxBounds(
     SetWindowPos(hGroupBox, nullptr, px_rect.left, px_rect.top, state->width, state->height, SWP_NOZORDER);
     ApplyGroupBoxWindowRegion(state);
     
-    // 鍚屾绉诲姩鎵€鏈夊瓙鎺т欢
+    // 同步移动所有子控件
     for (HWND hChild : state->children) {
         LogicalBoundsInfo child_bounds = {};
         if (has_old_logical && EW_GetStoredLogicalBounds(hChild, &child_bounds)) {
@@ -16712,7 +16712,7 @@ void __stdcall SetGroupBoxBounds(
     InvalidateRect(hGroupBox, nullptr, FALSE);
 }
 
-// 璁剧疆鍒嗙粍妗嗗洖璋?
+// 设置分组框回调
 void __stdcall SetGroupBoxCallback(
     HWND hGroupBox,
     GroupBoxCallback callback
@@ -16723,7 +16723,7 @@ void __stdcall SetGroupBoxCallback(
     it->second->callback = callback;
 }
 
-// 鑾峰彇鍒嗙粍妗嗘爣棰?
+// 获取分组框标题
 __declspec(dllexport) int __stdcall GetGroupBoxTitle(
     HWND hGroupBox,
     unsigned char* buffer,
@@ -16744,7 +16744,7 @@ __declspec(dllexport) int __stdcall GetGroupBoxTitle(
     return (int)utf8_title.size();
 }
 
-// 鑾峰彇鍒嗙粍妗嗕綅缃拰澶у皬
+// 获取分组框位置和大小
 __declspec(dllexport) int __stdcall GetGroupBoxBounds(
     HWND hGroupBox,
     int* x,
@@ -16758,7 +16758,7 @@ __declspec(dllexport) int __stdcall GetGroupBoxBounds(
     return EW_ReadLogicalBounds(hGroupBox, x, y, width, height, true);
 }
 
-// 鑾峰彇鍒嗙粍妗嗗彲瑙嗙姸鎬?
+// 获取分组框可视状态
 __declspec(dllexport) int __stdcall GetGroupBoxVisible(
     HWND hGroupBox
 ) {
@@ -16768,7 +16768,7 @@ __declspec(dllexport) int __stdcall GetGroupBoxVisible(
     return it->second->visible ? 1 : 0;
 }
 
-// 鑾峰彇鍒嗙粍妗嗗惎鐢ㄧ姸鎬?
+// 获取分组框启用状态
 __declspec(dllexport) int __stdcall GetGroupBoxEnabled(
     HWND hGroupBox
 ) {
@@ -16778,7 +16778,7 @@ __declspec(dllexport) int __stdcall GetGroupBoxEnabled(
     return it->second->enabled ? 1 : 0;
 }
 
-// 鑾峰彇鍒嗙粍妗嗛鑹诧紙杈规鑹插拰鑳屾櫙鑹诧級
+// 获取分组框颜色（边框色和背景色）
 __declspec(dllexport) int __stdcall GetGroupBoxColor(
     HWND hGroupBox,
     UINT32* border_color,
@@ -16832,10 +16832,10 @@ __declspec(dllexport) int __stdcall GetGroupBoxStyle(
 }
 
 // ========================================
-// TabControl 灞炴€у懡浠?
+// TabControl 属性命令
 // ========================================
 
-// 鑾峰彇鎸囧畾 Tab 椤电殑鏍囬锛圲TF-8锛屼袱娆¤皟鐢ㄦā寮忥級
+// 获取指定 Tab 页的标题（UTF-8，两次调用模式）
 __declspec(dllexport) int __stdcall GetTabTitle(
     HWND hTabControl,
     int index,
@@ -16858,7 +16858,7 @@ __declspec(dllexport) int __stdcall GetTabTitle(
     return (int)utf8.size();
 }
 
-// 璁剧疆鎸囧畾 Tab 椤电殑鏍囬锛圲TF-8锛?
+// 设置指定 Tab 页的标题（UTF-8）
 __declspec(dllexport) int __stdcall SetTabTitle(
     HWND hTabControl,
     int index,
@@ -16875,13 +16875,13 @@ __declspec(dllexport) int __stdcall SetTabTitle(
     std::wstring newTitle = Utf8ToWide(title_bytes, title_len);
     state->pages[index].title = newTitle;
 
-    // 瑙﹀彂閲嶇粯
+    // 触发重绘
     InvalidateRect(hTabControl, nullptr, TRUE);
     return 0;
 }
 
-// 鑾峰彇 TabControl 鐨勪綅缃拰澶у皬
-// 鑾峰彇 TabControl 鐨勪綅缃拰澶у皬
+// 获取 TabControl 的位置和大小
+// 获取 TabControl 的位置和大小
 __declspec(dllexport) int __stdcall GetTabControlBounds(
     HWND hTabControl,
     int* x,
@@ -16895,7 +16895,7 @@ __declspec(dllexport) int __stdcall GetTabControlBounds(
     return EW_ReadLogicalBounds(hTabControl, x, y, width, height, true);
 }
 
-// 璁剧疆 TabControl 鐨勪綅缃拰澶у皬
+// 设置 TabControl 的位置和大小
 __declspec(dllexport) int __stdcall SetTabControlBounds(
     HWND hTabControl,
     int x,
@@ -16914,7 +16914,7 @@ __declspec(dllexport) int __stdcall SetTabControlBounds(
     return 0;
 }
 
-// 鑾峰彇 TabControl 鐨勫彲瑙嗙姸鎬侊紙1=鍙, 0=涓嶅彲瑙? -1=閿欒锛?
+// 获取 TabControl 的可视状态（1=可见, 0=不可见, -1=错误）
 __declspec(dllexport) int __stdcall GetTabControlVisible(
     HWND hTabControl
 ) {
@@ -16946,7 +16946,7 @@ __declspec(dllexport) int __stdcall ShowTabControl(
 }
 
 
-// 鍚敤鎴栫鐢?TabControl锛坋nabled: 1=鍚敤, 0=绂佺敤锛?
+// 启用或禁用 TabControl（enabled: 1=启用, 0=禁用）
 __declspec(dllexport) int __stdcall EnableTabControl(
     HWND hTabControl,
     int enabled
@@ -16960,9 +16960,9 @@ __declspec(dllexport) int __stdcall EnableTabControl(
 }
 
 
-// ========== TabControl 澶栬鍑芥暟 ==========
+// ========== TabControl 外观函数 ==========
 
-// 璁剧疆鏍囩椤靛浐瀹氬昂瀵?
+// 设置标签页固定尺寸
 __declspec(dllexport) int __stdcall SetTabItemSize(HWND hTab, int width, int height) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
@@ -16977,7 +16977,7 @@ __declspec(dllexport) int __stdcall SetTabItemSize(HWND hTab, int width, int hei
     return 0;
 }
 
-// 璁剧疆鏍囩椤靛瓧浣擄紙fontName 涓?UTF-8 缂栫爜锛?
+// 设置标签页字体（fontName 为 UTF-8 编码）
 __declspec(dllexport) int __stdcall SetTabFont(HWND hTab, const unsigned char* fontName, int fontNameLen, float fontSize) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
@@ -16992,7 +16992,7 @@ __declspec(dllexport) int __stdcall SetTabFont(HWND hTab, const unsigned char* f
     return 0;
 }
 
-// 璁剧疆鏍囩椤甸鑹诧紙閫変腑/鏈€変腑鐨勮儗鏅壊鍜屾枃瀛楄壊锛?
+// 设置标签页颜色（选中/未选中的背景色和文字色）
 __declspec(dllexport) int __stdcall SetTabColors(HWND hTab, UINT32 selectedBg, UINT32 unselectedBg, UINT32 selectedText, UINT32 unselectedText) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
@@ -17007,7 +17007,7 @@ __declspec(dllexport) int __stdcall SetTabColors(HWND hTab, UINT32 selectedBg, U
     return 0;
 }
 
-// 璁剧疆閫変腑鏍囩椤靛簳閮ㄦ寚绀烘潯棰滆壊
+// 设置选中标签页底部指示条颜色
 __declspec(dllexport) int __stdcall SetTabIndicatorColor(HWND hTab, UINT32 color) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
@@ -17019,7 +17019,7 @@ __declspec(dllexport) int __stdcall SetTabIndicatorColor(HWND hTab, UINT32 color
     return 0;
 }
 
-// 璁剧疆鏍囩椤靛唴杈硅窛
+// 设置标签页内边距
 __declspec(dllexport) int __stdcall SetTabPadding(HWND hTab, int horizontal, int vertical) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
@@ -17041,17 +17041,17 @@ __declspec(dllexport) int __stdcall SetTabHeaderStyle(HWND hTab, int style) {
     return 0;
 }
 
-// ========== TabControl 鍗曚釜鏍囩椤垫帶鍒跺嚱鏁?==========
+// ========== TabControl 单个标签页控制函数 ==========
 
-// 杈呭姪鍑芥暟锛氭牴鎹?pages 鏁扮粍涓殑 visible 鐘舵€侀噸寤?Win32 Tab Control 鐨勬爣绛鹃」
-// pages 鏁扮粍淇濆瓨鎵€鏈夐〉闈紙鍖呮嫭闅愯棌鐨勶級锛學in32 Tab Control 鍙樉绀哄彲瑙佺殑
+// 辅助函数：根据 pages 数组中的 visible 状态重建 Win32 Tab Control 的标签项
+// pages 数组保存所有页面（包括隐藏的），Win32 Tab Control 只显示可见的
 static void RebuildTabItems(TabControlState* state) {
     if (!state || !state->hTabControl) return;
     UpdateTabLayout(state);
     InvalidateRect(state->hTabControl, NULL, TRUE);
 }
 
-// 杈呭姪鍑芥暟锛氬皢 Win32 Tab Control 鐨勫彲瑙佺储寮曡浆鎹负 pages 鏁扮粍绱㈠紩
+// 辅助函数：将 Win32 Tab Control 的可见索引转换为 pages 数组索引
 static int VisibleIndexToPageIndex(TabControlState* state, int visibleIdx) {
     if (!state || visibleIdx < 0) return -1;
     int count = 0;
@@ -17064,7 +17064,7 @@ static int VisibleIndexToPageIndex(TabControlState* state, int visibleIdx) {
     return -1;
 }
 
-// 鍚敤/绂佺敤鍗曚釜鏍囩椤?
+// 启用/禁用单个标签页
 __declspec(dllexport) int __stdcall EnableTabItem(HWND hTab, int index, int enabled) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
@@ -17077,7 +17077,7 @@ __declspec(dllexport) int __stdcall EnableTabItem(HWND hTab, int index, int enab
     return 0;
 }
 
-// 鑾峰彇鍗曚釜鏍囩椤电殑鍚敤鐘舵€?
+// 获取单个标签页的启用状态
 __declspec(dllexport) int __stdcall GetTabItemEnabled(HWND hTab, int index) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
@@ -17088,7 +17088,7 @@ __declspec(dllexport) int __stdcall GetTabItemEnabled(HWND hTab, int index) {
     return state->pages[index].enabled ? 1 : 0;
 }
 
-// 鏄剧ず/闅愯棌鍗曚釜鏍囩椤?
+// 显示/隐藏单个标签页
 __declspec(dllexport) int __stdcall ShowTabItem(HWND hTab, int index, int visible) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
@@ -17097,18 +17097,18 @@ __declspec(dllexport) int __stdcall ShowTabItem(HWND hTab, int index, int visibl
     if (index < 0 || index >= (int)state->pages.size()) return -1;
 
     bool newVisible = (visible != 0);
-    if (state->pages[index].visible == newVisible) return 0;  // 鐘舵€佹湭鍙?
+    if (state->pages[index].visible == newVisible) return 0;  // 状态未变
 
     state->pages[index].visible = newVisible;
 
-    // 濡傛灉闅愯棌鐨勬槸褰撳墠閫変腑椤碉紝鑷姩鍒囨崲鍒颁笅涓€涓彲瑙侀〉
+    // 如果隐藏的是当前选中页，自动切换到下一个可见页
     if (!newVisible && index == state->currentIndex) {
         int newCurrent = -1;
-        // 鍏堝悜鍚庢壘
+        // 先向后找
         for (int i = index + 1; i < (int)state->pages.size(); i++) {
             if (state->pages[i].visible) { newCurrent = i; break; }
         }
-        // 鍐嶅悜鍓嶆壘
+        // 再向前找
         if (newCurrent < 0) {
             for (int i = index - 1; i >= 0; i--) {
                 if (state->pages[i].visible) { newCurrent = i; break; }
@@ -17122,17 +17122,17 @@ __declspec(dllexport) int __stdcall ShowTabItem(HWND hTab, int index, int visibl
         }
     }
 
-    // 闅愯棌鏍囩椤电殑鍐呭绐楀彛
+    // 隐藏标签页的内容窗口
     if (!newVisible && state->pages[index].hContentWindow && IsWindow(state->pages[index].hContentWindow)) {
         ShowWindow(state->pages[index].hContentWindow, SW_HIDE);
     }
 
-    // 閲嶅缓 Win32 Tab Control 鐨勬爣绛鹃」
+    // 重建 Win32 Tab Control 的标签项
     RebuildTabItems(state);
     return 0;
 }
 
-// 璁剧疆鏍囩椤靛浘鏍囷紙PNG 瀛楄妭鏁版嵁锛?
+// 设置标签页图标（PNG 字节数据）
 __declspec(dllexport) int __stdcall SetTabItemIcon(HWND hTab, int index, const unsigned char* iconBytes, int iconLen) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
@@ -17141,10 +17141,10 @@ __declspec(dllexport) int __stdcall SetTabItemIcon(HWND hTab, int index, const u
     if (index < 0 || index >= (int)state->pages.size()) return -1;
 
     if (!iconBytes || iconLen <= 0) {
-        // 娓呴櫎鍥炬爣
+        // 清除图标
         state->pages[index].iconData.clear();
     } else {
-        // 瀛樺偍 PNG 瀛楄妭鏁版嵁
+        // 存储 PNG 字节数据
         state->pages[index].iconData.assign(iconBytes, iconBytes + iconLen);
     }
 
@@ -17152,21 +17152,21 @@ __declspec(dllexport) int __stdcall SetTabItemIcon(HWND hTab, int index, const u
     return 0;
 }
 
-// 杈呭姪鍑芥暟锛氬皢 ARGB 棰滆壊杞崲涓?COLORREF (BGR) 骞惰缃唴瀹圭獥鍙ｈ儗鏅敾鍒?
+// 辅助函数：将 ARGB 颜色应用到内容窗口背景
 static void ApplyContentBgColor(HWND hContentWindow, UINT32 argbColor) {
     if (!hContentWindow || !IsWindow(hContentWindow)) return;
 
-    // 鏇存柊 D2D 娓叉煋鐨勮儗鏅壊锛圵indowState::client_bg_color锛?
+    // 更新 D2D 渲染的背景色（WindowState::client_bg_color）
     auto win_it = g_windows.find(hContentWindow);
     if (win_it != g_windows.end() && win_it->second) {
         win_it->second->client_bg_color = argbColor;
     }
 
-    // 寮哄埗閲嶇粯锛堝寘鎷瓙鎺т欢锛?
+    // 强制重绘（包括子控件）
     RedrawWindow(hContentWindow, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW | RDW_ALLCHILDREN);
 }
 
-// 璁剧疆鎸囧畾鏍囩椤电殑鍐呭鍖哄煙鑳屾櫙鑹?
+// 设置指定标签页的内容区域背景色
 __declspec(dllexport) int __stdcall SetTabContentBgColor(HWND hTab, int index, UINT32 color) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
@@ -17179,7 +17179,7 @@ __declspec(dllexport) int __stdcall SetTabContentBgColor(HWND hTab, int index, U
     return 0;
 }
 
-// 璁剧疆鎵€鏈夋爣绛鹃〉鐨勫唴瀹瑰尯鍩熻儗鏅壊
+// 设置所有标签页的内容区域背景色
 __declspec(dllexport) int __stdcall SetTabContentBgColorAll(HWND hTab, UINT32 color) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
@@ -17192,8 +17192,8 @@ __declspec(dllexport) int __stdcall SetTabContentBgColorAll(HWND hTab, UINT32 co
     return 0;
 }
 
-// ========== TabControl 瀛愮被鍖栬繃绋嬶紙澶勭悊 TabControl 鑷韩鐨勯紶鏍囦簨浠讹級==========
-// 澶勭悊鍙抽敭鐐瑰嚮銆佸弻鍑汇€佹嫋鎷姐€佸叧闂寜閽偣鍑诲拰鎮仠
+// ========== TabControl 子类化过程（处理 TabControl 自身的鼠标事件）==========
+// 处理右键点击、双击、拖拽、关闭按钮点击和悬停
 LRESULT CALLBACK TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     auto it = g_tab_controls.find(hwnd);
     if (it == g_tab_controls.end()) {
@@ -17204,7 +17204,7 @@ LRESULT CALLBACK TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
 
     switch (msg) {
 
-    // 鈹€鈹€ 鍏抽棴鎸夐挳鎮仠璺熻釜 鈹€鈹€
+    // ── 关闭按钮悬停跟踪 ──
     case WM_MOUSEMOVE: {
         if (state->closable) {
             POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
@@ -17215,14 +17215,14 @@ LRESULT CALLBACK TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
 
             int newHoveredClose = -1;
             if (pageIdx >= 0 && pageIdx < (int)state->pages.size()) {
-                // 鑾峰彇璇ユ爣绛鹃〉鐨勭煩褰㈠尯鍩?
+                // 获取该标签页的矩形区域
                 RECT tabRect = {};
                 TabCtrl_GetItemRect(hwnd, visibleIdx, &tabRect);
                 int w = tabRect.right - tabRect.left;
                 int h = tabRect.bottom - tabRect.top;
                 float closeBtnSize = 20.0f;
                 float closeBtnMargin = 6.0f;
-                // 鍏抽棴鎸夐挳鍖哄煙锛堢浉瀵逛簬鏍囩椤电煩褰級
+                // 关闭按钮区域（相对于标签页矩形）
                 float btnX = (float)tabRect.left + (float)w - closeBtnSize - closeBtnMargin;
                 float btnY = (float)tabRect.top + ((float)h - closeBtnSize) / 2.0f;
                 if (pt.x >= (int)(btnX - 3) && pt.x <= (int)(btnX + closeBtnSize + 3) &&
@@ -17236,7 +17236,7 @@ LRESULT CALLBACK TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
                 InvalidateRect(hwnd, NULL, FALSE);
             }
 
-            // 纭繚榧犳爣绂诲紑鏃惰兘鏀跺埌 WM_MOUSELEAVE
+            // 确保鼠标离开时能收到 WM_MOUSELEAVE
             TRACKMOUSEEVENT tme = {};
             tme.cbSize = sizeof(tme);
             tme.dwFlags = TME_LEAVE;
@@ -17244,7 +17244,7 @@ LRESULT CALLBACK TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
             TrackMouseEvent(&tme);
         }
 
-        // 鈹€鈹€ 鎷栨嫿绉诲姩 鈹€鈹€
+        // ── 拖拽移动 ──
         if (state->isDragging && state->draggable) {
             POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
             TCHITTESTINFO hti = {};
@@ -17254,7 +17254,7 @@ LRESULT CALLBACK TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
             if (targetPageIdx >= 0) {
                 state->dragTargetIndex = targetPageIdx;
             }
-            // 缁樺埗鎷栨嫿鎸囩ず绾?
+            // 绘制拖拽指示线
             InvalidateRect(hwnd, NULL, FALSE);
         }
         break;
@@ -17268,11 +17268,11 @@ LRESULT CALLBACK TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
         break;
     }
 
-    // 鈹€鈹€ 鍏抽棴鎸夐挳鐐瑰嚮 + 鎷栨嫿寮€濮?鈹€鈹€
+    // 关闭按钮点击 + 拖拽开始
     case WM_LBUTTONDOWN: {
         POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
 
-        // 鍏堟娴嬫槸鍚︾偣鍑讳簡鍏抽棴鎸夐挳锛堜紭鍏堜簬鎷栨嫿锛?
+        // 先检测是否点击了关闭按钮（优先于拖拽）
         bool clickedCloseBtn = false;
         if (state->closable) {
             TCHITTESTINFO hti = {};
@@ -17291,7 +17291,7 @@ LRESULT CALLBACK TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
                 if (pt.x >= (int)(btnX - 3) && pt.x <= (int)(btnX + closeBtnSize + 3) &&
                     pt.y >= (int)(btnY - 3) && pt.y <= (int)(btnY + closeBtnSize + 3)) {
                     clickedCloseBtn = true;
-                    // 绔嬪嵆瑙﹀彂鍏抽棴鍥炶皟
+                    // 立即触发关闭回调
                     if (state->closeCallback) {
                         state->closeCallback(hwnd, pageIdx);
                     }
@@ -17300,7 +17300,7 @@ LRESULT CALLBACK TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
             }
         }
 
-        // 鎷栨嫿寮€濮嬶紙浠呭湪鏈偣鍑诲叧闂寜閽椂锛?
+        // 拖拽开始（仅在未点击关闭按钮时）
         if (!clickedCloseBtn && state->draggable) {
             TCHITTESTINFO hti = {};
             hti.pt = pt;
@@ -17320,7 +17320,7 @@ LRESULT CALLBACK TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
     case WM_LBUTTONUP: {
         POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
 
-        // 鈹€鈹€ 鎷栨嫿瀹屾垚 鈹€鈹€
+        // ── 拖拽完成 ──
         if (state->isDragging && state->draggable) {
             ReleaseCapture();
             state->isDragging = false;
@@ -17330,21 +17330,21 @@ LRESULT CALLBACK TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
 
             if (fromIdx >= 0 && toIdx >= 0 && fromIdx != toIdx &&
                 fromIdx < (int)state->pages.size() && toIdx < (int)state->pages.size()) {
-                // 绉诲姩 pages 鏁扮粍涓殑鍏冪礌
+                // 移动 pages 数组中的元素
                 TabPageInfo movedPage = state->pages[fromIdx];
                 state->pages.erase(state->pages.begin() + fromIdx);
-                if (toIdx > fromIdx) toIdx--;  // 鍒犻櫎鍚庣储寮曡皟鏁?
+                if (toIdx > fromIdx) toIdx--;  // 删除后索引调整
                 state->pages.insert(state->pages.begin() + toIdx, movedPage);
 
-                // 鏇存柊鎵€鏈夐〉鐨?index 瀛楁
+                // 更新所有页面 index 字段
                 for (int i = 0; i < (int)state->pages.size(); i++) {
                     state->pages[i].index = i;
                 }
 
-                // 淇濇寔鎷栨嫿椤典负閫変腑鐘舵€?
+                // 保持拖拽页为选中状态
                 state->currentIndex = toIdx;
 
-                // 閲嶅缓 Win32 Tab Control 鐨勬爣绛?
+                // 重建 Win32 Tab Control 的标签项
                 TabCtrl_DeleteAllItems(hwnd);
                 int visIdx = 0;
                 for (size_t i = 0; i < state->pages.size(); i++) {
@@ -17363,7 +17363,7 @@ LRESULT CALLBACK TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
                     }
                 }
 
-                // 璁剧疆閫変腑鐘舵€?
+                // 设置选中状态
                 if (state->currentIndex >= 0 && state->currentIndex < (int)state->pages.size()
                     && state->pages[state->currentIndex].visible) {
                     int selVisIdx = 0;
@@ -17382,7 +17382,7 @@ LRESULT CALLBACK TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
             return 0;
         }
 
-        // 鈹€鈹€ 鍏抽棴鎸夐挳鐐瑰嚮妫€娴?鈹€鈹€
+        // 关闭按钮点击检测
         if (state->closable) {
             TCHITTESTINFO hti = {};
             hti.pt = pt;
@@ -17401,18 +17401,18 @@ LRESULT CALLBACK TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
 
                 if (pt.x >= (int)(btnX - 2) && pt.x <= (int)(btnX + closeBtnSize + 2) &&
                     pt.y >= (int)(btnY - 2) && pt.y <= (int)(btnY + closeBtnSize + 2)) {
-                    // 鐐瑰嚮浜嗗叧闂寜閽紝瑙﹀彂鍥炶皟
+                    // 点击了关闭按钮，触发回调
                     if (state->closeCallback) {
                         state->closeCallback(hwnd, pageIdx);
                     }
-                    return 0;  // 涓嶄紶閫掔粰榛樿澶勭悊锛岄伩鍏嶅垏鎹㈡爣绛?
+                    return 0;  // 不传递给默认处理，避免切换标签
                 }
             }
         }
         break;
     }
 
-    // 鈹€鈹€ 鍙抽敭鐐瑰嚮 鈹€鈹€
+    // ── 右键点击 ──
     case WM_RBUTTONUP: {
         if (state->rightClickCallback) {
             POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
@@ -17422,7 +17422,7 @@ LRESULT CALLBACK TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
             int pageIdx = VisibleIndexToPageIndex(state, visibleIdx);
 
             if (pageIdx >= 0) {
-                // 杞崲涓哄睆骞曞潗鏍?
+                // 转换为屏幕坐标
                 POINT screenPt = pt;
                 ClientToScreen(hwnd, &screenPt);
                 state->rightClickCallback(hwnd, pageIdx, screenPt.x, screenPt.y);
@@ -17432,7 +17432,7 @@ LRESULT CALLBACK TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
         break;
     }
 
-    // 鈹€鈹€ 鍙屽嚮 鈹€鈹€
+    // ── 双击 ──
     case WM_LBUTTONDBLCLK: {
         if (state->dblClickCallback) {
             POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
@@ -17450,15 +17450,15 @@ LRESULT CALLBACK TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
     }
 
     case WM_PAINT: {
-        // 鎷栨嫿鏃剁粯鍒舵彃鍏ヤ綅缃寚绀虹嚎
+        // 拖拽时绘制插入位置指示线
         if (state->isDragging && state->draggable && state->dragTargetIndex >= 0) {
-            // 鍏堣榛樿缁樺埗瀹屾垚
+            // 先让默认绘制完成
             LRESULT result = DefSubclassProc(hwnd, msg, wparam, lparam);
 
-            // 鍦ㄩ粯璁ょ粯鍒朵箣涓婄粯鍒舵寚绀虹嚎
+            // 在默认绘制之上绘制指示线
             HDC hdc = GetDC(hwnd);
             if (hdc) {
-                // 鎵惧埌鐩爣浣嶇疆鐨勫彲瑙佺储寮?
+                // 找到目标位置的可见索引
                 int targetVisIdx = 0;
                 for (int i = 0; i < state->dragTargetIndex && i < (int)state->pages.size(); i++) {
                     if (state->pages[i].visible) targetVisIdx++;
@@ -17475,7 +17475,7 @@ LRESULT CALLBACK TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
                     lineX = tabRect.right;
                 }
 
-                // 缁樺埗 2px 瀹界殑钃濊壊鎸囩ず绾?
+                // 绘制 2px 宽的蓝色指示线
                 HPEN hPen = CreatePen(PS_SOLID, 2, RGB(64, 158, 255));  // #409EFF
                 HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
                 MoveToEx(hdc, lineX, tabRect.top, NULL);
@@ -17499,9 +17499,9 @@ LRESULT CALLBACK TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
     return DefSubclassProc(hwnd, msg, wparam, lparam);
 }
 
-// ========== TabControl 浜や簰澧炲己鍑芥暟 ==========
+// ========== TabControl 交互增强函数 ==========
 
-// 璁剧疆鏍囩椤垫槸鍚︽樉绀哄叧闂寜閽?
+// 设置标签页是否显示关闭按钮
 __declspec(dllexport) int __stdcall SetTabClosable(HWND hTab, int closable) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
@@ -17512,7 +17512,7 @@ __declspec(dllexport) int __stdcall SetTabClosable(HWND hTab, int closable) {
     return 0;
 }
 
-// 璁剧疆鏍囩椤靛叧闂洖璋?
+// 设置标签页关闭回调
 __declspec(dllexport) int __stdcall SetTabCloseCallback(HWND hTab, TAB_CLOSE_CALLBACK callback) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
@@ -17522,7 +17522,7 @@ __declspec(dllexport) int __stdcall SetTabCloseCallback(HWND hTab, TAB_CLOSE_CAL
     return 0;
 }
 
-// 璁剧疆鏍囩椤靛彸閿偣鍑诲洖璋?
+// 设置标签页右键点击回调
 __declspec(dllexport) int __stdcall SetTabRightClickCallback(HWND hTab, TAB_RIGHTCLICK_CALLBACK callback) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
@@ -17532,7 +17532,7 @@ __declspec(dllexport) int __stdcall SetTabRightClickCallback(HWND hTab, TAB_RIGH
     return 0;
 }
 
-// 璁剧疆鏍囩椤垫槸鍚﹀彲鎷栨嫿鎺掑簭
+// 设置标签页是否可拖拽排序
 __declspec(dllexport) int __stdcall SetTabDraggable(HWND hTab, int draggable) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
@@ -17542,7 +17542,7 @@ __declspec(dllexport) int __stdcall SetTabDraggable(HWND hTab, int draggable) {
     return 0;
 }
 
-// 璁剧疆鏍囩椤靛弻鍑诲洖璋?
+// 设置标签页双击回调
 __declspec(dllexport) int __stdcall SetTabDoubleClickCallback(HWND hTab, TAB_DBLCLICK_CALLBACK callback) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
@@ -17563,9 +17563,9 @@ __declspec(dllexport) int __stdcall SetTabNewButtonCallback(HWND hTab, TAB_NEW_B
     return 0;
 }
 
-// ========== 甯冨眬涓庝綅缃嚱鏁?==========
+// ========== 布局与位置函数 ==========
 
-// 璁剧疆鏍囩鏍忎綅缃紙0=涓? 1=涓? 2=宸? 3=鍙筹級
+// 设置标签栏位置（0=上, 1=下, 2=左, 3=右）
 __declspec(dllexport) int __stdcall SetTabPosition(HWND hTab, int position) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
@@ -17580,7 +17580,7 @@ __declspec(dllexport) int __stdcall SetTabPosition(HWND hTab, int position) {
     return 0;
 }
 
-// 璁剧疆鏍囩瀵归綈鏂瑰紡锛?=宸﹀榻? 1=灞呬腑, 2=鍙冲榻愶級
+// 设置标签对齐方式（0=左对齐, 1=居中, 2=右对齐）
 __declspec(dllexport) int __stdcall SetTabAlignment(HWND hTab, int align) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
@@ -17590,12 +17590,12 @@ __declspec(dllexport) int __stdcall SetTabAlignment(HWND hTab, int align) {
     TabControlState* state = it->second;
     state->tabAlignment = align;
 
-    // 瑙﹀彂閲嶇粯锛屽疄闄呭榻愭晥鏋滃湪 WM_DRAWITEM 涓牴鎹?tabAlignment 璋冩暣
+    // 触发重绘，实际对齐效果在 WM_DRAWITEM 中根据 tabAlignment 调整
     InvalidateRect(hTab, NULL, TRUE);
     return 0;
 }
 
-// 璁剧疆鏍囩鏍忔槸鍚﹀彲婊氬姩锛?=鍙粴鍔?鍗曡, 0=涓嶅彲婊氬姩/澶氳锛?
+// 设置标签栏是否可滚动（1=可滚动单行, 0=不可滚动/多行）
 __declspec(dllexport) int __stdcall SetTabScrollable(HWND hTab, int scrollable) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
@@ -17610,16 +17610,16 @@ __declspec(dllexport) int __stdcall SetTabScrollable(HWND hTab, int scrollable) 
 }
 
 
-// ========== 鎵归噺鎿嶄綔鍑芥暟 ==========
+// ========== 批量操作函数 ==========
 
-// 娓呯┖鎵€鏈夋爣绛鹃〉
+// 清空所有标签页
 __declspec(dllexport) int __stdcall RemoveAllTabs(HWND hTab) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
 
     TabControlState* state = it->second;
 
-    // 閬嶅巻鎵€鏈夐〉闈紝閿€姣佸唴瀹圭獥鍙ｏ紝娓呯悊鍏宠仈鐨?WindowState 鍜?D2D 娓叉煋鐩爣
+    // 遍历所有页面，销毁内容窗口，清理关联的 WindowState 与 D2D 渲染目标
     for (auto& page : state->pages) {
         if (page.hContentWindow && IsWindow(page.hContentWindow)) {
             auto win_it = g_windows.find(page.hContentWindow);
@@ -17635,7 +17635,7 @@ __declspec(dllexport) int __stdcall RemoveAllTabs(HWND hTab) {
         }
     }
 
-    // 娓呯┖ pages 鏁扮粍锛岃缃?currentIndex = -1
+    // 清空 pages 数组，设置 currentIndex = -1
     state->pages.clear();
     state->currentIndex = -1;
 
@@ -17644,7 +17644,7 @@ __declspec(dllexport) int __stdcall RemoveAllTabs(HWND hTab) {
     return 0;
 }
 
-// 鍦ㄦ寚瀹氫綅缃彃鍏ユ爣绛鹃〉
+// 在指定位置插入标签页
 __declspec(dllexport) int __stdcall InsertTabItem(HWND hTab, int index, const unsigned char* title, int titleLen, HWND hContent) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
@@ -17653,14 +17653,14 @@ __declspec(dllexport) int __stdcall InsertTabItem(HWND hTab, int index, const un
 
     if (index < 0) return -1;
 
-    // index 瓒呰繃褰撳墠鏁伴噺鏃惰拷鍔犲埌鏈熬
+    // index 超过当前数量时追加到末尾
     int count = (int)state->pages.size();
     if (index > count) index = count;
 
-    // 杞崲鏍囬
+    // 转换标题
     std::wstring wtitle = Utf8ToWide(title, titleLen);
 
-    // 濡傛灉娌℃湁鎻愪緵鍐呭绐楀彛锛屽垯鍒涘缓涓€涓?
+    // 如果没有提供内容窗口，则创建默认内容窗口
     if (!hContent || !IsWindow(hContent)) {
         if (!g_d2d_factory) {
             D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &g_d2d_factory);
@@ -17707,7 +17707,7 @@ __declspec(dllexport) int __stdcall InsertTabItem(HWND hTab, int index, const un
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
     }
 
-    // 鍒涘缓鏂扮殑 TabPageInfo
+    // 创建新的 TabPageInfo
     TabPageInfo pageInfo;
     pageInfo.index = index;
     pageInfo.title = wtitle;
@@ -17716,23 +17716,23 @@ __declspec(dllexport) int __stdcall InsertTabItem(HWND hTab, int index, const un
     pageInfo.enabled = true;
     pageInfo.contentBgColor = 0xFFFFFFFF;
 
-    // 鍦?pages 鏁扮粍涓彃鍏?
+    // 向 pages 数组中插入
     state->pages.insert(state->pages.begin() + index, pageInfo);
 
-    // 鏇存柊鍚庣画鏍囩椤电殑 index 瀛楁
+    // 更新后续标签页的 index 字段
     for (int i = index + 1; i < (int)state->pages.size(); i++) {
         state->pages[i].index = i;
     }
 
-    // 濡傛灉鎻掑叆浣嶇疆 <= currentIndex锛屽垯 currentIndex++
+    // 如果插入位置 <= currentIndex，则 currentIndex++
     if (state->currentIndex >= 0 && index <= state->currentIndex) {
         state->currentIndex++;
     }
 
-    // 閲嶅缓 Win32 Tab Control 鐨勬爣绛鹃」锛堝鐞?visible 鐘舵€侊級
+    // 重建 Win32 Tab Control 的标签项（处理 visible 状态）
     RebuildTabItems(state);
 
-    // 濡傛灉鏄涓€涓爣绛鹃〉锛岃嚜鍔ㄩ€変腑
+    // 如果是第一个标签页，自动选中
     if (count == 0) {
         state->currentIndex = 0;
         UpdateTabLayout(state);
@@ -17746,7 +17746,7 @@ __declspec(dllexport) int __stdcall InsertTabItem(HWND hTab, int index, const un
     return index;
 }
 
-// 绉诲姩鏍囩椤典綅缃?
+// 移动标签页位置
 __declspec(dllexport) int __stdcall MoveTabItem(HWND hTab, int fromIndex, int toIndex) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
@@ -17758,44 +17758,44 @@ __declspec(dllexport) int __stdcall MoveTabItem(HWND hTab, int fromIndex, int to
     if (toIndex < 0 || toIndex >= count) return -1;
     if (fromIndex == toIndex) return 0;
 
-    // 淇濆瓨琚Щ鍔ㄧ殑椤甸潰
+    // 保存被移动的页面
     TabPageInfo movedPage = state->pages[fromIndex];
 
-    // 浠庡師浣嶇疆绉婚櫎
+    // 从原位置移除
     state->pages.erase(state->pages.begin() + fromIndex);
 
-    // 鎻掑叆鍒扮洰鏍囦綅缃?
+    // 插入到目标位置
     state->pages.insert(state->pages.begin() + toIndex, movedPage);
 
-    // 鏇存柊鎵€鏈夐〉闈㈢殑 index 瀛楁
+    // 更新所有页面的 index 字段
     for (int i = 0; i < (int)state->pages.size(); i++) {
         state->pages[i].index = i;
     }
 
-    // 鏇存柊 currentIndex
+    // 更新 currentIndex
     if (state->currentIndex == fromIndex) {
-        // 琚Щ鍔ㄧ殑鏍囩椤垫槸褰撳墠閫変腑鐨?
+        // 被移动的标签页是当前选中页
         state->currentIndex = toIndex;
     } else if (fromIndex < toIndex) {
-        // 鍚戝悗绉诲姩锛歠romIndex+1 鍒?toIndex 涔嬮棿鐨勫厓绱犲墠绉讳竴浣?
+        // 向后移动：fromIndex+1 到 toIndex 之间的元素前移一位
         if (state->currentIndex > fromIndex && state->currentIndex <= toIndex) {
             state->currentIndex--;
         }
     } else {
-        // 鍚戝墠绉诲姩锛歵oIndex 鍒?fromIndex-1 涔嬮棿鐨勫厓绱犲悗绉讳竴浣?
+        // 向前移动：toIndex 到 fromIndex-1 之间的元素后移一位
         if (state->currentIndex >= toIndex && state->currentIndex < fromIndex) {
             state->currentIndex++;
         }
     }
 
-    // 閲嶅缓 Win32 Tab Control 鐨勬爣绛鹃」
+    // 重建 Win32 Tab Control 的标签项
     RebuildTabItems(state);
     UpdateTabLayout(state);
 
     return 0;
 }
 
-// 鏍规嵁鏍囬鏌ユ壘鏍囩椤电储寮?
+// 根据标题查找标签页索引
 __declspec(dllexport) int __stdcall GetTabIndexByTitle(HWND hTab, const unsigned char* titleBytes, int titleLen) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
@@ -17804,10 +17804,10 @@ __declspec(dllexport) int __stdcall GetTabIndexByTitle(HWND hTab, const unsigned
 
     TabControlState* state = it->second;
 
-    // 灏?UTF-8 titleBytes 杞崲涓?std::wstring
+    // 将 UTF-8 titleBytes 转换为 std::wstring
     std::wstring searchTitle = Utf8ToWide(titleBytes, titleLen);
 
-    // 閬嶅巻 pages 鏁扮粍绮剧‘鍖归厤锛堝尯鍒嗗ぇ灏忓啓锛?
+    // 遍历 pages 数组精确匹配（区分大小写）
     for (size_t i = 0; i < state->pages.size(); i++) {
         if (state->pages[i].title == searchTitle) {
             return (int)i;
@@ -17817,7 +17817,7 @@ __declspec(dllexport) int __stdcall GetTabIndexByTitle(HWND hTab, const unsigned
     return -1;
 }
 
-// 鑾峰彇鏁翠釜 TabControl 鐨勫惎鐢ㄧ姸鎬?
+// 获取整个 TabControl 的启用状态
 __declspec(dllexport) int __stdcall GetTabEnabled(HWND hTab) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
@@ -17825,7 +17825,7 @@ __declspec(dllexport) int __stdcall GetTabEnabled(HWND hTab) {
     return IsWindowEnabled(hTab) ? 1 : 0;
 }
 
-// 鍒ゆ柇鎸囧畾鏍囩椤垫槸鍚︿负褰撳墠閫変腑
+// 判断指定标签页是否为当前选中
 __declspec(dllexport) int __stdcall IsTabItemSelected(HWND hTab, int index) {
     auto it = g_tab_controls.find(hTab);
     if (it == g_tab_controls.end()) return -1;
@@ -18044,7 +18044,7 @@ LRESULT CALLBACK GroupBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
     
     GroupBoxState* state = it->second;
 
-    // 閫氱敤浜嬩欢澶勭悊
+    // 通用事件处理
     if (HandleCommonEvents(hwnd, msg, wparam, lparam, &state->events)) {
         return 0;
     }
@@ -18056,7 +18056,7 @@ LRESULT CALLBACK GroupBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
                 return HTTRANSPARENT;
             }
 
-            // 灏嗗睆骞曞潗鏍囪浆鎹负瀹㈡埛鍖哄潗鏍?
+            // 将屏幕坐标转换为客户区坐标
             POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
             ScreenToClient(hwnd, &pt);
             if (FindGroupBoxButtonAtPoint(state, pt.x, pt.y)) {
@@ -18116,7 +18116,7 @@ LRESULT CALLBACK GroupBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
             HDC hdc = BeginPaint(hwnd, &ps);
             WriteLog("GroupBoxProc: WM_PAINT begin hwnd=%p, state=%p, visible=%d", hwnd, state, state->visible ? 1 : 0);
 
-            // 鍒涘缓 D2D1 娓叉煋鐩爣
+            // 创建 D2D1 渲染目标
             RECT rc;
             GetClientRect(hwnd, &rc);
             
@@ -18156,7 +18156,7 @@ LRESULT CALLBACK GroupBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
         }
         
         case WM_ERASEBKGND:
-            return 1;  // 闃叉闂儊
+            return 1;  // 防止闪烁
 
         case WM_LBUTTONDOWN: {
             int x = GET_X_LPARAM(lparam);
@@ -18272,11 +18272,11 @@ LRESULT CALLBACK GroupBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
         }
         
         case WM_NCDESTROY: {
-            // 娓呯悊璧勬簮
+            // 清理资源
             WriteLog("GroupBoxProc: WM_NCDESTROY hwnd=%p, state=%p", hwnd, state);
             RemoveWindowSubclass(hwnd, GroupBoxProc, 0);
             
-            // 浠庡叏灞€map涓Щ闄?
+            // 从全局map中移除
             auto it = g_groupboxes.find(hwnd);
             if (it != g_groupboxes.end()) {
                 delete it->second;
@@ -18290,7 +18290,7 @@ LRESULT CALLBACK GroupBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
     return DefSubclassProc(hwnd, msg, wparam, lparam);
 }
 
-// 缁樺埗鍒嗙粍妗?
+// 绘制分组框
 void DrawGroupBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, GroupBoxState* state) {
     if (!rt || !factory || !state) return;
     UINT dpi = EW_GetDpiForReference(state->hwnd, state->parent);
@@ -18306,10 +18306,10 @@ void DrawGroupBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, GroupBoxSt
     }
     auto sx = [draw_scale](float value) { return value * draw_scale; };
     
-    // 鍒涘缓鐢诲埛
+    // 创建画刷
     ID2D1SolidColorBrush* border_brush = nullptr;
     ID2D1SolidColorBrush* title_brush = nullptr;
-    // 涓嶅啀闇€瑕佽儗鏅敾鍒凤紝鍒嗙粍妗嗗簲璇ュ畬鍏ㄩ€忔槑
+    // 不再需要背景画刷，分组框应该完全透明
     
     UINT32 resolved_border = ResolveThemeColor(state->border_color);
     UINT32 resolved_title = ResolveThemeColor(state->title_color);
@@ -18322,7 +18322,7 @@ void DrawGroupBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, GroupBoxSt
         return;
     }
     
-    // 鍒涘缓鏂囨湰鏍煎紡
+    // 创建文本格式
     int style = GROUPBOX_STYLE_OUTLINE;
     auto style_it = g_groupbox_styles.find(state->hwnd);
     if (style_it != g_groupbox_styles.end()) {
@@ -18354,7 +18354,7 @@ void DrawGroupBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, GroupBoxSt
     text_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
     text_format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
     
-    // 娴嬮噺鏍囬鏂囨湰灏哄
+    // 测量标题文本尺寸
     IDWriteTextLayout* text_layout = nullptr;
     factory->CreateTextLayout(
         state->title.c_str(),
@@ -18472,9 +18472,9 @@ void DrawGroupBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, GroupBoxSt
         return;
     }
     
-    // 涓嶇粯鍒惰儗鏅紝淇濇寔瀹屽叏閫忔槑锛岃繖鏍蜂富绐楀彛涓婄殑鎸夐挳灏辫兘鏄剧ず鍑烘潵
+    // 不绘制背景，保持完全透明，这样主窗口上的按钮就能显示出来
     
-    // 缁樺埗杈规锛堝甫缂哄彛浠ュ绾虫爣棰橈級
+    // 绘制边框（带缺口以容纳标题）
     // Give emoji/CJK overhang a little room so the title is not clipped at high DPI.
     float title_pad_x = sx(10.0f);
     float title_pad_y = sx(4.0f);
@@ -18496,7 +18496,7 @@ void DrawGroupBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, GroupBoxSt
     );
     rt->DrawRoundedRectangle(outline_frame, border_brush, outline_stroke);
     
-    // 缁樺埗鏍囬鑳屾櫙锛堜笌璁捐鍣ㄤ竴鑷达細鏍囬澶勨€滃垏鏂€濊竟妗嗭紝鑳屾櫙涓庣獥鍙ｄ竴鑷达級
+    // 绘制标题背景（与设计器一致：标题处“切断”边框，背景与窗口一致）
     ID2D1SolidColorBrush* bg_brush = nullptr;
     rt->CreateSolidColorBrush(ColorFromUInt32(ResolveContainerBackgroundColor(state->parent, state->bg_color ? state->bg_color : 13)), &bg_brush);
     if (bg_brush) {
@@ -18505,7 +18505,7 @@ void DrawGroupBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, GroupBoxSt
         bg_brush->Release();
     }
     
-    // 缁樺埗鏍囬鏂囨湰
+    // 绘制标题文本
     D2D1_RECT_F title_rect = D2D1::RectF(
         gap_start + title_pad_x,
         max(0.0f, (title_box_height - title_height) / 2.0f),
@@ -18532,7 +18532,7 @@ void DrawGroupBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, GroupBoxSt
         );
     }
     
-    // 娓呯悊璧勬簮
+    // 清理资源
     if (text_layout) text_layout->Release();
     text_format->Release();
     border_brush->Release();
@@ -18541,15 +18541,15 @@ void DrawGroupBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, GroupBoxSt
 
 
 // ========================================
-// D2D鑷畾涔夌粯鍒剁紪杈戞瀹炵幇锛堟敮鎸佸僵鑹瞖moji锛?
+// D2D自定义绘制编辑框实现（支持彩色emoji）
 // ========================================
 
-// 绐楀彛绫诲悕
+// 窗口类名
 const wchar_t* D2D_EDITBOX_CLASS = L"D2DEditBoxClass";
 
-// 鍏夋爣闂儊瀹氭椂鍣↖D
+// 光标闪烁定时器ID
 #define CURSOR_TIMER_ID 1001
-#define CURSOR_BLINK_INTERVAL 500  // 500ms闂儊闂撮殧
+#define CURSOR_BLINK_INTERVAL 500  // 500ms闪烁间隔
 
 static std::wstring NormalizeD2DEditText(const std::wstring& text, bool multiline) {
     std::wstring normalized;
@@ -18626,7 +18626,7 @@ static void ConfigureD2DEditTextFormat(const D2DEditBoxState* state, IDWriteText
     );
 }
 
-// 杈呭姪鍑芥暟锛氳幏鍙栧瓧绗﹀湪鏂囨湰涓殑鍍忕礌浣嶇疆
+// 辅助函数：获取字符在文本中的像素位置
 float GetCharPositionX(IDWriteTextLayout* layout, int char_index) {
     if (!layout || char_index < 0) return 0.0f;
     
@@ -18643,7 +18643,7 @@ float GetCharPositionX(IDWriteTextLayout* layout, int char_index) {
     return SUCCEEDED(hr) ? x : 0.0f;
 }
 
-// 杈呭姪鍑芥暟锛氫粠鐐瑰嚮浣嶇疆鑾峰彇瀛楃绱㈠紩
+// 辅助函数：从点击位置获取字符索引
 int GetCharIndexFromPoint(IDWriteTextLayout* layout, int text_length, float click_x, float click_y) {
     if (!layout || text_length <= 0) return 0;
     
@@ -19014,7 +19014,7 @@ static void EnsureD2DEditCaretVisible(D2DEditBoxState* state) {
     ReleaseD2DEditLayoutContext(&ctx);
 }
 
-// 缁樺埗D2D缂栬緫妗?
+// 绘制D2D编辑框
 void DrawD2DEditBox(D2DEditBoxState* state) {
     if (!state || !state->render_target || !state->dwrite_factory) {
         AppendEditBoxDebugLog(
@@ -19033,7 +19033,7 @@ void DrawD2DEditBox(D2DEditBoxState* state) {
     rt->SetDpi(96.0f, 96.0f);
     rt->BeginDraw();
     
-    // 1. 缁樺埗鑳屾櫙
+    // 1. 绘制背景
     ID2D1SolidColorBrush* bg_brush = nullptr;
     rt->CreateSolidColorBrush(ColorFromUInt32(resolved_bg), &bg_brush);
     rt->FillRectangle(
@@ -19042,7 +19042,7 @@ void DrawD2DEditBox(D2DEditBoxState* state) {
     );
     bg_brush->Release();
     
-    // 2. 缁樺埗杈规
+    // 2. 绘制边框
     if (state->has_border) {
         ID2D1SolidColorBrush* border_brush = nullptr;
         UINT32 border_color = state->has_focus ? ThemeColor_Primary() : state->border_color;
@@ -19062,7 +19062,7 @@ void DrawD2DEditBox(D2DEditBoxState* state) {
 
         rt->PushAxisAlignedClip(ctx.text_clip, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
 
-        // 3. 缁樺埗閫夋嫨鑳屾櫙
+        // 3. 绘制选择背景
         if (state->selection_start >= 0 && state->selection_end != state->selection_start) {
             int sel_start = min(state->selection_start, state->selection_end);
             int sel_end = max(state->selection_start, state->selection_end);
@@ -19103,7 +19103,7 @@ void DrawD2DEditBox(D2DEditBoxState* state) {
             }
         }
 
-        // 4. 缁樺埗鏂囨湰锛堟敮鎸佸僵鑹瞖moji锛?
+        // 4. 绘制文本（支持彩色emoji）
         ID2D1SolidColorBrush* text_brush = nullptr;
         rt->CreateSolidColorBrush(ColorFromUInt32(resolved_fg), &text_brush);
         AppendEditBoxDebugLog(
@@ -19128,7 +19128,7 @@ void DrawD2DEditBox(D2DEditBoxState* state) {
             text_brush->Release();
         }
 
-        // 5. 缁樺埗鍏夋爣
+        // 5. 绘制光标
         if (state->has_focus && state->cursor_visible && state->selection_start < 0) {
             float cursor_x = 0.0f;
             float cursor_y = 0.0f;
@@ -19212,12 +19212,12 @@ void DrawD2DEditBox(D2DEditBoxState* state) {
     AppendEditBoxDebugLog("DrawD2DEditBox:EndDraw hwnd=%p hr=0x%08X", state->hwnd, (unsigned int)end_hr);
 }
 
-// 鎻掑叆鏂囨湰
+// 插入文本
 void InsertTextAtCursor(D2DEditBoxState* state, const std::wstring& text) {
     if (!state || state->readonly) return;
     std::wstring normalized = NormalizeD2DEditText(text, state->multiline);
     
-    // 濡傛灉鏈夐€夋嫨锛屽厛鍒犻櫎閫夋嫨鐨勬枃鏈?
+    // 如果有选择，先删除选择的文本
     if (state->selection_start >= 0) {
         int sel_start = min(state->selection_start, state->selection_end);
         int sel_end = max(state->selection_start, state->selection_end);
@@ -19227,7 +19227,7 @@ void InsertTextAtCursor(D2DEditBoxState* state, const std::wstring& text) {
         state->selection_end = -1;
     }
     
-    // 鎻掑叆鏂版枃鏈?
+    // 插入新文本
     state->text.insert(state->cursor_pos, normalized);
     state->cursor_pos += (int)normalized.length();
 
@@ -19235,11 +19235,11 @@ void InsertTextAtCursor(D2DEditBoxState* state, const std::wstring& text) {
     InvalidateRect(state->hwnd, NULL, FALSE);
 }
 
-// 鍒犻櫎瀛楃
+// 删除字符
 void DeleteCharAtCursor(D2DEditBoxState* state, bool forward) {
     if (!state || state->readonly) return;
     
-    // 濡傛灉鏈夐€夋嫨锛屽垹闄ら€夋嫨鐨勬枃鏈?
+    // 如果有选择，删除选择的文本
     if (state->selection_start >= 0) {
         int sel_start = min(state->selection_start, state->selection_end);
         int sel_end = max(state->selection_start, state->selection_end);
@@ -19252,14 +19252,14 @@ void DeleteCharAtCursor(D2DEditBoxState* state, bool forward) {
         return;
     }
     
-    // 鍒犻櫎鍗曚釜瀛楃
+    // 删除单个字符
     if (forward) {
-        // Delete閿細鍒犻櫎鍏夋爣鍚庣殑瀛楃
+        // Delete键：删除光标后的字符
         if (state->cursor_pos < (int)state->text.length()) {
             state->text.erase(state->cursor_pos, 1);
         }
     } else {
-        // Backspace閿細鍒犻櫎鍏夋爣鍓嶇殑瀛楃
+        // Backspace键：删除光标前的字符
         if (state->cursor_pos > 0) {
             state->text.erase(state->cursor_pos - 1, 1);
             state->cursor_pos--;
@@ -19270,7 +19270,7 @@ void DeleteCharAtCursor(D2DEditBoxState* state, bool forward) {
     InvalidateRect(state->hwnd, NULL, FALSE);
 }
 
-// 绉诲姩鍏夋爣
+// 移动光标
 void MoveCursor(D2DEditBoxState* state, int delta, bool select) {
     if (!state) return;
     
@@ -19278,14 +19278,14 @@ void MoveCursor(D2DEditBoxState* state, int delta, bool select) {
     new_pos = max(0, min(new_pos, (int)state->text.length()));
     
     if (select) {
-        // Shift+鏂瑰悜閿細閫夋嫨鏂囨湰
+        // Shift+方向键：选择文本
         if (state->selection_start < 0) {
             state->selection_start = state->cursor_pos;
         }
         state->cursor_pos = new_pos;
         state->selection_end = new_pos;
     } else {
-        // 鏅€氱Щ鍔細娓呴櫎閫夋嫨
+        // 普通移动：清除选择
         state->cursor_pos = new_pos;
         state->selection_start = -1;
         state->selection_end = -1;
@@ -19295,7 +19295,7 @@ void MoveCursor(D2DEditBoxState* state, int delta, bool select) {
     InvalidateRect(state->hwnd, NULL, FALSE);
 }
 
-// 澶嶅埗鍒板壀璐存澘
+// 复制到剪贴板
 void CopyToClipboard(D2DEditBoxState* state) {
     if (!state || state->selection_start < 0) return;
     
@@ -19323,7 +19323,7 @@ void CopyToClipboard(D2DEditBoxState* state) {
     }
 }
 
-// 浠庡壀璐存澘绮樿创
+// 从剪贴板粘贴
 void PasteFromClipboard(D2DEditBoxState* state) {
     if (!state || state->readonly) return;
     
@@ -19334,7 +19334,7 @@ void PasteFromClipboard(D2DEditBoxState* state) {
             if (pData) {
                 std::wstring paste_text = pData;
                 
-                // 鍗曡妯″紡锛氱Щ闄ゆ崲琛岀
+                // 单行模式：移除换行符
                 if (!state->multiline) {
                     paste_text.erase(
                         std::remove(paste_text.begin(), paste_text.end(), L'\r'),
@@ -19354,16 +19354,16 @@ void PasteFromClipboard(D2DEditBoxState* state) {
     }
 }
 
-// 鍓垏鍒板壀璐存澘
+// 剪切到剪贴板
 void CutToClipboard(D2DEditBoxState* state) {
     if (!state || state->readonly) return;
     
     CopyToClipboard(state);
-    DeleteCharAtCursor(state, true);  // 鍒犻櫎閫夋嫨鐨勬枃鏈?
+    DeleteCharAtCursor(state, true);  // 删除选择的文本
 }
 
 
-// D2D缂栬緫妗嗙獥鍙ｈ繃绋?
+// D2D编辑框窗口过程
 LRESULT CALLBACK D2DEditBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     D2DEditBoxState* state = nullptr;
     
@@ -19379,7 +19379,7 @@ LRESULT CALLBACK D2DEditBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         return DefWindowProc(hwnd, msg, wparam, lparam);
     }
 
-    // 閫氱敤浜嬩欢澶勭悊
+    // 通用事件处理
     HandleCommonEvents(hwnd, msg, wparam, lparam, &state->events);
 
     switch (msg) {
@@ -19422,7 +19422,7 @@ LRESULT CALLBACK D2DEditBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
             KillTimer(hwnd, CURSOR_TIMER_ID);
             state->cursor_timer = 0;
         }
-        state->selection_start = -1;  // 澶卞幓鐒︾偣鏃舵竻闄ら€夋嫨
+        state->selection_start = -1;  // 失去焦点时清除选择
         state->selection_end = -1;
         InvalidateRect(hwnd, NULL, FALSE);
         return 0;
@@ -19439,19 +19439,19 @@ LRESULT CALLBACK D2DEditBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         
         wchar_t ch = (wchar_t)wparam;
         
-        // 澶勭悊鐗规畩瀛楃
+        // 处理特殊字符
         if (ch == VK_BACK) {
             DeleteCharAtCursor(state, false);
         } else if (ch == VK_RETURN) {
             if (state->multiline) {
                 InsertTextAtCursor(state, L"\n");
             }
-        } else if (ch >= 32) {  // 鍙墦鍗板瓧绗?
+        } else if (ch >= 32) {  // 可打印字符
             std::wstring text(1, ch);
             InsertTextAtCursor(state, text);
         }
         
-        // 瑙﹀彂鎸夐敭鍥炶皟
+        // 触发按键回调
         if (state->key_callback) {
             state->key_callback(hwnd, (int)wparam, 1, 0, 0, 0);
         }
@@ -19482,7 +19482,7 @@ LRESULT CALLBACK D2DEditBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
             break;
         case 'A':
             if (ctrl) {
-                // Ctrl+A: 鍏ㄩ€?
+                // Ctrl+A: 全选
                 state->selection_start = 0;
                 state->selection_end = (int)state->text.length();
                 state->cursor_pos = (int)state->text.length();
@@ -19491,25 +19491,25 @@ LRESULT CALLBACK D2DEditBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
             break;
         case 'C':
             if (ctrl) {
-                // Ctrl+C: 澶嶅埗
+                // Ctrl+C: 复制
                 CopyToClipboard(state);
             }
             break;
         case 'V':
             if (ctrl) {
-                // Ctrl+V: 绮樿创
+                // Ctrl+V: 粘贴
                 PasteFromClipboard(state);
             }
             break;
         case 'X':
             if (ctrl) {
-                // Ctrl+X: 鍓垏
+                // Ctrl+X: 剪切
                 CutToClipboard(state);
             }
             break;
         }
         
-        // 瑙﹀彂鎸夐敭鍥炶皟
+        // 触发按键回调
         if (state->key_callback) {
             state->key_callback(hwnd, (int)wparam, 1, shift ? 1 : 0, ctrl ? 1 : 0, alt ? 1 : 0);
         }
@@ -19518,7 +19518,7 @@ LRESULT CALLBACK D2DEditBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
     }
     
     case WM_KEYUP: {
-        // 瑙﹀彂鎸夐敭鍥炶皟
+        // 触发按键回调
         if (state->key_callback) {
             bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
             bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
@@ -19642,7 +19642,7 @@ LRESULT CALLBACK D2DEditBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         return 0;
     
     case WM_LBUTTONDBLCLK: {
-        // 鍙屽嚮閫夋嫨鍗曡瘝锛堢畝鍖栧疄鐜帮細閫夋嫨鏁磋锛?
+        // 双击选择单词（简化实现：选择整行）
         state->selection_start = 0;
         state->selection_end = (int)state->text.length();
         state->cursor_pos = (int)state->text.length();
@@ -19752,10 +19752,10 @@ LRESULT CALLBACK D2DEditBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
 
 
 // ========================================
-// D2D褰╄壊Emoji缂栬緫妗?- 瀵煎嚭鍑芥暟
+// D2D彩色Emoji编辑框 - 导出函数
 // ========================================
 
-// 鍒涘缓D2D褰╄壊Emoji缂栬緫妗?
+// 创建D2D彩色Emoji编辑框
 __declspec(dllexport) HWND __stdcall CreateD2DColorEmojiEditBox(
     HWND hParent,
     int x, int y, int width, int height,
@@ -19919,7 +19919,7 @@ __declspec(dllexport) HWND __stdcall CreateD2DColorEmojiEditBox(
     return hwnd;
 }
 
-// 鑾峰彇D2D缂栬緫妗嗘枃鏈?
+// 获取D2D编辑框文本
 __declspec(dllexport) int __stdcall GetD2DEditBoxText(
     HWND hEdit,
     unsigned char* buffer,
@@ -19945,7 +19945,7 @@ __declspec(dllexport) int __stdcall GetD2DEditBoxText(
     return utf8_len - 1;
 }
 
-// 璁剧疆D2D缂栬緫妗嗘枃鏈?
+// 设置D2D编辑框文本
 __declspec(dllexport) void __stdcall SetD2DEditBoxText(
     HWND hEdit,
     const unsigned char* text_bytes,
@@ -19970,7 +19970,7 @@ __declspec(dllexport) void __stdcall SetD2DEditBoxText(
     }
 }
 
-// 璁剧疆D2D缂栬緫妗嗘寜閿洖璋?
+// 设置D2D编辑框按键回调
 __declspec(dllexport) void __stdcall SetD2DEditBoxKeyCallback(
     HWND hEdit,
     EditBoxKeyCallback callback
@@ -19980,7 +19980,7 @@ __declspec(dllexport) void __stdcall SetD2DEditBoxKeyCallback(
     it->second->key_callback = callback;
 }
 
-// 鍚敤/绂佺敤D2D缂栬緫妗?
+// 启用/禁用D2D编辑框
 __declspec(dllexport) void __stdcall EnableD2DEditBox(
     HWND hEdit,
     bool enable
@@ -19994,7 +19994,7 @@ __declspec(dllexport) void __stdcall EnableD2DEditBox(
     InvalidateRect(hEdit, NULL, FALSE);
 }
 
-// 鏄剧ず/闅愯棌D2D缂栬緫妗?
+// 显示/隐藏D2D编辑框
 __declspec(dllexport) void __stdcall ShowD2DEditBox(
     HWND hEdit,
     bool show
@@ -20011,7 +20011,7 @@ __declspec(dllexport) void __stdcall ShowD2DEditBox(
     }
 }
 
-// 璁剧疆D2D缂栬緫妗嗕綅缃拰澶у皬
+// 设置D2D编辑框位置和大小
 __declspec(dllexport) void __stdcall SetD2DEditBoxBounds(
     HWND hEdit,
     int x, int y, int width, int height
@@ -20036,7 +20036,7 @@ __declspec(dllexport) void __stdcall SetD2DEditBoxBounds(
     RedrawWindow(hEdit, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE | RDW_FRAME);
 }
 
-// 璁剧疆D2D缂栬緫妗嗗瓧浣?
+// 设置D2D编辑框字体
 __declspec(dllexport) void __stdcall SetD2DEditBoxFont(
     HWND hEdit,
     const unsigned char* font_name_bytes, int font_name_len,
@@ -20056,7 +20056,7 @@ __declspec(dllexport) void __stdcall SetD2DEditBoxFont(
     InvalidateRect(hEdit, NULL, FALSE);
 }
 
-// 璁剧疆D2D缂栬緫妗嗛鑹?
+// 设置D2D编辑框颜色
 __declspec(dllexport) void __stdcall SetD2DEditBoxColor(
     HWND hEdit,
     UINT32 fg_color,
@@ -20079,37 +20079,37 @@ __declspec(dllexport) void __stdcall SetD2DEditBoxColor(
 
 
 // ========================================
-// D2D缁勫悎妗嗗疄鐜帮紙鏀寔褰╄壊emoji锛?
+// D2D组合框实现（支持彩色emoji）
 // ========================================
 
-// D2D缁勫悎妗嗗疄鐜?- 绗?閮ㄥ垎锛氬熀纭€缁撴瀯鍜屽叏灞€鍙橀噺
-// 鏀寔褰╄壊emoji鐨勫畬鍏ㄨ嚜瀹氫箟缁勫悎妗嗘帶浠?
+// D2D组合框实现 - 第一部分：基础结构和全局变量
+// 支持彩色emoji的完全自定义组合框控件
 
 #include "emoji_window.h"
 #include <algorithm>
 
-// 鍏ㄥ眬鍙橀噺
+// 全局变量
 std::map<HWND, D2DComboBoxState*> g_d2d_comboboxes;
 
-// 绐楀彛绫诲悕
+// 窗口类名
 static const wchar_t* D2D_COMBOBOX_CLASS = L"D2DComboBoxClass";
 static const wchar_t* D2D_DROPDOWN_CLASS = L"D2DDropDownClass";
 static bool g_d2d_combobox_class_registered = false;
 
-// 甯搁噺瀹氫箟
+// 常量定义
 const int DEFAULT_BUTTON_WIDTH = 30;
 const int DEFAULT_MAX_DROPDOWN_ITEMS = 10;
 const int DEFAULT_ITEM_HEIGHT = 35;
 
-// 棰滆壊瀹氫箟
-const UINT32 COLOR_HOVER = 0xFFE8F4FD;      // 鎮仠鑳屾櫙鑹?
-const UINT32 COLOR_SELECT = 0xFFCCE8FF;     // 閫変腑鑳屾櫙鑹?
-const UINT32 COLOR_BORDER = 0xFFCCCCCC;     // 杈规棰滆壊
-const UINT32 COLOR_BUTTON = 0xFFF0F0F0;     // 鎸夐挳棰滆壊
-const UINT32 COLOR_BUTTON_HOVER = 0xFFE0E0E0; // 鎸夐挳鎮仠鑹?
-const UINT32 COLOR_BUTTON_PRESS = 0xFFD0D0D0; // 鎸夐挳鎸変笅鑹?
+// 颜色定义
+const UINT32 COLOR_HOVER = 0xFFE8F4FD;      // 悬停背景色
+const UINT32 COLOR_SELECT = 0xFFCCE8FF;     // 选中背景色
+const UINT32 COLOR_BORDER = 0xFFCCCCCC;     // 边框颜色
+const UINT32 COLOR_BUTTON = 0xFFF0F0F0;     // 按钮颜色
+const UINT32 COLOR_BUTTON_HOVER = 0xFFE0E0E0; // 按钮悬停色
+const UINT32 COLOR_BUTTON_PRESS = 0xFFD0D0D0; // 按钮按下色
 
-// 鍓嶅悜澹版槑
+// 前向声明
 LRESULT CALLBACK D2DComboBoxWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 LRESULT CALLBACK D2DDropDownWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 void DrawD2DComboBox(D2DComboBoxState* state);
@@ -20118,7 +20118,7 @@ void ShowDropDown(D2DComboBoxState* state);
 void HideDropDown(D2DComboBoxState* state);
 void SelectItem(D2DComboBoxState* state, int index);
 
-// 娉ㄥ唽D2D缁勫悎妗嗙獥鍙ｇ被
+// 注册D2D组合框窗口类
 static bool RegisterD2DComboBoxClass() {
     if (g_d2d_combobox_class_registered) {
         return true;
@@ -20137,7 +20137,7 @@ static bool RegisterD2DComboBoxClass() {
         return false;
     }
 
-    // 娉ㄥ唽涓嬫媺鍒楄〃绐楀彛绫?
+    // 注册下拉列表窗口类
     wc.lpfnWndProc = D2DDropDownWndProc;
     wc.lpszClassName = D2D_DROPDOWN_CLASS;
     wc.style = CS_HREDRAW | CS_VREDRAW | CS_DROPSHADOW;
@@ -20151,7 +20151,7 @@ static bool RegisterD2DComboBoxClass() {
     return true;
 }
 
-// 鍒涘缓D2D缁勫悎妗?
+// 创建D2D组合框
 extern "C" __declspec(dllexport) HWND __stdcall CreateD2DComboBox(
     HWND hParent,
     int x, int y, int width, int height,
@@ -20170,7 +20170,7 @@ extern "C" __declspec(dllexport) HWND __stdcall CreateD2DComboBox(
         return NULL;
     }
 
-    // 鍒涘缓涓诲鍣ㄧ獥鍙?
+    // 创建主容器窗口
     RECT px_rect = EW_LogicalChildRectToPx(hParent, x, y, width, height, true);
     HWND hwnd = CreateWindowExW(
         0,
@@ -20190,7 +20190,7 @@ extern "C" __declspec(dllexport) HWND __stdcall CreateD2DComboBox(
 
     UINT dpi = EW_GetDpiForReference(hwnd, hParent);
 
-    // 鍒涘缓鐘舵€佸璞?
+    // 创建状态对象
     D2DComboBoxState* state = new D2DComboBoxState();
     state->hwnd = hwnd;
     state->parent = hParent;
@@ -20222,14 +20222,14 @@ extern "C" __declspec(dllexport) HWND __stdcall CreateD2DComboBox(
     state->dwrite_factory = NULL;
     state->dropdown_hwnd = NULL;
 
-    // 璁剧疆瀛椾綋
+    // 设置字体
     state->font.font_name = L"Segoe UI Emoji";
     state->font.font_size = (font_size > 0) ? font_size : 14;
     state->font.bold = bold;
     state->font.italic = italic;
     state->font.underline = underline;
 
-    // 鍒涘缓D2D缂栬緫妗嗭紙鍗犳嵁闄ゆ寜閽鐨勬墍鏈夌┖闂达級
+    // 创建D2D编辑框（占据除按钮外的所有空间）
     int edit_width = (std::max)(1, width - DEFAULT_BUTTON_WIDTH);
     static const unsigned char combo_display_font[] = "Segoe UI Emoji";
     state->edit_hwnd = CreateD2DColorEmojiEditBox(
@@ -20241,14 +20241,14 @@ extern "C" __declspec(dllexport) HWND __stdcall CreateD2DComboBox(
         0, FALSE, readonly, FALSE, TRUE, TRUE
     );
 
-    // 淇濆瓨鐘舵€?
+    // 保存状态
     g_d2d_comboboxes[hwnd] = state;
     EW_StoreLogicalBounds(hwnd, x, y, width, height, true);
 
     return hwnd;
 }
 
-// D2D缁勫悎妗嗙獥鍙ｈ繃绋?
+// D2D组合框窗口过程
 LRESULT CALLBACK D2DComboBoxWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     auto it = g_d2d_comboboxes.find(hwnd);
     if (it == g_d2d_comboboxes.end() && msg != WM_CREATE) {
@@ -20257,7 +20257,7 @@ LRESULT CALLBACK D2DComboBoxWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 
     D2DComboBoxState* state = (it != g_d2d_comboboxes.end()) ? it->second : NULL;
 
-    // 閫氱敤浜嬩欢澶勭悊
+    // 通用事件处理
     if (state) HandleCommonEvents(hwnd, msg, wParam, lParam, &state->events);
 
     switch (msg) {
@@ -20275,7 +20275,7 @@ LRESULT CALLBACK D2DComboBoxWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         int x = LOWORD(lParam);
         int y = HIWORD(lParam);
         
-        // 妫€鏌ユ槸鍚︾偣鍑讳笅鎷夋寜閽?
+        // 检查是否点击下拉按钮
         int button_x = state->width - state->button_width;
         if (x >= button_x) {
             state->button_pressed = true;
@@ -20295,7 +20295,7 @@ LRESULT CALLBACK D2DComboBoxWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             int x = LOWORD(lParam);
             int button_x = state->width - state->button_width;
             if (x >= button_x) {
-                // 鍒囨崲涓嬫媺鍒楄〃鏄剧ず鐘舵€?
+                // 切换下拉列表显示状态
                 if (state->dropdown_visible) {
                     HideDropDown(state);
                 } else {
@@ -20335,7 +20335,7 @@ LRESULT CALLBACK D2DComboBoxWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         state->width = new_width;
         state->height = new_height;
         
-        // 璋冩暣缂栬緫妗嗗ぇ灏?
+        // 调整编辑框大小
         if (state->edit_hwnd) {
             int edit_width = (std::max)(1, new_width - state->button_width);
             SetWindowPos(state->edit_hwnd, NULL, 0, 0, edit_width, new_height,
@@ -20364,7 +20364,7 @@ LRESULT CALLBACK D2DComboBoxWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         return 0;
 
     case WM_DESTROY: {
-        // 娓呯悊璧勬簮
+        // 清理资源
         if (state->dropdown_hwnd) {
             DestroyWindow(state->dropdown_hwnd);
         }
@@ -20383,12 +20383,12 @@ LRESULT CALLBACK D2DComboBoxWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     return 0;
 }
 
-// 缁樺埗D2D缁勫悎妗嗭紙涓昏鏄笅鎷夋寜閽級
+// 绘制D2D组合框（主要是下拉按钮）
 void DrawD2DComboBox(D2DComboBoxState* state) {
     if (!state) return;
     UINT dpi = EW_GetDpiForReference(state->hwnd, state->parent);
 
-    // 鍒濆鍖朌2D璧勬簮
+    // 初始化D2D资源
     if (!state->render_target) {
         ID2D1Factory* factory = NULL;
         D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &factory);
@@ -20425,14 +20425,14 @@ void DrawD2DComboBox(D2DComboBoxState* state) {
     state->render_target->BeginDraw();
     state->render_target->Clear(ColorFromUInt32(resolved_bg));
 
-    // 缁樺埗涓嬫媺鎸夐挳
+    // 绘制下拉按钮
     int button_x = state->width - state->button_width;
     D2D1_RECT_F button_rect = D2D1::RectF(
         (float)button_x, 0.0f,
         (float)state->width, (float)state->height
     );
 
-    // 鎸夐挳鑳屾櫙鑹诧紙鏍规嵁鐘舵€侊級
+    // 按钮背景色（根据状态）
     UINT32 btn_color = resolved_button;
     if (state->button_pressed) {
         btn_color = COLOR_BUTTON_PRESS;
@@ -20451,7 +20451,7 @@ void DrawD2DComboBox(D2DComboBoxState* state) {
         brush->Release();
     }
 
-    // 缁樺埗涓嬫媺绠ご锛堚柤锛?
+    // 绘制下拉箭头（▼）
     if (state->dwrite_factory) {
         IDWriteTextFormat* text_format = NULL;
         state->dwrite_factory->CreateTextFormat(
@@ -20490,7 +20490,7 @@ void DrawD2DComboBox(D2DComboBoxState* state) {
         }
     }
 
-    // 缁樺埗杈规
+    // 绘制边框
     ID2D1SolidColorBrush* border_brush = NULL;
     state->render_target->CreateSolidColorBrush(
         ColorFromUInt32(resolved_border),
@@ -20504,7 +20504,7 @@ void DrawD2DComboBox(D2DComboBoxState* state) {
         );
         state->render_target->DrawRectangle(border_rect, border_brush, EW_LogicalToPxF(1.0f, dpi));
         
-        // 缁樺埗鎸夐挳鍒嗛殧绾?
+        // 绘制按钮分隔线
         state->render_target->DrawLine(
             D2D1::Point2F((float)button_x, 0.0f),
             D2D1::Point2F((float)button_x, (float)state->height),
@@ -20517,7 +20517,7 @@ void DrawD2DComboBox(D2DComboBoxState* state) {
     state->render_target->EndDraw();
 }
 
-// 鏄剧ず涓嬫媺鍒楄〃
+// 显示下拉列表
 void ShowDropDown(D2DComboBoxState* state) {
     if (!state || state->items.empty()) return;
     RECT combo_rect;
@@ -20531,11 +20531,11 @@ void ShowDropDown(D2DComboBoxState* state) {
     
     int dropdown_y = combo_rect.bottom;
     if (dropdown_y + dropdown_height > screen_rect.bottom) {
-        // 濡傛灉涓嬫柟绌洪棿涓嶅锛屾樉绀哄湪涓婃柟
+        // 如果下方空间不够，显示在上方
         dropdown_y = combo_rect.top - dropdown_height;
     }
 
-    // 鍒涘缓涓嬫媺鍒楄〃绐楀彛
+    // 创建下拉列表窗口
     if (!state->dropdown_hwnd) {
         state->dropdown_hwnd = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
@@ -20566,7 +20566,7 @@ void ShowDropDown(D2DComboBoxState* state) {
     SetFocus(state->dropdown_hwnd);
 }
 
-// 闅愯棌涓嬫媺鍒楄〃
+// 隐藏下拉列表
 void HideDropDown(D2DComboBoxState* state) {
     if (!state || !state->dropdown_visible) return;
 
@@ -20581,13 +20581,13 @@ void HideDropDown(D2DComboBoxState* state) {
     state->hovered_index = -1;
 }
 
-// 閫夋嫨椤圭洰
+// 选择项目
 void SelectItem(D2DComboBoxState* state, int index) {
     if (!state || index < -1 || index >= (int)state->items.size()) return;
 
     state->selected_index = index;
 
-    // 鏇存柊缂栬緫妗嗘枃鏈?
+    // 更新编辑框文本
     if (state->edit_hwnd) {
         if (index >= 0) {
             const std::string utf8_text = WindowWideToUtf8(state->items[index]);
@@ -20600,7 +20600,7 @@ void SelectItem(D2DComboBoxState* state, int index) {
         }
     }
 
-    // 瑙﹀彂鍥炶皟
+    // 触发回调
     if (state->callback) {
         state->callback(state->hwnd, index);
     }
@@ -20611,7 +20611,7 @@ void SelectItem(D2DComboBoxState* state, int index) {
     HideDropDown(state);
 }
 
-// 涓嬫媺鍒楄〃绐楀彛杩囩▼
+// 下拉列表窗口过程
 LRESULT CALLBACK D2DDropDownWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     D2DComboBoxState* state = (D2DComboBoxState*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
 
@@ -20688,13 +20688,13 @@ LRESULT CALLBACK D2DDropDownWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 
     case WM_KILLFOCUS:
         if (state && (HWND)wParam != state->hwnd) {
-            PostMessage(state->hwnd, WM_USER + 100, 0, 0); // 閫氱煡涓荤獥鍙ｅ叧闂?
+            PostMessage(state->hwnd, WM_USER + 100, 0, 0); // 通知主窗口关闭
         }
         return 0;
 
     case WM_ACTIVATE:
         if (state && LOWORD(wParam) == WA_INACTIVE) {
-            PostMessage(state->hwnd, WM_USER + 100, 0, 0); // 閫氱煡涓荤獥鍙ｅ叧闂?
+            PostMessage(state->hwnd, WM_USER + 100, 0, 0); // 通知主窗口关闭
         }
         return 0;
 
@@ -20742,12 +20742,12 @@ LRESULT CALLBACK D2DDropDownWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     return 0;
 }
 
-// 缁樺埗涓嬫媺鍒楄〃
+// 绘制下拉列表
 void DrawD2DDropDown(D2DComboBoxState* state) {
     if (!state || !state->dropdown_hwnd) return;
     UINT dpi = EW_GetDpiForReference(state->hwnd, state->parent);
 
-    // 鑾峰彇鎴栧垱寤烘覆鏌撶洰鏍?
+    // 获取或创建渲染目标
     ID2D1HwndRenderTarget* rt = NULL;
     ID2D1Factory* factory = NULL;
     D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &factory);
@@ -20779,7 +20779,7 @@ void DrawD2DDropDown(D2DComboBoxState* state) {
     rt->BeginDraw();
     rt->Clear(ColorFromUInt32(resolved_bg));
 
-    // 鍒涘缓鏂囨湰鏍煎紡
+    // 创建文本格式
     IDWriteTextFormat* text_format = NULL;
     if (state->dwrite_factory) {
         state->dwrite_factory->CreateTextFormat(
@@ -20799,7 +20799,7 @@ void DrawD2DDropDown(D2DComboBoxState* state) {
         }
     }
 
-    // 缁樺埗姣忎釜椤圭洰
+    // 绘制每个项目
     RECT rc;
     GetClientRect(state->dropdown_hwnd, &rc);
     int visible_height = rc.bottom - rc.top;
@@ -20815,7 +20815,7 @@ void DrawD2DDropDown(D2DComboBoxState* state) {
             (float)state->width - EW_LogicalToPxF(1.0f, dpi), y + (float)state->item_height
         );
 
-        // 缁樺埗鑳屾櫙
+        // 绘制背景
         UINT32 bg_color = resolved_bg;
         if (i == state->selected_index) {
             bg_color = ResolveThemeColor(state->select_color);
@@ -20831,7 +20831,7 @@ void DrawD2DDropDown(D2DComboBoxState* state) {
             bg_brush->Release();
         }
 
-        // 缁樺埗鏂囨湰锛堟敮鎸佸僵鑹瞖moji锛?
+        // 绘制文本（支持彩色emoji）
         if (text_format) {
             ID2D1SolidColorBrush* text_brush = NULL;
             rt->CreateSolidColorBrush(ColorFromUInt32(resolved_fg), &text_brush);
@@ -20848,14 +20848,14 @@ void DrawD2DDropDown(D2DComboBoxState* state) {
                     text_format,
                     text_rect,
                     text_brush,
-                    D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT  // 鍏抽敭锛氭敮鎸佸僵鑹瞖moji
+                    D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT  // 关键：支持彩色emoji
                 );
                 text_brush->Release();
             }
         }
     }
 
-    // 缁樺埗杈规
+    // 绘制边框
     ID2D1SolidColorBrush* border_brush = NULL;
     rt->CreateSolidColorBrush(ColorFromUInt32(resolved_border), &border_brush);
 
@@ -20876,9 +20876,9 @@ void DrawD2DDropDown(D2DComboBoxState* state) {
     rt->Release();
 }
 
-// ========== API鍑芥暟瀹炵幇 ==========
+// ========== API函数实现 ==========
 
-// 娣诲姞椤圭洰
+// 添加项目
 extern "C" __declspec(dllexport) int __stdcall AddD2DComboItem(
     HWND hComboBox,
     const unsigned char* text_bytes,
@@ -20889,7 +20889,7 @@ extern "C" __declspec(dllexport) int __stdcall AddD2DComboItem(
 
     D2DComboBoxState* state = it->second;
     
-    // UTF-8杞崲涓哄瀛楃
+    // UTF-8转换为宽字符
     std::string utf8_str((const char*)text_bytes, text_len);
     int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8_str.c_str(), -1, NULL, 0);
     if (wlen <= 0) return -1;
@@ -20901,7 +20901,7 @@ extern "C" __declspec(dllexport) int __stdcall AddD2DComboItem(
     return (int)state->items.size() - 1;
 }
 
-// 绉婚櫎椤圭洰
+// 移除项目
 extern "C" __declspec(dllexport) void __stdcall RemoveD2DComboItem(
     HWND hComboBox,
     int index
@@ -20921,7 +20921,7 @@ extern "C" __declspec(dllexport) void __stdcall RemoveD2DComboItem(
     }
 }
 
-// 娓呯┖
+// 清空
 extern "C" __declspec(dllexport) void __stdcall ClearD2DComboBox(
     HWND hComboBox
 ) {
@@ -20939,7 +20939,7 @@ extern "C" __declspec(dllexport) void __stdcall ClearD2DComboBox(
     }
 }
 
-// 鑾峰彇閫変腑椤圭储寮?
+// 获取选中项索引
 extern "C" __declspec(dllexport) int __stdcall GetD2DComboSelectedIndex(
     HWND hComboBox
 ) {
@@ -20949,7 +20949,7 @@ extern "C" __declspec(dllexport) int __stdcall GetD2DComboSelectedIndex(
     return it->second->selected_index;
 }
 
-// 璁剧疆閫変腑椤圭储寮?
+// 设置选中项索引
 extern "C" __declspec(dllexport) void __stdcall SetD2DComboSelectedIndex(
     HWND hComboBox,
     int index
@@ -20963,7 +20963,7 @@ extern "C" __declspec(dllexport) void __stdcall SetD2DComboSelectedIndex(
     SelectItem(state, index);
 }
 
-// 鑾峰彇椤圭洰鏁伴噺
+// 获取项目数量
 extern "C" __declspec(dllexport) int __stdcall GetD2DComboItemCount(
     HWND hComboBox
 ) {
@@ -20973,7 +20973,7 @@ extern "C" __declspec(dllexport) int __stdcall GetD2DComboItemCount(
     return (int)it->second->items.size();
 }
 
-// 鑾峰彇椤圭洰鏂囨湰
+// 获取项目文本
 extern "C" __declspec(dllexport) int __stdcall GetD2DComboItemText(
     HWND hComboBox,
     int index,
@@ -20999,7 +20999,7 @@ extern "C" __declspec(dllexport) int __stdcall GetD2DComboItemText(
     return len - 1;
 }
 
-// 鑾峰彇缂栬緫妗嗘枃鏈?
+// 获取编辑框文本
 extern "C" __declspec(dllexport) int __stdcall GetD2DComboText(
     HWND hComboBox,
     unsigned char* buffer,
@@ -21014,7 +21014,7 @@ extern "C" __declspec(dllexport) int __stdcall GetD2DComboText(
     return GetD2DEditBoxText(state->edit_hwnd, buffer, buffer_size);
 }
 
-// 鑾峰彇閫変腑椤规枃鏈?
+// 获取选中项文本
 extern "C" __declspec(dllexport) int __stdcall GetD2DComboSelectedText(
     HWND hComboBox,
     unsigned char* buffer,
@@ -21039,7 +21039,7 @@ extern "C" __declspec(dllexport) int __stdcall GetD2DComboSelectedText(
     return len - 1;
 }
 
-// 璁剧疆缂栬緫妗嗘枃鏈?
+// 设置编辑框文本
 extern "C" __declspec(dllexport) void __stdcall SetD2DComboText(
     HWND hComboBox,
     const unsigned char* text_bytes,
@@ -21054,7 +21054,7 @@ extern "C" __declspec(dllexport) void __stdcall SetD2DComboText(
     SetD2DEditBoxText(state->edit_hwnd, text_bytes, text_len);
 }
 
-// 璁剧疆鍥炶皟
+// 设置回调
 extern "C" __declspec(dllexport) void __stdcall SetD2DComboBoxCallback(
     HWND hComboBox,
     ComboBoxCallback callback
@@ -21065,7 +21065,7 @@ extern "C" __declspec(dllexport) void __stdcall SetD2DComboBoxCallback(
     it->second->callback = callback;
 }
 
-// 鍚敤/绂佺敤
+// 启用/禁用
 extern "C" __declspec(dllexport) void __stdcall EnableD2DComboBox(
     HWND hComboBox,
     BOOL enable
@@ -21083,7 +21083,7 @@ extern "C" __declspec(dllexport) void __stdcall EnableD2DComboBox(
     InvalidateRect(hComboBox, NULL, FALSE);
 }
 
-// 鏄剧ず/闅愯棌
+// 显示/隐藏
 extern "C" __declspec(dllexport) void __stdcall ShowD2DComboBox(
     HWND hComboBox,
     BOOL show
@@ -21091,7 +21091,7 @@ extern "C" __declspec(dllexport) void __stdcall ShowD2DComboBox(
     ShowWindow(hComboBox, show ? SW_SHOW : SW_HIDE);
 }
 
-// 璁剧疆浣嶇疆鍜屽ぇ灏?
+// 设置位置和大小
 extern "C" __declspec(dllexport) void __stdcall SetD2DComboBoxBounds(
     HWND hComboBox,
     int x, int y, int width, int height
@@ -21160,12 +21160,12 @@ extern "C" __declspec(dllexport) int __stdcall GetD2DComboBoxColors(
 }
 
 // ========================================================================
-// DataGridView 瀹炵幇
+// DataGridView 实现
 // ========================================================================
 
-// --- 杈呭姪鍑芥暟 ---
+// --- 辅助函数 ---
 
-// 璁＄畻鎵€鏈夊垪鐨勬€诲搴?
+// 计算所有列的总宽度
 static int DataGrid_GetTotalColumnsWidth(DataGridViewState* state) {
     int total = 0;
     for (auto& col : state->columns) {
@@ -21314,13 +21314,13 @@ static void __stdcall DataGrid_TextEditKeyCallback(HWND hEdit, int key_code, int
     }
 }
 
-// 璁＄畻鎵€鏈夎鐨勬€婚珮搴?
+// 计算所有行的总高度
 static int DataGrid_GetTotalRowsHeight(DataGridViewState* state) {
     int row_count = state->virtual_mode ? state->virtual_row_count : (int)state->rows.size();
     return row_count * state->default_row_height;
 }
 
-// 鑾峰彇琛屾暟锛堣€冭檻铏氭嫙妯″紡锛?
+// 获取行数（考虑虚拟模式）
 static int DataGrid_GetEffectiveRowCount(DataGridViewState* state) {
     return state->virtual_mode ? state->virtual_row_count : (int)state->rows.size();
 }
@@ -21331,7 +21331,7 @@ static int DataGrid_ClampProgressValue(int value) {
 
 static DataGridCell* DataGrid_GetConcreteCell(DataGridViewState* state, int row, int col);
 
-// 鑾峰彇鍗曞厓鏍兼枃鏈紙鑰冭檻铏氭嫙妯″紡锛?
+// 获取单元格文本（考虑虚拟模式）
 static std::wstring DataGrid_GetCellDisplayText(DataGridViewState* state, int row, int col) {
     if (state->virtual_mode) {
         if (state->virtual_data_cb) {
@@ -21462,7 +21462,7 @@ static int DataGrid_GetCellProgressValue(DataGridViewState* state, int row, int 
     return cell ? DataGrid_ClampProgressValue(cell->progress) : 0;
 }
 
-// 鑾峰彇鍗曞厓鏍煎閫夋鐘舵€侊紙鑰冭檻铏氭嫙妯″紡锛?
+// 获取单元格复选框状态（考虑虚拟模式）
 static bool DataGrid_GetCellCheckedState(DataGridViewState* state, int row, int col) {
     if (!state->virtual_mode &&
         row >= 0 && row < (int)state->rows.size() &&
@@ -21570,15 +21570,15 @@ static std::wstring DataGrid_ReadEditText(DataGridViewState* state) {
     GetWindowTextW(state->edit_hwnd, &text[0], len + 1);
     return text;
 }
-// 鍛戒腑娴嬭瘯锛氭牴鎹儚绱犲潗鏍囪繑鍥炶鍒?
+// 命中测试：根据像素坐标返回行列
 static void DataGrid_HitTest(DataGridViewState* state, int px, int py, int& out_row, int& out_col) {
     out_row = -1;
     out_col = -1;
     if (!state) return;
 
-    // 妫€鏌ユ槸鍚﹀湪鍒楀ご鍖哄煙
+    // 检查是否在列头区域
     if (py < state->header_height) {
-        out_row = -1; // 鍒楀ご
+        out_row = -1; // 列头
     } else {
         int frozen_rows_height = DataGrid_GetFrozenRowsHeight(state);
         int frozen_row_count = DataGrid_GetFrozenRowCount(state);
@@ -21595,7 +21595,7 @@ static void DataGrid_HitTest(DataGridViewState* state, int px, int py, int& out_
         }
     }
 
-    // 璁＄畻鍒?
+    // 计算列
     int frozen_col_count = DataGrid_GetFrozenColumnCount(state);
     int frozen_width = DataGrid_GetFrozenColumnsWidth(state);
     int x_accum = 0;
@@ -21621,9 +21621,9 @@ static void DataGrid_HitTest(DataGridViewState* state, int px, int py, int& out_
     }
 }
 
-// 妫€鏌ユ槸鍚﹀湪鍒楄竟鐣屼笂锛堢敤浜庤皟鏁村垪瀹斤級
+// 检查是否在列边界上（用于调整列宽）
 static int DataGrid_HitTestColumnBorder(DataGridViewState* state, int px, int py) {
-    if (py >= state->header_height) return -1; // 鍙湪鍒楀ご鍖哄煙
+    if (py >= state->header_height) return -1; // 只在列头区域
     if (!state) return -1;
 
     for (int c = 0; c < (int)state->columns.size(); c++) {
@@ -21635,7 +21635,7 @@ static int DataGrid_HitTestColumnBorder(DataGridViewState* state, int px, int py
     return -1;
 }
 
-// 纭繚閫変腑鍗曞厓鏍煎彲瑙侊紙鑷姩婊氬姩锛?
+// 确保选中单元格可见（自动滚动）
 static void DataGrid_EnsureVisible(DataGridViewState* state, int row, int col) {
     if (!state) return;
     if (row < 0) return;
@@ -21645,7 +21645,7 @@ static void DataGrid_EnsureVisible(DataGridViewState* state, int row, int col) {
     int max_scroll_y = DataGrid_GetMaxScrollY(state);
     int max_scroll_x = DataGrid_GetMaxScrollX(state);
 
-    // 鍨傜洿婊氬姩
+    // 垂直滚动
     if (row >= frozen_row_count) {
         int row_top = (row - frozen_row_count) * state->default_row_height;
         int row_bottom = row_top + state->default_row_height;
@@ -21658,7 +21658,7 @@ static void DataGrid_EnsureVisible(DataGridViewState* state, int row, int col) {
         }
     }
 
-    // 姘村钩婊氬姩
+    // 水平滚动
     if (col >= frozen_col_count && col < (int)state->columns.size()) {
         int col_left = 0;
         for (int c = frozen_col_count; c < col; c++) col_left += state->columns[c].width;
@@ -21670,17 +21670,17 @@ static void DataGrid_EnsureVisible(DataGridViewState* state, int row, int col) {
         }
     }
 
-    // 闄愬埗婊氬姩鑼冨洿
+    // 限制滚动范围
     state->scroll_y = max(0, min(state->scroll_y, max_scroll_y));
     state->scroll_x = max(0, min(state->scroll_x, max_scroll_x));
 }
 
-// 缁撴潫缂栬緫妯″紡
+// 结束编辑模式
 static void DataGrid_EndEdit(DataGridViewState* state, bool apply) {
     if (!state->editing || !state->edit_hwnd) return;
     if (apply && !state->virtual_mode) {
         std::wstring text = DataGrid_ReadEditText(state);
-        // 鍐欏洖鍗曞厓鏍?
+        // 写回单元格
         int r = state->edit_row, c = state->edit_col;
         if (r >= 0 && r < (int)state->rows.size() &&
             c >= 0 && c < (int)state->rows[r].cells.size()) {
@@ -21706,14 +21706,14 @@ static void DataGrid_EndEdit(DataGridViewState* state, bool apply) {
     SetFocus(state->hwnd);
 }
 
-// 寮€濮嬬紪杈戞ā寮?
+// 开始编辑模式
 static void DataGrid_BeginEdit(DataGridViewState* state, int row, int col) {
-    if (state->virtual_mode) return; // 铏氭嫙妯″紡涓嶆敮鎸佺紪杈?
+    if (state->virtual_mode) return; // 虚拟模式不支持编辑
     if (col < 0 || col >= (int)state->columns.size()) return;
-    if (state->columns[col].type != DGCOL_TEXT) return; // 鍙湁鏂囨湰鍒楀彲缂栬緫
+    if (state->columns[col].type != DGCOL_TEXT) return; // 只有文本列可编辑
     if (row < 0 || row >= (int)state->rows.size()) return;
 
-    DataGrid_EndEdit(state, false); // 缁撴潫涔嬪墠鐨勭紪杈?
+    DataGrid_EndEdit(state, false); // 结束之前的编辑
 
     RECT cell_rect = {};
     if (!DataGrid_GetCellRect(state, row, col, &cell_rect)) return;
@@ -22274,7 +22274,7 @@ void DrawDataGridView(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, DataGr
             }
             case DGCOL_BUTTON: {
                 std::wstring value = DataGrid_GetCellDisplayText(state, r, c);
-                if (value.empty()) value = L"鎸夐挳";
+                if (value.empty()) value = L"按钮";
                 float bw = max(dgpx(56.0f), cw - dgpx(12.0f));
                 float bh = row_h - dgpx(10.0f);
                 float bx = col_x + (cw - bw) / 2.0f;
@@ -22646,7 +22646,7 @@ LRESULT CALLBACK DataGridViewProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
     if (it == g_datagrids.end()) return DefSubclassProc(hwnd, msg, wparam, lparam);
     DataGridViewState* state = it->second;
 
-    // 閫氱敤浜嬩欢澶勭悊
+    // 通用事件处理
     HandleCommonEvents(hwnd, msg, wparam, lparam, &state->events);
 
     switch (msg) {
@@ -23801,9 +23801,9 @@ __declspec(dllexport) void __stdcall DataGrid_Enable(HWND hGrid, BOOL enable) {
     DataGridViewState* state = it->second;
     state->enabled = (enable != 0);
 
-    // DataGridView 鏄畬鍏ㄨ嚜缁樻帶浠讹紝浜や簰鏄惁鍙敤宸茬粡鐢卞唴閮?enabled 鐘舵€佹帶鍒躲€?
-    // 瀵瑰鍐嶈皟鐢?EnableWindow 浼氳 HWND 杩涘叆绯荤粺绂佺敤鎬侊紝鎭㈠鏃跺伓鍙戝嚭鐜扮┖鐧戒笉閲嶇粯銆?
-    // 杩欓噷淇濇寔绐楀彛鏈韩澶勪簬鍙粯鍒剁姸鎬侊紝鍙垏鎹㈠唴閮ㄤ氦浜掕兘鍔涖€?
+    // DataGridView 是完全自绘控件，交互是否可用已经由内部 enabled 状态控制。
+    // 对外再调用 EnableWindow 会让 HWND 进入系统禁用态，恢复时偶发出现空白不重绘。
+    // 这里保持窗口本身处于可绘制状态，只切换内部交互能力。
     if (!state->enabled && state->editing) {
         DataGrid_EndEdit(state, false);
     }
@@ -23854,8 +23854,8 @@ __declspec(dllexport) void __stdcall DataGrid_SetColors(
         ? LightenColor(bg_color, 1.12f)
         : 0xFFFAFAFA;
 
-    // 涓婚鑹插垏鎹㈡椂瑕佹眰绔嬪埢鎶婇€変腑鑹层€佹偓鍋滆壊鍜屾暣琛ㄨ儗鏅竴璧烽噸缁樺嚭鏉ワ紝
-    // 鍗曠函 InvalidateRect 鍦ㄦ煇浜涘涓婚噷浼氬欢杩熷埌涓嬩竴娆℃秷鎭惊鐜悗鎵嶅畬鍏ㄥ埛鏂般€?
+    // 主题色切换时要求立刻把选中色、悬停色和整表背景一起重绘出来，
+    // 单纯 InvalidateRect 在某些宿主里会延迟到下一次消息循环后才完全刷新。
     RedrawWindow(hGrid, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW | RDW_FRAME);
 }
 
@@ -23883,7 +23883,7 @@ __declspec(dllexport) int __stdcall DataGrid_GetColors(
     return 0;
 }
 
-// 璁剧疆鍒楀ご瀵归綈鏂瑰紡 (0=宸﹀榻? 1=灞呬腑, 2=鍙冲榻?
+// 设置列头对齐方式 (0=左对齐, 1=居中, 2=右对齐)
 __declspec(dllexport) void __stdcall DataGrid_SetColumnHeaderAlignment(HWND hGrid, int col_index, int alignment) {
     auto it = g_datagrids.find(hGrid);
     if (it == g_datagrids.end()) return;
@@ -23898,7 +23898,7 @@ __declspec(dllexport) void __stdcall DataGrid_SetColumnHeaderAlignment(HWND hGri
     InvalidateRect(hGrid, nullptr, TRUE);
 }
 
-// 璁剧疆鍒楀崟鍏冩牸瀵归綈鏂瑰紡 (0=宸﹀榻? 1=灞呬腑, 2=鍙冲榻?
+// 设置列单元格对齐方式 (0=左对齐, 1=居中, 2=右对齐)
 __declspec(dllexport) void __stdcall DataGrid_SetColumnCellAlignment(HWND hGrid, int col_index, int alignment) {
     auto it = g_datagrids.find(hGrid);
     if (it == g_datagrids.end()) return;
@@ -24600,13 +24600,13 @@ extern "C" __declspec(dllexport) BOOL __stdcall Excel_ReadFileToDataGrid(
     return ok;
 }
 
-// ========== 閫氱敤浜嬩欢鍥炶皟绯荤粺 (闇€姹?8.1-8.10) ==========
+// ========== 通用事件回调系统 (需求 8.1-8.10) ==========
 
-// 鏌ユ壘浠绘剰鎺т欢鐨凟ventCallbacks鎸囬拡 (C++ linkage, not exported)
+// 查找任意控件的EventCallbacks指针 (C++ linkage, not exported)
 EventCallbacks* FindEventCallbacks(HWND hwnd) {
     if (!hwnd) return nullptr;
 
-    // 鎸変娇鐢ㄩ鐜囨帓搴忔煡鎵?
+    // 按使用频率排序查找
     { auto it = g_windows.find(hwnd); if (it != g_windows.end()) return &it->second->events; }
     { auto it = g_checkboxes.find(hwnd); if (it != g_checkboxes.end()) return &it->second->events; }
     { auto it = g_radiobuttons.find(hwnd); if (it != g_radiobuttons.end()) return &it->second->events; }
@@ -24623,7 +24623,7 @@ EventCallbacks* FindEventCallbacks(HWND hwnd) {
     { auto it = g_tab_controls.find(hwnd); if (it != g_tab_controls.end()) return &it->second->events; }
     { auto it = g_datagrids.find(hwnd); if (it != g_datagrids.end()) return &it->second->events; }
 
-    // 涔熸鏌2DEditBox
+    // 也检查D2DEditBox
     { auto it = g_d2d_editboxes.find(hwnd); if (it != g_d2d_editboxes.end()) return &it->second->events; }
 
     return nullptr;
@@ -24681,11 +24681,11 @@ __declspec(dllexport) void __stdcall SetValueChangedCallback(HWND hControl, Valu
     if (ec) ec->on_value_changed = callback;
 }
 
-// ========== 甯冨眬绠＄悊鍣ㄥ疄鐜?==========
+// ========== 布局管理器实现 ==========
 
 } // extern "C" (event callbacks block end)
 
-// 杈呭姪鍑芥暟锛氬湪WindowState涓煡鎵綞moji鎸夐挳
+// 辅助函数：在WindowState中查找Emoji按钮
 static EmojiButton* FindEmojiButton(HWND hParent, int button_id) {
     std::vector<EmojiButton>* buttons = GetButtonCollection(hParent);
     if (!buttons) return nullptr;
@@ -24762,10 +24762,10 @@ static void HideOtherBuiltinToolbarHintLabels(int keep_button_id) {
 
 static std::wstring GetBuiltinToolbarTooltipText(const EmojiButton& button) {
     if (button.width != 32 || button.height != 32) return L"";
-    if (button.text == L"<") return L"鍚庨€€";
-    if (button.text == L">") return L"鍓嶈繘";
-    if (button.text == L"R") return L"鍒锋柊褰撳墠鏍囩";
-    if (button.text == L"H") return L"鍥炲埌涓婚〉";
+    if (button.text == L"<") return L"后退";
+    if (button.text == L">") return L"前进";
+    if (button.text == L"R") return L"刷新当前标签";
+    if (button.text == L"H") return L"回到主页";
     return L"";
 }
 
@@ -24888,8 +24888,8 @@ static void RefreshPriorityChildControls(HWND parent) {
     EnumChildWindows(parent, [](HWND child, LPARAM) -> BOOL {
         if (!child || !IsWindow(child)) return TRUE;
 
-        // 鍏抽敭淇锛歊ichEdit(濡?RICHEDIT50W) 涔熷睘浜庣紪杈戞锛屽繀椤诲弬涓庣疆椤跺埛鏂般€?
-        // 浠呮寜绫诲悕鍖归厤 "Edit" 浼氭紡鎺?CreateEditBox 浣跨敤鐨?RichEdit锛屽鑷磋鐖剁獥鍙ｉ噸缁樿鐩栧悗鈥滅湅璧锋潵娑堝け鈥濄€?
+        // 关键修复：RichEdit（如 RICHEDIT50W）也属于编辑框，必须参与置顶刷新。
+        // 仅按类名匹配 "Edit" 会漏掉 CreateEditBox 使用的 RichEdit，导致被父窗口重绘覆盖后“看起来消失”。
         const bool is_managed_edit =
             (g_editboxes.find(child) != g_editboxes.end()) ||
             (g_d2d_editboxes.find(child) != g_d2d_editboxes.end());
@@ -24907,7 +24907,7 @@ static void RefreshPriorityChildControls(HWND parent) {
             return TRUE;
         }
 
-        // 瀵瑰彈绠＄紪杈戞鍋氬厹搴曟仮澶嶏細濡傛灉琚剰澶栭殣钘忥紝绔嬪嵆鎭㈠鍙銆?
+        // 对受管编辑框做兜底恢复：如果被意外隐藏，立即恢复可见。
         if (is_managed_edit && !IsWindowVisible(child)) {
             ShowWindow(child, SW_SHOWNA);
         }
@@ -25206,7 +25206,7 @@ static LayoutManager MakeScaledLayoutManager(const LayoutManager* source, UINT d
     return scaled;
 }
 
-// 娴佸紡甯冨眬璁＄畻锛堟按骞?鍨傜洿锛?
+// 流式布局计算（水平/垂直）
 void CalculateFlowLayout(LayoutManager* lm, int client_width, int client_height, HDWP* hdwp) {
     int tb_offset = GetTitleBarOffset(lm->parent_hwnd);
     int x = lm->padding_left;
@@ -25297,7 +25297,7 @@ void CalculateFlowLayout(LayoutManager* lm, int client_width, int client_height,
     }
 }
 
-// 缃戞牸甯冨眬璁＄畻
+// 网格布局计算
 void CalculateGridLayout(LayoutManager* lm, int client_width, int client_height, HDWP* hdwp) {
     if (lm->rows <= 0 || lm->columns <= 0) return;
     int tb_offset = GetTitleBarOffset(lm->parent_hwnd);
@@ -25305,7 +25305,7 @@ void CalculateGridLayout(LayoutManager* lm, int client_width, int client_height,
     int available_width = client_width - lm->padding_left - lm->padding_right;
     int available_height = client_height - lm->padding_top - lm->padding_bottom - tb_offset;
 
-    // 璁＄畻姣忎釜鍗曞厓鏍肩殑澶у皬锛堝噺鍘婚棿璺濓級
+    // 计算每个单元格的大小（减去间距）
     int total_h_spacing = (lm->columns - 1) * lm->spacing;
     int total_v_spacing = (lm->rows - 1) * lm->spacing;
     int cell_width = (available_width - total_h_spacing) / lm->columns;
@@ -25323,7 +25323,7 @@ void CalculateGridLayout(LayoutManager* lm, int client_width, int client_height,
         LayoutProperties props = {};
 
         if (item.is_button) {
-            // Emoji鎸夐挳
+            // Emoji按钮
             EmojiButton* btn = FindEmojiButton(lm->parent_hwnd, item.button_id);
             if (!btn) continue;
 
@@ -25346,7 +25346,7 @@ void CalculateGridLayout(LayoutManager* lm, int client_width, int client_height,
             btn->width = ctrl_w;
             btn->height = ctrl_h;
         } else {
-            // HWND鎺т欢
+            // HWND控件
             HWND hChild = item.hwnd;
             if (!IsWindow(hChild) || (!IsWindowVisible(hChild) && !IsParentDrawnLabel(hChild))) continue;
 
@@ -25383,16 +25383,16 @@ void CalculateGridLayout(LayoutManager* lm, int client_width, int client_height,
     }
 }
 
-// 鍋滈潬甯冨眬璁＄畻
+// 停靠布局计算
 void CalculateDockLayout(LayoutManager* lm, int client_width, int client_height, HDWP* hdwp) {
-    // 鍙敤鍖哄煙锛堣鍋滈潬鎺т欢閫愭缂╁皬锛?
+    // 可用区域（被停靠控件逐步缩小）
     int tb_offset = GetTitleBarOffset(lm->parent_hwnd);
     int left = lm->padding_left;
     int top = lm->padding_top + tb_offset;
     int right = client_width - lm->padding_right;
     int bottom = client_height - lm->padding_bottom;
 
-    // 鏀堕泦FILL椤癸紙鏈€鍚庡鐞嗭級
+    // 收集FILL项（最后处理）
     std::vector<LayoutItem> fill_items;
 
     for (auto& item : lm->item_order) {
@@ -25478,7 +25478,7 @@ void CalculateDockLayout(LayoutManager* lm, int client_width, int client_height,
         }
     }
 
-    // 澶勭悊FILL椤?- 濉厖鍓╀綑绌洪棿
+    // 处理 FILL 项 - 填充剩余空间
     for (auto& item : fill_items) {
         LayoutProperties props = {};
         if (item.is_button) {
@@ -25509,7 +25509,7 @@ void CalculateDockLayout(LayoutManager* lm, int client_width, int client_height,
     }
 }
 
-// 璁剧疆绐楀彛鐨勫竷灞€绠＄悊鍣?
+// 设置窗口的布局管理器
 extern "C" {
 
 __declspec(dllexport) void __stdcall SetLayoutManager(
@@ -25517,7 +25517,7 @@ __declspec(dllexport) void __stdcall SetLayoutManager(
 {
     if (!IsWindow(hParent)) return;
 
-    // 濡傛灉宸叉湁甯冨眬绠＄悊鍣紝鍏堝垹闄?
+    // 如果已有布局管理器，先删除
     auto it = g_layout_managers.find(hParent);
     if (it != g_layout_managers.end()) {
         delete it->second;
@@ -25535,7 +25535,7 @@ __declspec(dllexport) void __stdcall SetLayoutManager(
     g_layout_managers[hParent] = lm;
 }
 
-// 璁剧疆甯冨眬绠＄悊鍣ㄧ殑鍐呰竟璺?
+// 设置布局管理器的内边距
 __declspec(dllexport) void __stdcall SetLayoutPadding(
     HWND hParent, int padding_left, int padding_top, int padding_right, int padding_bottom)
 {
@@ -25549,12 +25549,12 @@ __declspec(dllexport) void __stdcall SetLayoutPadding(
     lm->padding_bottom = padding_bottom;
 }
 
-// 璁剧疆鎺т欢鐨勫竷灞€灞炴€?
+// 设置控件的布局属性
 __declspec(dllexport) void __stdcall SetControlLayoutProps(
     HWND hControl, int margin_left, int margin_top, int margin_right, int margin_bottom,
     int dock_position, BOOL stretch_horizontal, BOOL stretch_vertical)
 {
-    // 鍏堟鏌ユ槸鍚︽槸Emoji鎸夐挳ID锛堜紭鍏堢骇楂樹簬IsWindow锛屽洜涓烘寜閽甀D鍙兘鎭板ソ鏄湁鏁圚WND鍊硷級
+    // 先检查是否是Emoji按钮ID（优先级高于IsWindow，因为按钮ID可能恰好是有效HWND值）
     int button_id = (int)(intptr_t)hControl;
     for (auto& pair : g_layout_managers) {
         LayoutManager* lm = pair.second;
@@ -25573,7 +25573,7 @@ __declspec(dllexport) void __stdcall SetControlLayoutProps(
         }
     }
 
-    // 涓嶆槸Emoji鎸夐挳锛屽皾璇曚綔涓篐WND鎺т欢澶勭悊
+    // 不是Emoji按钮，尝试作为HWND控件处理
     if (IsWindow(hControl)) {
         HWND hParent = GetParent(hControl);
         if (!hParent) return;
@@ -25593,7 +25593,7 @@ __declspec(dllexport) void __stdcall SetControlLayoutProps(
     }
 }
 
-// 灏嗘帶浠舵坊鍔犲埌甯冨眬绠＄悊鍣?
+// 将控件添加到布局管理器
 __declspec(dllexport) void __stdcall AddControlToLayout(HWND hParent, HWND hControl) {
     if (!IsWindow(hParent)) return;
 
@@ -25602,7 +25602,7 @@ __declspec(dllexport) void __stdcall AddControlToLayout(HWND hParent, HWND hCont
 
     LayoutManager* lm = it->second;
 
-    // 鍏堟鏌ユ槸鍚︽槸Emoji鎸夐挳ID锛堜紭鍏堢骇楂樹簬IsWindow锛屽洜涓烘寜閽甀D鍙兘鎭板ソ鏄湁鏁圚WND鍊硷級
+    // 先检查是否是Emoji按钮ID（优先级高于IsWindow，因为按钮ID可能恰好是有效HWND值）
     int button_id = (int)(intptr_t)hControl;
     auto win_it = g_windows.find(hParent);
     bool is_emoji_button = false;
@@ -25614,8 +25614,8 @@ __declspec(dllexport) void __stdcall AddControlToLayout(HWND hParent, HWND hCont
     }
 
     if (is_emoji_button) {
-        // Emoji鎸夐挳
-        // 妫€鏌ユ槸鍚﹀凡娣诲姞
+        // Emoji按钮
+        // 检查是否已添加
         for (auto& item : lm->item_order) {
             if (item.is_button && item.button_id == button_id) return;
         }
@@ -25639,7 +25639,7 @@ __declspec(dllexport) void __stdcall AddControlToLayout(HWND hParent, HWND hCont
             }
         }
     } else if (IsWindow(hControl)) {
-        // HWND鎺т欢
+        // HWND控件
         for (HWND h : lm->control_order) {
             if (h == hControl) return;
         }
@@ -25650,14 +25650,14 @@ __declspec(dllexport) void __stdcall AddControlToLayout(HWND hParent, HWND hCont
         if (g_layout_control_preferred_sizes.find(hControl) == g_layout_control_preferred_sizes.end()) {
             g_layout_control_preferred_sizes[hControl] = GetPreferredControlSize(hControl);
         }
-        // 濡傛灉鏄爣绛撅紝鍒欏垏鎹负鐖剁獥鍙ｇ粺涓€缁樺埗锛岄伩鍏?live resize 鏃跺瓙绐楀彛闂儊
+        // 如果是标签，则切换为父窗口统一绘制，避免 live resize 时子窗口闪烁
         auto label_it = g_labels.find(hControl);
         if (label_it != g_labels.end()) {
             label_it->second->parent_drawn = true;
             label_it->second->visible = IsWindowVisible(hControl) ? true : false;
             ShowWindow(hControl, SW_HIDE);
         }
-        // 鍚屾鍒扮粺涓€椤哄簭鍒楄〃
+        // 同步到统一顺序列表
         LayoutItem item;
         item.hwnd = hControl;
         item.is_button = false;
@@ -25665,14 +25665,14 @@ __declspec(dllexport) void __stdcall AddControlToLayout(HWND hParent, HWND hCont
     }
 }
 
-// 浠庡竷灞€绠＄悊鍣ㄧЩ闄ゆ帶浠?
+// 从布局管理器移除控件
 __declspec(dllexport) void __stdcall RemoveControlFromLayout(HWND hParent, HWND hControl) {
     auto it = g_layout_managers.find(hParent);
     if (it == g_layout_managers.end()) return;
 
     LayoutManager* lm = it->second;
 
-    // 鍏堟鏌ユ槸鍚︽槸Emoji鎸夐挳ID锛堜紭鍏堢骇楂樹簬IsWindow锛?
+    // 先检查是否是 Emoji 按钮ID（优先级高于 IsWindow）
     int button_id = (int)(intptr_t)hControl;
     LayoutItem btn_target;
     btn_target.button_id = button_id;
@@ -25684,7 +25684,7 @@ __declspec(dllexport) void __stdcall RemoveControlFromLayout(HWND hParent, HWND 
         return;
     }
 
-    // 涓嶆槸Emoji鎸夐挳锛屽皾璇曚綔涓篐WND鎺т欢澶勭悊
+    // 不是Emoji按钮，尝试作为HWND控件处理
     if (IsWindow(hControl)) {
         auto label_it = g_labels.find(hControl);
         if (label_it != g_labels.end()) {
@@ -25704,7 +25704,7 @@ __declspec(dllexport) void __stdcall RemoveControlFromLayout(HWND hParent, HWND 
     }
 }
 
-// 绔嬪嵆閲嶆柊璁＄畻甯冨眬
+// 立即重新计算布局
 __declspec(dllexport) void __stdcall UpdateLayout(HWND hParent) {
     auto it = g_layout_managers.find(hParent);
     if (it == g_layout_managers.end()) return;
@@ -25748,7 +25748,7 @@ __declspec(dllexport) void __stdcall UpdateLayout(HWND hParent) {
         EndDeferWindowPos(hdwp);
     }
 
-    // 甯冨眬鏇存柊鍚庯紝缁熶竴瑙﹀彂瀹屾暣閲嶇粯锛屾竻鐞嗘棫鍖哄煙娈嬪奖
+    // 布局更新后，统一触发完整重绘，清理旧区域残影
     bool has_buttons = false;
     bool has_parent_drawn_labels = false;
     for (auto& item : lm->item_order) {
@@ -25771,7 +25771,7 @@ __declspec(dllexport) void __stdcall UpdateLayout(HWND hParent) {
     RedrawWindow(hParent, nullptr, nullptr, redraw_flags);
 }
 
-// 绉婚櫎绐楀彛鐨勫竷灞€绠＄悊鍣?
+// 移除窗口的布局管理器
 __declspec(dllexport) void __stdcall RemoveLayoutManager(HWND hParent) {
     auto it = g_layout_managers.find(hParent);
     if (it != g_layout_managers.end()) {
@@ -25782,15 +25782,15 @@ __declspec(dllexport) void __stdcall RemoveLayoutManager(HWND hParent) {
 
 } // extern "C" (layout manager block end)
 
-// ========== 涓婚绯荤粺瀹炵幇 ==========
+// ========== 主题系统实现 ==========
 
-// 鍒涘缓榛樿浜壊涓婚
+// 创建默认亮色主题
 Theme CreateDefaultLightTheme() {
     Theme theme;
     theme.name = L"light";
     theme.dark_mode = false;
 
-    // Element UI 鏍囧噯浜壊閰嶈壊
+    // Element UI 标准亮色配色
     theme.colors.primary = 0xFF409EFF;
     theme.colors.success = 0xFF67C23A;
     theme.colors.warning = 0xFFE6A23C;
@@ -25824,13 +25824,13 @@ Theme CreateDefaultLightTheme() {
     return theme;
 }
 
-// 鍒涘缓榛樿鏆楄壊涓婚
+// 创建默认暗色主题
 Theme CreateDefaultDarkTheme() {
     Theme theme;
     theme.name = L"dark";
     theme.dark_mode = true;
 
-    // 鏆楄壊涓婚閰嶈壊
+    // 暗色主题配色
     theme.colors.primary = 0xFF409EFF;
     theme.colors.success = 0xFF67C23A;
     theme.colors.warning = 0xFFE6A23C;
@@ -25864,7 +25864,7 @@ Theme CreateDefaultDarkTheme() {
     return theme;
 }
 
-// 鍒濆鍖栦富棰樼郴缁?
+// 初始化主题系统
 static void EnsureThemesInitialized() {
     if (!g_themes_initialized) {
         g_light_theme = CreateDefaultLightTheme();
@@ -25874,7 +25874,7 @@ static void EnsureThemesInitialized() {
     }
 }
 
-// 鑾峰彇褰撳墠涓婚棰滆壊锛堝甫鑷姩鍒濆鍖栵級
+// 获取当前主题颜色（带自动初始化）
 static UINT32 GetCurrentThemeColorValue(const std::string& name) {
     EnsureThemesInitialized();
     const ThemeColors& c = g_current_theme->colors;
@@ -25896,9 +25896,9 @@ static UINT32 GetCurrentThemeColorValue(const std::string& name) {
     return 0;
 }
 
-// 绠€鏄揓SON瑙ｆ瀽鍣?- 瑙ｆ瀽涓婚JSON
+// 简易JSON解析器 - 解析主题JSON
 static bool ParseThemeJSON(const std::string& json, Theme& theme) {
-    // 绠€鏄揓SON瑙ｆ瀽锛氭煡鎵?"key": value 妯″紡
+    // 简易JSON解析：查找 "key": value 模式
     auto findString = [&](const std::string& key) -> std::string {
         std::string search = "\"" + key + "\"";
         size_t pos = json.find(search);
@@ -25949,7 +25949,7 @@ static bool ParseThemeJSON(const std::string& json, Theme& theme) {
         return default_val;
     };
 
-    // 瑙ｆ瀽棰滆壊瀛楃涓?"#RRGGBB" -> 0xAARRGGBB
+    // 解析颜色字符串 "#RRGGBB" -> 0xAARRGGBB
     auto parseColor = [&](const std::string& key, UINT32 default_val) -> UINT32 {
         std::string val = findString(key);
         if (val.empty() || val[0] != '#' || val.size() < 7) return default_val;
@@ -25960,10 +25960,10 @@ static bool ParseThemeJSON(const std::string& json, Theme& theme) {
         catch (...) { return default_val; }
     };
 
-    // 鍏堢敤榛樿浜壊涓婚浣滀负鍩虹
+    // 先用默认亮色主题作为基础
     Theme base = CreateDefaultLightTheme();
 
-    // 瑙ｆ瀽鍚嶇О鍜屾ā寮?
+    // 解析名称和模式
     std::string name = findString("name");
     if (!name.empty()) {
         theme.name = std::wstring(name.begin(), name.end());
@@ -25972,7 +25972,7 @@ static bool ParseThemeJSON(const std::string& json, Theme& theme) {
     }
     theme.dark_mode = findBool("dark_mode", base.dark_mode);
 
-    // 瑙ｆ瀽棰滆壊
+    // 解析颜色
     theme.colors.primary = parseColor("primary", base.colors.primary);
     theme.colors.success = parseColor("success", base.colors.success);
     theme.colors.warning = parseColor("warning", base.colors.warning);
@@ -25989,7 +25989,7 @@ static bool ParseThemeJSON(const std::string& json, Theme& theme) {
     theme.colors.background = parseColor("background", base.colors.background);
     theme.colors.background_light = parseColor("background_light", base.colors.background_light);
 
-    // 瑙ｆ瀽瀛椾綋
+    // 解析字体
     std::string title_font = findString("title_font");
     std::string body_font = findString("body_font");
     std::string mono_font = findString("mono_font");
@@ -26000,7 +26000,7 @@ static bool ParseThemeJSON(const std::string& json, Theme& theme) {
     theme.fonts.body_size = findInt("body_size", base.fonts.body_size);
     theme.fonts.small_size = findInt("small_size", base.fonts.small_size);
 
-    // 瑙ｆ瀽灏哄
+    // 解析尺寸
     theme.sizes.border_radius = findFloat("border_radius", base.sizes.border_radius);
     theme.sizes.border_width = findFloat("border_width", base.sizes.border_width);
     theme.sizes.control_height = findInt("control_height", base.sizes.control_height);
@@ -26011,7 +26011,7 @@ static bool ParseThemeJSON(const std::string& json, Theme& theme) {
     return true;
 }
 
-// 鍒锋柊鎵€鏈夋帶浠讹紙涓婚鍒囨崲鍚庤皟鐢級
+// 刷新所有控件（主题切换后调用）
 void ApplyThemeToAllControls() {
     auto redraw_visible = [](HWND hwnd, bool include_children = false) {
         if (!hwnd || !IsWindow(hwnd) || !IsWindowVisible(hwnd)) return;
@@ -26105,10 +26105,10 @@ void ApplyThemeToAllControls() {
     }
 }
 
-// ========== 涓婚绯荤粺 API 瀹炵幇 ==========
+// ========== 主题系统 API 实现 ==========
 extern "C" {
 
-// 浠嶫SON瀛楃涓插姞杞戒富棰?
+// 从JSON字符串加载主题
 __declspec(dllexport) BOOL __stdcall LoadThemeFromJSON(
     const unsigned char* json_bytes,
     int json_len
@@ -26120,7 +26120,7 @@ __declspec(dllexport) BOOL __stdcall LoadThemeFromJSON(
     Theme new_theme;
     if (!ParseThemeJSON(json, new_theme)) return FALSE;
 
-    // 鏍规嵁鍚嶇О鍐冲畾瀛樺偍浣嶇疆
+    // 根据名称决定存储位置
     if (new_theme.name == L"light") {
         g_light_theme = new_theme;
         if (g_current_theme == &g_light_theme || (!g_current_theme->dark_mode)) {
@@ -26134,7 +26134,7 @@ __declspec(dllexport) BOOL __stdcall LoadThemeFromJSON(
             ApplyThemeToAllControls();
         }
     } else {
-        // 鑷畾涔変富棰?- 瀛樺偍鍒板綋鍓嶄富棰?
+        // 自定义主题 - 存储到当前主题
         if (new_theme.dark_mode) {
             g_dark_theme = new_theme;
             g_current_theme = &g_dark_theme;
@@ -26148,7 +26148,7 @@ __declspec(dllexport) BOOL __stdcall LoadThemeFromJSON(
     return TRUE;
 }
 
-// 浠庢枃浠跺姞杞戒富棰?
+// 从文件加载主题
 __declspec(dllexport) BOOL __stdcall LoadThemeFromFile(
     const unsigned char* file_path_bytes,
     int path_len
@@ -26156,13 +26156,13 @@ __declspec(dllexport) BOOL __stdcall LoadThemeFromFile(
     EnsureThemesInitialized();
     if (!file_path_bytes || path_len <= 0) return FALSE;
 
-    // 杞崲璺緞
+    // 转换路径
     int wlen = MultiByteToWideChar(CP_UTF8, 0, (const char*)file_path_bytes, path_len, NULL, 0);
     if (wlen <= 0) return FALSE;
     std::wstring wpath(wlen, 0);
     MultiByteToWideChar(CP_UTF8, 0, (const char*)file_path_bytes, path_len, &wpath[0], wlen);
 
-    // 璇诲彇鏂囦欢
+    // 读取文件
     HANDLE hFile = CreateFileW(wpath.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
     if (hFile == INVALID_HANDLE_VALUE) return FALSE;
 
@@ -26182,7 +26182,7 @@ __declspec(dllexport) BOOL __stdcall LoadThemeFromFile(
     return LoadThemeFromJSON(buffer.data(), (int)bytesRead);
 }
 
-// 璁剧疆褰撳墠涓婚
+// 设置当前主题
 __declspec(dllexport) void __stdcall SetTheme(
     const unsigned char* theme_name_bytes,
     int name_len
@@ -26198,7 +26198,7 @@ __declspec(dllexport) void __stdcall SetTheme(
     } else if (name == "dark") {
         g_current_theme = &g_dark_theme;
     } else {
-        return; // 鏈煡涓婚鍚嶇О
+        return; // 未知主题名称
     }
 
     if (g_current_theme != old_theme) {
@@ -26209,7 +26209,7 @@ __declspec(dllexport) void __stdcall SetTheme(
     }
 }
 
-// 璁剧疆鏆楄壊妯″紡
+// 设置暗色模式
 __declspec(dllexport) void __stdcall SetDarkMode(BOOL dark_mode) {
     EnsureThemesInitialized();
     Theme* old_theme = g_current_theme;
@@ -26224,7 +26224,7 @@ __declspec(dllexport) void __stdcall SetDarkMode(BOOL dark_mode) {
     }
 }
 
-// 鑾峰彇涓婚棰滆壊锛堝瓧绗︿覆鐗堟湰锛?
+// 获取主题颜色（字符串版本）
 __declspec(dllexport) UINT32 __stdcall EW_GetThemeColor(
     const unsigned char* color_name_bytes,
     int name_len
@@ -26235,8 +26235,8 @@ __declspec(dllexport) UINT32 __stdcall EW_GetThemeColor(
     return GetCurrentThemeColorValue(name);
 }
 
-// 鑾峰彇涓婚棰滆壊锛堟暟鍊肩储寮曠増鏈紝渚涙槗璇█甯搁噺浣跨敤锛?
-// 绱㈠紩: 0=primary, 1=success, 2=warning, 3=danger, 4=info,
+// 获取主题颜色（数值索引版本，供易语言常量使用）
+// 索引: 0=primary, 1=success, 2=warning, 3=danger, 4=info,
 //       5=text_primary, 6=text_regular, 7=text_secondary, 8=text_placeholder,
 //       9=border_base, 10=border_light, 11=border_lighter, 12=border_extra_light,
 //       13=background, 14=background_light,
@@ -26269,7 +26269,7 @@ __declspec(dllexport) UINT32 __stdcall EW_GetThemeColorByIndex(int color_index) 
     }
 }
 
-// 鑾峰彇涓婚瀛椾綋鍚嶇О
+// 获取主题字体名称
 __declspec(dllexport) int __stdcall EW_GetThemeFont(
     int font_type,
     unsigned char* buffer,
@@ -26292,7 +26292,7 @@ __declspec(dllexport) int __stdcall EW_GetThemeFont(
     return utf8_len;
 }
 
-// 鑾峰彇涓婚瀛楀彿
+// 获取主题字号
 __declspec(dllexport) int __stdcall GetThemeFontSize(int font_type) {
     EnsureThemesInitialized();
     switch (font_type) {
@@ -26303,7 +26303,7 @@ __declspec(dllexport) int __stdcall GetThemeFontSize(int font_type) {
     }
 }
 
-// 鑾峰彇涓婚灏哄
+// 获取主题尺寸
 __declspec(dllexport) int __stdcall GetThemeSize(int size_type) {
     EnsureThemesInitialized();
     switch (size_type) {
@@ -26317,13 +26317,13 @@ __declspec(dllexport) int __stdcall GetThemeSize(int size_type) {
     }
 }
 
-// 鑾峰彇褰撳墠鏄惁鏆楄壊妯″紡
+// 获取当前是否暗色模式
 __declspec(dllexport) BOOL __stdcall IsDarkMode() {
     EnsureThemesInitialized();
     return g_current_theme->dark_mode ? TRUE : FALSE;
 }
 
-// 鑾峰彇褰撳墠涓婚鍚嶇О
+// 获取当前主题名称
 __declspec(dllexport) int __stdcall EW_GetCurrentThemeName(
     unsigned char* buffer,
     int buffer_size
@@ -26338,16 +26338,16 @@ __declspec(dllexport) int __stdcall EW_GetCurrentThemeName(
     return utf8_len;
 }
 
-// 璁剧疆涓婚鍒囨崲鍥炶皟
+// 设置主题切换回调
 __declspec(dllexport) void __stdcall SetThemeChangedCallback(ThemeChangedCallback callback) {
     g_theme_changed_callback = callback;
 }
 
 } // extern "C"
 
-// ========== 鑿滃崟绯荤粺瀹炵幇 ==========
+// ========== 菜单系统实现 ==========
 
-// 杈呭姪鍑芥暟锛氭煡鎵捐彍鍗曢」
+// 辅助函数：查找菜单项
 static MenuItem* FindMenuItem(std::vector<MenuItem>& items, int item_id) {
     for (auto& item : items) {
         if (item.id == item_id) return &item;
@@ -26359,7 +26359,7 @@ static MenuItem* FindMenuItem(std::vector<MenuItem>& items, int item_id) {
     return nullptr;
 }
 
-// 杈呭姪鍑芥暟锛氳绠楄彍鍗曢」鏂囨湰瀹藉害
+// 辅助函数：计算菜单项文本宽度
 static float CalculateMenuItemWidth(IDWriteFactory* factory, const std::wstring& text, const FontStyle& font) {
     if (text.empty()) return 0.0f;
     
@@ -26399,7 +26399,7 @@ static float CalculateMenuItemWidth(IDWriteFactory* factory, const std::wstring&
     return width;
 }
 
-// 鍒涘缓鑿滃崟鏍?
+// 创建菜单栏
 __declspec(dllexport) HWND __stdcall CreateMenuBar(HWND hWindow) {
     WriteLog("CreateMenuBar: hWindow=%p", hWindow);
     if (!hWindow) {
@@ -26426,24 +26426,24 @@ __declspec(dllexport) HWND __stdcall CreateMenuBar(HWND hWindow) {
     state->font.underline = false;
     state->callback = nullptr;
     
-    // 浣跨敤绐楀彛鍙ユ焺浣滀负鑿滃崟鏍忔爣璇?
+    // 使用窗口句柄作为菜单栏标识
     g_menubars[hWindow] = state;
     WriteLog("CreateMenuBar: menubar created, g_menubars.size()=%zu", g_menubars.size());
     
-    // 瑙﹀彂绐楀彛閲嶇粯
+    // 触发窗口重绘
     InvalidateRect(hWindow, NULL, FALSE);
     
     return hWindow;
 }
 
-// 閿€姣佽彍鍗曟爮
+// 销毁菜单栏
 __declspec(dllexport) void __stdcall DestroyMenuBar(HWND hMenuBar) {
     auto it = g_menubars.find(hMenuBar);
     if (it != g_menubars.end()) {
         MenuBarState* menubar = it->second;
         DestroyMenuBarPopup(menubar);
         
-        // 娓呯悊瀛愯彍鍗曠獥鍙?
+        // 清理子菜单窗口
         if (menubar->submenu) {
             delete menubar->submenu;
             menubar->submenu = nullptr;
@@ -26455,7 +26455,7 @@ __declspec(dllexport) void __stdcall DestroyMenuBar(HWND hMenuBar) {
     }
 }
 
-// 娣诲姞鑿滃崟鏍忛」
+// 添加菜单栏项
 __declspec(dllexport) int __stdcall MenuBarAddItem(
     HWND hMenuBar,
     const unsigned char* text_bytes,
@@ -26480,7 +26480,7 @@ __declspec(dllexport) int __stdcall MenuBarAddItem(
     return (int)state->items.size() - 1;
 }
 
-// 娣诲姞鑿滃崟鏍忓瓙椤?
+// 添加菜单栏子项
 __declspec(dllexport) int __stdcall MenuBarAddSubItem(
     HWND hMenuBar,
     int parent_item_id,
@@ -26505,7 +26505,7 @@ __declspec(dllexport) int __stdcall MenuBarAddSubItem(
     MenuItem item;
     item.id = item_id;
     
-    // 妫€鏌ユ槸鍚︿负鍒嗛殧绗︼紙item_id == -1 涓?text_bytes == 0 鎴?text_len == 0锛?
+    // 检查是否为分隔符（item_id == -1 且 text_bytes == 0 且 text_len == 0）
     if (item_id == -1 && (text_bytes == nullptr || text_len == 0)) {
         item.separator = true;
         item.text = L"";
@@ -26525,7 +26525,7 @@ __declspec(dllexport) int __stdcall MenuBarAddSubItem(
     return (int)parent->sub_items.size() - 1;
 }
 
-// 璁剧疆鑿滃崟鏍忎綅缃拰澶у皬
+// 设置菜单栏位置和大小
 __declspec(dllexport) void __stdcall SetMenuBarPlacement(
     HWND hMenuBar,
     int x, int y, int width, int height
@@ -26540,7 +26540,7 @@ __declspec(dllexport) void __stdcall SetMenuBarPlacement(
     InvalidateRect(hMenuBar, NULL, FALSE);
 }
 
-// 璁剧疆鑿滃崟鏍忓洖璋?
+// 设置菜单栏回调
 __declspec(dllexport) void __stdcall SetMenuBarCallback(
     HWND hMenuBar,
     MenuItemClickCallback callback
@@ -26555,7 +26555,7 @@ __declspec(dllexport) void __stdcall SetMenuBarCallback(
     }
 }
 
-// 鏇存柊鑿滃崟鏍忓瓙椤规枃鏈?
+// 更新菜单栏子项文本
 __declspec(dllexport) BOOL __stdcall MenuBarUpdateSubItemText(
     HWND hMenuBar,
     int parent_item_id,
@@ -26578,14 +26578,14 @@ __declspec(dllexport) BOOL __stdcall MenuBarUpdateSubItemText(
         return FALSE;
     }
 
-    // 鏌ユ壘鐖惰彍鍗曢」
+    // 查找父菜单项
     MenuItem* parent = FindMenuItem(state->items, parent_item_id);
     if (!parent) {
         WriteLog("MenuBarUpdateSubItemText: parent item not found!");
         return FALSE;
     }
 
-    // 鍦ㄧ埗椤圭殑瀛愰」涓煡鎵剧洰鏍?item_id
+    // 在父项的子项中查找目标 item_id
     for (auto& sub : parent->sub_items) {
         if (sub.id == item_id) {
             sub.text = Utf8ToWide(text_bytes, text_len);
@@ -26599,7 +26599,7 @@ __declspec(dllexport) BOOL __stdcall MenuBarUpdateSubItemText(
     return FALSE;
 }
 
-// 鍒涘缓寮瑰嚭鑿滃崟
+// 创建弹出菜单
 __declspec(dllexport) HWND __stdcall CreateEmojiPopupMenu(HWND hOwner) {
     if (!hOwner) return nullptr;
     
@@ -26617,7 +26617,7 @@ __declspec(dllexport) HWND __stdcall CreateEmojiPopupMenu(HWND hOwner) {
     state->font.font_name = L"Segoe UI Emoji";
     state->font.font_size = 14;
     
-    // 鐢熸垚鍞竴鍙ユ焺锛堜娇鐢ㄦ寚閽堝湴鍧€锛?
+    // 生成唯一句柄（使用指针地址）
     HWND hPopupMenu = (HWND)state;
     state->handle_key = hPopupMenu;
     g_popup_menus[hPopupMenu] = state;
@@ -26625,7 +26625,7 @@ __declspec(dllexport) HWND __stdcall CreateEmojiPopupMenu(HWND hOwner) {
     return hPopupMenu;
 }
 
-// 閿€姣佸脊鍑鸿彍鍗?
+// 销毁弹出菜单
 __declspec(dllexport) void __stdcall DestroyEmojiPopupMenu(HWND hPopupMenu) {
     PopupMenuState* state = LookupPopupMenuState(hPopupMenu);
     if (!state) return;
@@ -26655,14 +26655,14 @@ __declspec(dllexport) void __stdcall DestroyEmojiPopupMenu(HWND hPopupMenu) {
     delete state;
 }
 
-// 娣诲姞寮瑰嚭鑿滃崟椤?
+// 添加弹出菜单项
 __declspec(dllexport) int __stdcall PopupMenuAddItem(
     HWND hPopupMenu,
     const unsigned char* text_bytes,
     int text_len,
     int item_id
 ) {
-    // 鍐欏叆鏃ュ織鏂囦欢
+    // 写入日志文件
     FILE* log = nullptr;
     fopen_s(&log, "C:\\popup_menu_debug.txt", "a");
     if (log) {
@@ -26685,7 +26685,7 @@ __declspec(dllexport) int __stdcall PopupMenuAddItem(
     MenuItem item;
     item.id = item_id;
     
-    // 濡傛灉 item_id == -1 涓?text_len == 0锛屽垯涓哄垎闅旂
+    // 如果 item_id == -1 且 text_len == 0，则为分隔符
     if (item_id == -1 && text_len == 0) {
         item.separator = true;
         item.text = L"";
@@ -26723,7 +26723,7 @@ __declspec(dllexport) int __stdcall PopupMenuAddItem(
     return (int)state->items.size() - 1;
 }
 
-// 娣诲姞寮瑰嚭鑿滃崟瀛愰」
+// 添加弹出菜单子项
 __declspec(dllexport) int __stdcall PopupMenuAddSubItem(
     HWND hPopupMenu,
     int parent_item_id,
@@ -26748,7 +26748,7 @@ __declspec(dllexport) int __stdcall PopupMenuAddSubItem(
     return (int)parent->sub_items.size() - 1;
 }
 
-// 缁戝畾鎺т欢涓庡脊鍑鸿彍鍗?
+// 绑定控件与弹出菜单
 __declspec(dllexport) void __stdcall BindControlMenu(
     HWND hControl,
     HWND hPopupMenu
@@ -26782,13 +26782,13 @@ __declspec(dllexport) void __stdcall BindButtonMenu(
     g_button_popup_menu_bindings[hParent][button_id] = hPopupMenu;
 }
 
-// 鏄剧ず鍙抽敭鑿滃崟
+// 显示右键菜单
 __declspec(dllexport) void __stdcall ShowContextMenu(
     HWND hPopupMenu,
     int x,
     int y
 ) {
-    // 鍐欏叆鏃ュ織
+    // 写入日志
     FILE* log = nullptr;
     fopen_s(&log, "C:\\popup_menu_debug.txt", "a");
     if (log) {
@@ -26815,7 +26815,7 @@ __declspec(dllexport) void __stdcall ShowContextMenu(
         fclose(log3);
     }
     
-    // 娉ㄥ唽寮瑰嚭鑿滃崟绐楀彛绫?
+    // 注册弹出菜单窗口类
     static bool class_registered = false;
     if (!class_registered) {
         WNDCLASSEXW wc = {};
@@ -26830,7 +26830,7 @@ __declspec(dllexport) void __stdcall ShowContextMenu(
         class_registered = true;
     }
     
-    // 璁＄畻鑿滃崟灏哄
+    // 计算菜单尺寸
     UINT dpi = EW_GetDpiForReference(state->owner_hwnd ? state->owner_hwnd : state->owner_menubar);
     int menu_width = EW_LogicalToPx(160, dpi);
     int menu_height = 0;
@@ -26885,7 +26885,7 @@ __declspec(dllexport) void __stdcall ShowContextMenu(
     }
     menu_height += EW_LogicalToPx(12, dpi);
     
-    // 濡傛灉x,y涓?1,浣跨敤褰撳墠榧犳爣浣嶇疆
+    // 如果 x,y 为 -1，使用当前鼠标位置
     if (x == -1 || y == -1) {
         POINT pt;
         GetCursorPos(&pt);
@@ -26913,7 +26913,7 @@ __declspec(dllexport) void __stdcall ShowContextMenu(
         DestroyWindow(state->hwnd);
     }
     
-    // 鍒涘缓寮瑰嚭绐楀彛
+    // 创建弹出窗口
     HWND hwnd = CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
         L"EmojiPopupMenuClass",
@@ -26923,7 +26923,7 @@ __declspec(dllexport) void __stdcall ShowContextMenu(
         state->owner_hwnd,
         nullptr,
         GetModuleHandle(nullptr),
-        state  // 鈿狅笍 鍏抽敭锛氶€氳繃 lpParam 浼犻€?state 鎸囬拡
+        state  // 关键：通过 lpParam 传递 state 指针
     );
     
     FILE* log4 = nullptr;
@@ -26970,7 +26970,7 @@ __declspec(dllexport) void __stdcall ShowContextMenu(
     }
 }
 
-// 璁剧疆寮瑰嚭鑿滃崟鍥炶皟
+// 设置弹出菜单回调
 __declspec(dllexport) void __stdcall SetPopupMenuCallback(
     HWND hPopupMenu,
     MenuItemClickCallback callback
@@ -26981,9 +26981,9 @@ __declspec(dllexport) void __stdcall SetPopupMenuCallback(
     }
 }
 
-// ========== 鎸夐挳灞炴€у懡浠?==========
+// ========== 按钮属性命令 ==========
 
-// Wide String to UTF-8 (杈呭姪鍑芥暟)
+// Wide String to UTF-8 (辅助函数)
 static std::string WideToUtf8(const std::wstring& wide) {
     if (wide.empty()) return "";
     
