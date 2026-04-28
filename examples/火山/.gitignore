@@ -1,0 +1,7 @@
+_int/
+*.vhistory
+runtime_win32/emoji_window.dll
+runtime_win32/EmojiWindowVolcanoDllDemo_*.exe
+runtime_x64/emoji_window.dll
+runtime_x64/EmojiWindowVolcanoDllDemo_*.exe
+src_dll/*~vbak.wsv

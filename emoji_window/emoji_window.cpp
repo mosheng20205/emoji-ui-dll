@@ -16055,16 +16055,35 @@ static void ApplyGroupBoxWindowRegion(GroupBoxState* state) {
     int outer_round = (std::max)(1, EW_LogicalToPx(8, dpi));
     int inner_round = (std::max)(1, EW_LogicalToPx(4, dpi));
 
-    HRGN hRgnOuter = CreateRoundRectRgn(0, title_top, state->width, state->height, outer_round, outer_round);
-    HRGN hRgnInner = CreateRoundRectRgn(
-        inset_x,
-        inset_top,
-        (std::max)(inset_x + 1, state->width - inset_x),
-        (std::max)(inset_top + 1, state->height - inset_bottom),
-        inner_round,
-        inner_round);
-    HRGN hRgnFinal = CreateRectRgn(0, 0, 0, 0);
-    CombineRgn(hRgnFinal, hRgnOuter, hRgnInner, RGN_DIFF);
+    // Win32 region right/bottom are exclusive. Extend by 1 so D2D strokes on the
+    // outer edge are not clipped away on the right/bottom sides.
+    int outer_right = state->width + 1;
+    int outer_bottom = state->height + 1;
+    int inner_right = (std::max)(inset_x + 1, state->width - inset_x + 1);
+    int inner_bottom = (std::max)(inset_top + 1, state->height - inset_bottom + 1);
+
+    HRGN hRgnFinal = nullptr;
+    if (style == GROUPBOX_STYLE_CARD || style == GROUPBOX_STYLE_HEADER_BAR || style == GROUPBOX_STYLE_OUTLINE) {
+        // Card/header-bar group boxes are full rounded containers, not hollow frames.
+        hRgnFinal = CreateRoundRectRgn(0, 0, outer_right, outer_bottom, outer_round, outer_round);
+    } else if (style == GROUPBOX_STYLE_PLAIN) {
+        // Plain style still needs a full client region so its top divider and content
+        // area are not clipped by a hollow frame region.
+        hRgnFinal = CreateRectRgn(0, 0, outer_right, outer_bottom);
+    } else {
+        HRGN hRgnOuter = CreateRoundRectRgn(0, title_top, outer_right, outer_bottom, outer_round, outer_round);
+        HRGN hRgnInner = CreateRoundRectRgn(
+            inset_x,
+            inset_top,
+            inner_right,
+            inner_bottom,
+            inner_round,
+            inner_round);
+        hRgnFinal = CreateRectRgn(0, 0, 0, 0);
+        CombineRgn(hRgnFinal, hRgnOuter, hRgnInner, RGN_DIFF);
+        DeleteObject(hRgnOuter);
+        DeleteObject(hRgnInner);
+    }
 
     if (style == GROUPBOX_STYLE_OUTLINE) {
     int font_px = (std::max)(1, EW_LogicalToPx(state->font.font_size > 0 ? state->font.font_size : 14, dpi));
@@ -16118,14 +16137,18 @@ static void ApplyGroupBoxWindowRegion(GroupBoxState* state) {
     int title_bottom = (std::min)(
         state->height,
         (std::max)(inset_top, title_top_px + title_height_px + title_pad_y * 2));
-    HRGN hRgnTitle = CreateRectRgn(title_left, 0, (std::max)(title_left + 1, title_right), (std::max)(1, title_bottom));
+    HRGN hRgnTitle = CreateRectRgn(
+        title_left,
+        0,
+        (std::max)(title_left + 1, title_right + 1),
+        (std::max)(1, title_bottom + 1));
     CombineRgn(hRgnFinal, hRgnFinal, hRgnTitle, RGN_OR);
     DeleteObject(hRgnTitle);
     }
 
-    SetWindowRgn(state->hwnd, hRgnFinal, TRUE);
-    DeleteObject(hRgnOuter);
-    DeleteObject(hRgnInner);
+    if (hRgnFinal) {
+        SetWindowRgn(state->hwnd, hRgnFinal, TRUE);
+    }
 }
 
 // 鍒涘缓鍒嗙粍妗?
@@ -18111,11 +18134,12 @@ LRESULT CALLBACK GroupBoxProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
                 render_target,
                 (long)(rc.right - rc.left),
                 (long)(rc.bottom - rc.top));
-            
+
             if (SUCCEEDED(hr) && render_target) {
+                render_target->SetDpi(96.0f, 96.0f);
                 render_target->BeginDraw();
                 render_target->Clear(ColorFromUInt32(ResolveContainerBackgroundColor(state->parent, state->bg_color ? state->bg_color : 13)));
-                
+
                 DrawGroupBox(render_target, g_dwrite_factory, state);
                 DrawGroupBoxOwnedButtons(render_target, g_dwrite_factory, state);
                 
@@ -18371,8 +18395,14 @@ void DrawGroupBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, GroupBoxSt
         UINT32 resolved_bg = ResolveThemeColor(state->bg_color);
         ID2D1SolidColorBrush* bg_brush = nullptr;
         rt->CreateSolidColorBrush(ColorFromUInt32(resolved_bg), &bg_brush);
+        float frame_inset = (std::max)(1.0f, sx(1.5f));
+        float frame_top = style == GROUPBOX_STYLE_PLAIN ? title_height + sx(4.0f) : frame_inset;
         D2D1_ROUNDED_RECT frame = D2D1::RoundedRect(
-            D2D1::RectF(sx(1.0f), style == GROUPBOX_STYLE_PLAIN ? title_height + sx(4.0f) : sx(1.0f), (FLOAT)state->width - sx(1.0f), (FLOAT)state->height - sx(1.0f)),
+            D2D1::RectF(
+                frame_inset,
+                frame_top,
+                (std::max)(frame_inset + sx(1.0f), (FLOAT)state->width - frame_inset),
+                (std::max)(frame_top + sx(1.0f), (FLOAT)state->height - frame_inset)),
             style == GROUPBOX_STYLE_PLAIN ? sx(2.0f) : sx(8.0f),
             style == GROUPBOX_STYLE_PLAIN ? sx(2.0f) : sx(8.0f)
         );
@@ -18389,7 +18419,11 @@ void DrawGroupBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, GroupBoxSt
             rt->CreateSolidColorBrush(ColorFromUInt32(ThemeColor_LightBg(resolved_border)), &header_brush);
             if (header_brush) {
                 D2D1_ROUNDED_RECT header_rect = D2D1::RoundedRect(
-                    D2D1::RectF(sx(1.0f), sx(1.0f), (FLOAT)state->width - sx(1.0f), max(sx(30.0f), title_height + sx(12.0f))),
+                    D2D1::RectF(
+                        frame_inset,
+                        frame_inset,
+                        (std::max)(frame_inset + sx(1.0f), (FLOAT)state->width - frame_inset),
+                        max(sx(30.0f), title_height + sx(12.0f))),
                     sx(8.0f), sx(8.0f)
                 );
                 rt->FillRoundedRectangle(header_rect, header_brush);
@@ -18448,63 +18482,19 @@ void DrawGroupBox(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, GroupBoxSt
     float gap_start = sx(10.0f);
     float gap_end = min((float)state->width - sx(8.0f), gap_start + title_width + title_pad_x * 2.0f);
     float border_y = title_box_height / 2.0f;
-    
-    // 涓婅竟妗嗭紙宸︽锛?
-    rt->DrawLine(
-        D2D1::Point2F(sx(4.0f), border_y),
-        D2D1::Point2F(gap_start, border_y),
-        border_brush,
-        sx(1.0f)
+    float outline_stroke = (std::max)(1.0f, sx(1.0f));
+    float outline_inset = (std::max)(outline_stroke, sx(1.5f));
+    float outline_radius = sx(4.0f);
+    D2D1_ROUNDED_RECT outline_frame = D2D1::RoundedRect(
+        D2D1::RectF(
+            outline_inset,
+            border_y,
+            (std::max)(outline_inset + outline_stroke, (float)state->width - outline_inset),
+            (std::max)(border_y + outline_stroke, (float)state->height - outline_inset)),
+        outline_radius,
+        outline_radius
     );
-    
-    // 涓婅竟妗嗭紙鍙虫锛?
-    rt->DrawLine(
-        D2D1::Point2F(gap_end, border_y),
-        D2D1::Point2F((float)state->width - sx(4.0f), border_y),
-        border_brush,
-        sx(1.0f)
-    );
-    
-    // 宸﹁竟妗?
-    rt->DrawLine(
-        D2D1::Point2F(sx(0.5f), border_y + sx(4.0f)),
-        D2D1::Point2F(sx(0.5f), (float)state->height - sx(4.0f)),
-        border_brush,
-        sx(1.0f)
-    );
-    
-    // 鍙宠竟妗?
-    rt->DrawLine(
-        D2D1::Point2F((float)state->width - sx(0.5f), border_y + sx(4.0f)),
-        D2D1::Point2F((float)state->width - sx(0.5f), (float)state->height - sx(4.0f)),
-        border_brush,
-        sx(1.0f)
-    );
-    
-    // 涓嬭竟妗?
-    rt->DrawLine(
-        D2D1::Point2F(sx(4.0f), (float)state->height - sx(0.5f)),
-        D2D1::Point2F((float)state->width - sx(4.0f), (float)state->height - sx(0.5f)),
-        border_brush,
-        sx(1.0f)
-    );
-    
-    // 缁樺埗鍦嗚
-    // 宸︿笂瑙?
-    D2D1_ELLIPSE corner_tl = D2D1::Ellipse(D2D1::Point2F(sx(4.0f), border_y + sx(4.0f)), sx(4.0f), sx(4.0f));
-    rt->DrawEllipse(corner_tl, border_brush, sx(1.0f));
-    
-    // 鍙充笂瑙?
-    D2D1_ELLIPSE corner_tr = D2D1::Ellipse(D2D1::Point2F((float)state->width - sx(4.0f), border_y + sx(4.0f)), sx(4.0f), sx(4.0f));
-    rt->DrawEllipse(corner_tr, border_brush, sx(1.0f));
-    
-    // 宸︿笅瑙?
-    D2D1_ELLIPSE corner_bl = D2D1::Ellipse(D2D1::Point2F(sx(4.0f), (float)state->height - sx(4.0f)), sx(4.0f), sx(4.0f));
-    rt->DrawEllipse(corner_bl, border_brush, sx(1.0f));
-    
-    // 鍙充笅瑙?
-    D2D1_ELLIPSE corner_br = D2D1::Ellipse(D2D1::Point2F((float)state->width - sx(4.0f), (float)state->height - sx(4.0f)), sx(4.0f), sx(4.0f));
-    rt->DrawEllipse(corner_br, border_brush, sx(1.0f));
+    rt->DrawRoundedRectangle(outline_frame, border_brush, outline_stroke);
     
     // 缁樺埗鏍囬鑳屾櫙锛堜笌璁捐鍣ㄤ竴鑷达細鏍囬澶勨€滃垏鏂€濊竟妗嗭紝鑳屾櫙涓庣獥鍙ｄ竴鑷达級
     ID2D1SolidColorBrush* bg_brush = nullptr;
