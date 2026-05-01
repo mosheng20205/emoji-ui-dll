@@ -50,6 +50,7 @@ static void RefreshButtonVisual(EmojiButton* button, HWND parent) {
             (button->height > 0 ? button->height : 1),
             flags
         );
+        ApplyEmojiButtonWindowRegion(button);
 
         if (button->loading) {
             SetTimer(button->hwnd, 1, 120, nullptr);

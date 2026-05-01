@@ -1436,6 +1436,8 @@ static ButtonRenderMetrics GetButtonRenderMetrics(const EmojiButton& button) {
     metrics.border_width = 1.0f * dpi_scale;
     if (button.round || button.circle) {
         metrics.radius = max(4.0f, min((float)button.width, (float)button.height) * 0.5f);
+    } else {
+        metrics.radius = 0.0f;
     }
     return metrics;
 }
@@ -2691,18 +2693,42 @@ void DrawButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, const EmojiB
 
     const ButtonRenderMetrics metrics = GetButtonRenderMetrics(button);
     const ButtonRenderPalette palette = ResolveButtonPalette(button);
-    const D2D1_RECT_F bounds = D2D1::RectF(
+    const D2D1_RECT_F outer_bounds = D2D1::RectF(
         (FLOAT)button.x,
         (FLOAT)button.y,
         (FLOAT)(button.x + button.width),
         (FLOAT)(button.y + button.height)
     );
-    const D2D1_ROUNDED_RECT rect = D2D1::RoundedRect(bounds, metrics.radius, metrics.radius);
+    const bool rounded_shape = (metrics.radius > 0.0f);
+    const float stroke_width = palette.border ? max(1.0f, metrics.border_width) : 0.0f;
+    const float stroke_inset = stroke_width * 0.5f;
+    const D2D1_RECT_F fill_bounds = rounded_shape ? D2D1::RectF(
+        outer_bounds.left + 0.25f,
+        outer_bounds.top + 0.25f,
+        outer_bounds.right - 0.25f,
+        outer_bounds.bottom - 0.25f
+    ) : outer_bounds;
+    const D2D1_RECT_F stroke_bounds = D2D1::RectF(
+        outer_bounds.left + stroke_inset,
+        outer_bounds.top + stroke_inset,
+        outer_bounds.right - stroke_inset,
+        outer_bounds.bottom - stroke_inset
+    );
+    const D2D1_ROUNDED_RECT fill_rect = D2D1::RoundedRect(
+        fill_bounds,
+        max(0.0f, metrics.radius - 0.25f),
+        max(0.0f, metrics.radius - 0.25f)
+    );
+    const D2D1_ROUNDED_RECT stroke_rect = D2D1::RoundedRect(
+        stroke_bounds,
+        max(0.0f, metrics.radius - stroke_inset),
+        max(0.0f, metrics.radius - stroke_inset)
+    );
 
     if (palette.fill) {
         ID2D1SolidColorBrush* fill_brush = nullptr;
         if (SUCCEEDED(rt->CreateSolidColorBrush(ColorFromUInt32(palette.bg), &fill_brush)) && fill_brush) {
-            rt->FillRoundedRectangle(rect, fill_brush);
+            rt->FillRoundedRectangle(fill_rect, fill_brush);
             fill_brush->Release();
         }
     }
@@ -2710,7 +2736,7 @@ void DrawButton(ID2D1HwndRenderTarget* rt, IDWriteFactory* factory, const EmojiB
     if (palette.border) {
         ID2D1SolidColorBrush* border_brush = nullptr;
         if (SUCCEEDED(rt->CreateSolidColorBrush(ColorFromUInt32(palette.border_color), &border_brush)) && border_brush) {
-            rt->DrawRoundedRectangle(rect, border_brush, metrics.border_width);
+            rt->DrawRoundedRectangle(stroke_rect, border_brush, stroke_width);
             border_brush->Release();
         }
     }
@@ -3339,6 +3365,26 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
                 DrawMenuBar(state->render_target, state->dwrite_factory, menu_it->second);
             }
 
+            // 绘制面板（D2D 渲染，替代原 PanelProc WM_PAINT 的 GDI FillRect）
+            for (const auto& ppair : g_panels) {
+                PanelState* panel = ppair.second;
+                if (!panel || panel->parent != hwnd || !IsWindowVisible(ppair.first)) continue;
+                UINT32 panel_bg = ResolveThemeColor((panel->bg_color != 0) ? panel->bg_color : ThemeColor_BackgroundLight());
+                ID2D1SolidColorBrush* panel_brush = nullptr;
+                state->render_target->CreateSolidColorBrush(ColorFromUInt32(panel_bg), &panel_brush);
+                if (panel_brush) {
+                    state->render_target->FillRectangle(
+                        D2D1::RectF((FLOAT)panel->x, (FLOAT)panel->y,
+                            (FLOAT)(panel->x + panel->width), (FLOAT)(panel->y + panel->height)),
+                        panel_brush);
+                    panel_brush->Release();
+                }
+                auto pmenu_it = g_menubars.find(ppair.first);
+                if (pmenu_it != g_menubars.end() && pmenu_it->second && pmenu_it->second->visible) {
+                    DrawMenuBar(state->render_target, state->dwrite_factory, pmenu_it->second);
+                }
+            }
+
             {
                 UINT32 border_argb = ResolveThemeColor((state->titlebar_color != 0) ? state->titlebar_color : ThemeColor_Primary());
                 ID2D1SolidColorBrush* border_brush = nullptr;
@@ -3370,22 +3416,26 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             }
 
             HRESULT hr = state->render_target->EndDraw();
-            // 如果Direct2D需要重新创建render target（例如在快速resize时），立即重绘
+            // D2D 失败时用 GDI 填充，尽量匹配 D2D 外观（含标题栏颜色）
             if (hr == D2DERR_RECREATE_TARGET) {
-                // Render target丢失，需要在下次WM_SIZE时重新创建
-                // 这里先用GDI填充背景避免透明
                 HDC hdc = GetDC(hwnd);
                 if (hdc) {
                     RECT rc;
                     GetClientRect(hwnd, &rc);
-                    COLORREF bg_color = RGB(
-                        ((win_bg >> 16) & 0xFF),
-                        ((win_bg >> 8) & 0xFF),
-                        (win_bg & 0xFF)
-                    );
+                    COLORREF bg_color = RGB(((win_bg >> 16) & 0xFF), ((win_bg >> 8) & 0xFF), (win_bg & 0xFF));
                     HBRUSH brush = CreateSolidBrush(bg_color);
                     FillRect(hdc, &rc, brush);
                     DeleteObject(brush);
+                    if (state->custom_titlebar && state->titlebar_height > 0) {
+                        RECT tb_rc = {0, 0, rc.right, state->titlebar_height};
+                        UINT32 tb_bg = state->titlebar_color;
+                        if (tb_bg == 0) tb_bg = ThemeColor_BackgroundLight();
+                        if (((tb_bg >> 24) & 0xFF) == 0) tb_bg |= 0xFF000000;
+                        COLORREF tbc = RGB((tb_bg >> 16) & 0xFF, (tb_bg >> 8) & 0xFF, tb_bg & 0xFF);
+                        HBRUSH tbr = CreateSolidBrush(tbc);
+                        FillRect(hdc, &tb_rc, tbr);
+                        DeleteObject(tbr);
+                    }
                     ReleaseDC(hwnd, hdc);
                 }
             }
@@ -3742,24 +3792,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
                 return 0;
             }
 
-            // 在resize期间，先用GDI填充背景，再resize render target
-            if (state->in_live_resize) {
-                HDC hdc = GetDC(hwnd);
-                if (hdc) {
-                    RECT rc = { 0, 0, (LONG)width, (LONG)height };
-                    UINT32 win_bg = ResolveThemeColor((state->client_bg_color != 0) ? state->client_bg_color : ThemeColor_Background());
-                    COLORREF bg_color = RGB(
-                        (win_bg >> 16) & 0xFF,
-                        (win_bg >> 8) & 0xFF,
-                        win_bg & 0xFF
-                    );
-                    HBRUSH brush = CreateSolidBrush(bg_color);
-                    FillRect(hdc, &rc, brush);
-                    DeleteObject(brush);
-                    ReleaseDC(hwnd, hdc);
-                }
-            }
-
             state->render_target->Resize(D2D1::SizeU(width, height));
             LayoutTitleBarButtons(state);
             DWMNCRENDERINGPOLICY nc_policy = DWMNCRP_DISABLED;
@@ -3767,27 +3799,31 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             ApplyWindowChromeAppearance(state);
             ApplyMainWindowRegion(state);
             if (state->restore_from_minimize_pending) {
+                // 确保子窗口在最小化恢复后可见
+                if (state->in_live_resize) {
+                    EnumChildWindows(hwnd, [](HWND child, LPARAM) -> BOOL {
+                        ShowWindow(child, SW_SHOW);
+                        InvalidateRect(child, nullptr, TRUE);
+                        return TRUE;
+                    }, 0);
+                }
                 state->restore_from_minimize_pending = false;
                 PostMessageW(hwnd, WM_EW_COMPLETE_RESTORE, 0, 0);
                 return 0;
             }
 
-            // 自动触发布局管理器更新
-            auto lm_it = g_layout_managers.find(hwnd);
-            if (lm_it != g_layout_managers.end()) {
-                UpdateLayout(hwnd);
+            // Live resize 期间推迟布局更新到 WM_EXITSIZEMOVE
+            if (!state->in_live_resize) {
+                auto lm_it = g_layout_managers.find(hwnd);
+                if (lm_it != g_layout_managers.end()) {
+                    UpdateLayout(hwnd);
+                }
             }
 
             NotifyWindowResizeCallback(hwnd, "WM_SIZE");
 
-            // 在resize期间强制同步重绘以避免透明背景
-            if (state->in_live_resize) {
-                RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOCHILDREN);
-            } else {
-                InvalidateRect(hwnd, nullptr, FALSE);
-            }
-
             if (!state->in_live_resize) {
+                InvalidateRect(hwnd, nullptr, FALSE);
                 PostMessageW(hwnd, WM_EW_REFRESH_PRIORITY_CHILDREN, 0, 0);
             }
         }
@@ -3881,6 +3917,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     case WM_ENTERSIZEMOVE:
         if (state) {
             state->in_live_resize = true;
+            // 隐藏所有子窗口，消除 GDI 子控件 resize 闪烁（D2D 负责渲染面板背景）
+            EnumChildWindows(hwnd, [](HWND child, LPARAM) -> BOOL {
+                ShowWindow(child, SW_HIDE);
+                return TRUE;
+            }, 0);
             AppendEditBoxDebugLog("WindowProc:WM_ENTERSIZEMOVE hwnd=%p", hwnd);
         }
         return 0;
@@ -3888,9 +3929,28 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     case WM_EXITSIZEMOVE:
         if (state) {
             state->in_live_resize = false;
+            if (state->render_target) {
+                RECT rc;
+                GetClientRect(hwnd, &rc);
+                state->render_target->Resize(D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top));
+            }
+            auto lm_it = g_layout_managers.find(hwnd);
+            if (lm_it != g_layout_managers.end()) {
+                UpdateLayout(hwnd);
+            }
+            // 显示所有子窗口并强制重绘
+            EnumChildWindows(hwnd, [](HWND child, LPARAM) -> BOOL {
+                ShowWindow(child, SW_SHOW);
+                InvalidateRect(child, nullptr, TRUE);
+                return TRUE;
+            }, 0);
+            RedrawWindow(hwnd, nullptr, nullptr,
+                RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW | RDW_ALLCHILDREN | RDW_FRAME);
+            RefreshPriorityChildControls(hwnd);
             RememberRestoreBounds(state);
             AppendEditBoxDebugLog("WindowProc:WM_EXITSIZEMOVE hwnd=%p", hwnd);
             NotifyWindowResizeCallback(hwnd, "WM_EXITSIZEMOVE");
+            InvalidateRect(hwnd, nullptr, TRUE);
             PostMessageW(hwnd, WM_EW_REFRESH_PRIORITY_CHILDREN, 0, 0);
         }
         return 0;
@@ -24921,6 +24981,24 @@ static UINT32 ResolveButtonHostBackgroundColor(HWND hwnd) {
     return ResolveContainerBackgroundColor(hwnd, 13);
 }
 
+void ApplyEmojiButtonWindowRegion(EmojiButton* button) {
+    if (!button || !button->hwnd || !IsWindow(button->hwnd)) return;
+
+    const int width = max(1, button->width);
+    const int height = max(1, button->height);
+    if (button->visual_style == BUTTON_STYLE_TEXT || button->visual_style == BUTTON_STYLE_LINK || (!button->round && !button->circle)) {
+        SetWindowRgn(button->hwnd, nullptr, TRUE);
+        return;
+    }
+
+    const ButtonRenderMetrics metrics = GetButtonRenderMetrics(*button);
+    const int diameter = max(1, (int)std::ceil(metrics.radius * 2.0f));
+    HRGN region = CreateRoundRectRgn(0, 0, width + 1, height + 1, diameter, diameter);
+    if (region) {
+        SetWindowRgn(button->hwnd, region, TRUE);
+    }
+}
+
 static void SyncEmojiButtonWindow(EmojiButton* button) {
     if (!button || !button->hwnd || !IsWindow(button->hwnd)) return;
     auto binding_it = g_button_window_bindings.find(button->hwnd);
@@ -24935,6 +25013,7 @@ static void SyncEmojiButtonWindow(EmojiButton* button) {
     UINT flags = SWP_NOACTIVATE;
     flags |= button->visible ? SWP_SHOWWINDOW : SWP_HIDEWINDOW;
     SetWindowPos(button->hwnd, nullptr, child_pt.x, child_pt.y, button->width, button->height, flags);
+    ApplyEmojiButtonWindowRegion(button);
     InvalidateRect(button->hwnd, nullptr, FALSE);
     UpdateWindow(button->hwnd);
 }
@@ -24957,6 +25036,50 @@ static void ReapplyButtonLogicalBoundsForWindow(HWND root) {
 
 static UINT32 GetButtonHostBackgroundColor(HWND hwnd) {
     return ResolveButtonHostBackgroundColor(hwnd);
+}
+
+static UINT32 ResolveButtonUnderlayBackgroundColor(HWND button_hwnd, HWND logical_parent) {
+    UINT32 fallback = GetButtonHostBackgroundColor(logical_parent);
+    if (!button_hwnd || !IsWindow(button_hwnd)) {
+        return fallback;
+    }
+
+    RECT button_rect = {};
+    if (!GetWindowRect(button_hwnd, &button_rect)) {
+        return fallback;
+    }
+
+    POINT center = {
+        (button_rect.left + button_rect.right) / 2,
+        (button_rect.top + button_rect.bottom) / 2
+    };
+    HWND button_root = GetAncestor(button_hwnd, GA_ROOT);
+    LONG best_area = 0x7fffffff;
+    UINT32 best_color = fallback;
+
+    for (const auto& pair : g_panels) {
+        HWND panel_hwnd = pair.first;
+        PanelState* panel = pair.second;
+        if (!panel_hwnd || !panel || !IsWindow(panel_hwnd) || !IsWindowVisible(panel_hwnd)) {
+            continue;
+        }
+        if (panel_hwnd == button_hwnd || GetAncestor(panel_hwnd, GA_ROOT) != button_root) {
+            continue;
+        }
+
+        RECT panel_rect = {};
+        if (!GetWindowRect(panel_hwnd, &panel_rect) || !PtInRect(&panel_rect, center)) {
+            continue;
+        }
+
+        LONG area = max(1L, (panel_rect.right - panel_rect.left) * (panel_rect.bottom - panel_rect.top));
+        if (area < best_area) {
+            best_area = area;
+            best_color = ResolveThemeColor(panel->bg_color ? panel->bg_color : 13);
+        }
+    }
+
+    return best_color;
 }
 
 static void RefreshPriorityChildControls(HWND parent) {
@@ -25039,7 +25162,7 @@ static LRESULT CALLBACK EmojiButtonWindowProc(HWND hwnd, UINT msg, WPARAM wparam
                 // at 96 DPI so we don't scale the same coordinates a second time.
                 rt->SetDpi(96.0f, 96.0f);
                 rt->BeginDraw();
-                rt->Clear(ColorFromUInt32(GetButtonHostBackgroundColor(logical_parent)));
+                rt->Clear(ColorFromUInt32(ResolveButtonUnderlayBackgroundColor(hwnd, logical_parent)));
                 EmojiButton local_button = *button;
                 local_button.x = 0;
                 local_button.y = 0;
